@@ -98,6 +98,7 @@ jobs:
       run: |
         
         ls -alt  simulations/*
+        more simulations/C1_*/report.json
 
     - name: Final version info
       run: |

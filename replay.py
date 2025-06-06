@@ -16,6 +16,7 @@ log_step = None
 time_step = None
 slider = None
 
+
 def create_mesh(step):
     step_count = step
     value = step_count
@@ -26,7 +27,7 @@ def create_mesh(step):
 
     index = int(value)
     timeindex_offset = 1
-    time_ms = (index+timeindex_offset)*log_step*time_step*1000
+    time_ms = (index + timeindex_offset) * log_step * time_step * 1000
 
     curr_points = all_points[index]
     curr_types = all_point_types[index]
