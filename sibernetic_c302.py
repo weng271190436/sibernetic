@@ -374,7 +374,7 @@ def run(a=None,**kwargs):
         reportj['c302params'] = a.c302params
         reportj['c302_version'] = c302.__version__
 
-        for m in ['pyneuroml','neuroml','matplotlib','numpy']:
+        for m in ['pyneuroml','neuroml','matplotlib','numpy','cect']:
             if m=='neuroml':
                 m_='libneuroml'
             else:
