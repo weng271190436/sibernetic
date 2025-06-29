@@ -1,7 +1,8 @@
 import os
 import math
 
-TOTAL_ENERGY_PATH = os.path.join(os.path.dirname(__file__), '..', 'logs', 'total_energy_distrib.txt')
+DATA_DIR = os.path.join(os.path.dirname(__file__), "data", "logs")
+TOTAL_ENERGY_PATH = os.path.join(DATA_DIR, "total_energy_distrib.txt")
 
 with open(TOTAL_ENERGY_PATH) as f:
     energies = [float(line.strip()) for line in f if line.strip()]
