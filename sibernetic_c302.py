@@ -1,3 +1,9 @@
+"""
+Entry point for running the Sibernetic simulator alongside
+c302 neuronal models. Provides command line options for configuring
+duration, device selection and other parameters.
+"""
+
 from pyneuroml import pynml
 import argparse
 import re
