@@ -139,7 +139,9 @@ private:
                                const int size);
   void destroy() {
     delete[] gridNextNonEmptyCellBuffer;
+    gridNextNonEmptyCellBuffer = nullptr;
     delete[] _particleIndex;
+    _particleIndex = nullptr;
   }
   // Initialization of openCl data buffers
   void initializeBuffers(const float *, const float *, owConfigProperty *,
@@ -216,8 +218,8 @@ private:
   cl::Kernel computeInteractionWithMembranes_finalize;
 
   // Needed for sorting stuff
-  int *_particleIndex;
-  int *gridNextNonEmptyCellBuffer;
+  int *_particleIndex = nullptr;
+  int *gridNextNonEmptyCellBuffer = nullptr;
 };
 
 #endif // OW_OPENCL_SOLVER_H
