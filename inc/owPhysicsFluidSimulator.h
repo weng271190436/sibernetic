@@ -39,6 +39,7 @@
 #include "owPhysicsConstant.h"
 #include "owHelper.h"
 #include "owOpenCLSolver.h"
+#include <Python.h>
 
 /** owPhysicsFluidSimulator class contains
  *  realization of algorithms.
@@ -136,6 +137,8 @@ class owPhysicsFluidSimulator
   private:
     struct timeval simulation_start;
 	owOpenCLSolver *ocl_solver;
+	PyObject *torchSolver;
+	bool useTorchBackend;
 	float *position_cpp;			   // everywhere in the code %variableName%_cpp means that we create
 	float *velocity_cpp;			   // and initialize in 'ordinary' memory some data, which will be
 	float *pressure_cpp;			   // and initialize in 'ordinary' memory some data, which will be

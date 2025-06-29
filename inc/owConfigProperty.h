@@ -119,6 +119,7 @@ public:
   int getLogStep() { return logStep; }
   float getTimeStep() const { return this->timeStep; }
   float getDelta() const { return delta; }
+  bool torchEnabled() const { return useTorch; }
   std::string getSnapshotFileName() {
     std::string fileName = "./configuration/snapshot/" + configFileName + "_";
     std::stringstream ss;
@@ -249,6 +250,7 @@ private:
   std::string sourceFileName;
   bool nrnSimRun; // indicates if we also run NEURON simulation
   bool c302;      // indicates if we also run NEURON simulation
+  bool useTorch;  // run simulation using the PyTorch solver
   std::string nrnSimulationFileName;
   std::map<std::string, float> constMap;
 };

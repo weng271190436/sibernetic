@@ -35,6 +35,7 @@
 #include <iostream>
 #include <stdexcept>
 #include <iomanip>
+#include <Python.h>
 
 #include "owPhysicsFluidSimulator.h"
 #include "owSignalSimulator.h"
@@ -90,15 +91,87 @@ owPhysicsFluidSimulator::owPhysicsFluidSimulator(owHelper *helper, int argc,
         config); // Load configuration from file to buffer
 
     this->helper = helper;
-    if (config->numOfElasticP != 0) {
-      ocl_solver = new owOpenCLSolver(
-          position_cpp, velocity_cpp, config, elasticConnectionsData_cpp,
-          membraneData_cpp,
-          particleMembranesList_cpp); // Create new openCLsolver instance
-    } else
-      ocl_solver =
-          new owOpenCLSolver(position_cpp, velocity_cpp,
-                             config); // Create new openCLsolver instance
+    torchSolver = nullptr;
+    useTorchBackend = config->torchEnabled();
+    if (useTorchBackend) {
+      Py_Initialize();
+      PyObject *pName = PyUnicode_FromString("pytorch_solver");
+      PyObject *pModule = PyImport_Import(pName);
+      Py_DECREF(pName);
+      if (!pModule)
+        throw std::runtime_error("Failed to load pytorch_solver module");
+      PyObject *pClass = PyObject_GetAttrString(pModule, "PytorchSolver");
+      Py_DECREF(pModule);
+      if (!pClass)
+        throw std::runtime_error("Failed to get PytorchSolver class");
+
+      int count = config->getParticleCount();
+      PyObject *pos_list = PyList_New(count);
+      PyObject *vel_list = PyList_New(count);
+      for (int i = 0; i < count; ++i) {
+        PyObject *row_p = PyList_New(4);
+        PyObject *row_v = PyList_New(4);
+        for (int j = 0; j < 4; ++j) {
+          PyList_SetItem(row_p, j, PyFloat_FromDouble(position_cpp[i * 4 + j]));
+          PyList_SetItem(row_v, j, PyFloat_FromDouble(velocity_cpp[i * 4 + j]));
+        }
+        PyList_SetItem(pos_list, i, row_p);
+        PyList_SetItem(vel_list, i, row_v);
+      }
+
+      PyObject *cfg = PyDict_New();
+      PyDict_SetItemString(cfg, "xmin", PyFloat_FromDouble(config->xmin));
+      PyDict_SetItemString(cfg, "ymin", PyFloat_FromDouble(config->ymin));
+      PyDict_SetItemString(cfg, "zmin", PyFloat_FromDouble(config->zmin));
+      PyDict_SetItemString(cfg, "hash_grid_cell_size_inv",
+                           PyFloat_FromDouble(config->getConst("hashGridCellSizeInv")));
+      PyDict_SetItemString(cfg, "grid_cells_x",
+                           PyLong_FromUnsignedLong(config->gridCellsX));
+      PyDict_SetItemString(cfg, "grid_cells_y",
+                           PyLong_FromUnsignedLong(config->gridCellsY));
+      PyDict_SetItemString(cfg, "grid_cells_z",
+                           PyLong_FromUnsignedLong(config->gridCellsZ));
+      PyDict_SetItemString(cfg, "grid_cell_count",
+                           PyLong_FromUnsignedLong(config->gridCellCount));
+      PyDict_SetItemString(cfg, "h", PyFloat_FromDouble(config->getConst("h")));
+      PyDict_SetItemString(cfg, "mass_mult_Wpoly6Coefficient",
+                           PyFloat_FromDouble(config->getConst("mass_mult_Wpoly6Coefficient")));
+      PyDict_SetItemString(cfg, "mass_mult_gradWspikyCoefficient",
+                           PyFloat_FromDouble(config->getConst("mass_mult_gradWspikyCoefficient")));
+      PyDict_SetItemString(cfg, "rho0",
+                           PyFloat_FromDouble(config->getConst("rho0")));
+      PyDict_SetItemString(cfg, "delta", PyFloat_FromDouble(config->getDelta()));
+      PyDict_SetItemString(cfg, "time_step",
+                           PyFloat_FromDouble(config->getTimeStep()));
+      PyDict_SetItemString(cfg, "gravity_x",
+                           PyFloat_FromDouble(config->getConst("gravity_x")));
+      PyDict_SetItemString(cfg, "gravity_y",
+                           PyFloat_FromDouble(config->getConst("gravity_y")));
+      PyDict_SetItemString(cfg, "gravity_z",
+                           PyFloat_FromDouble(config->getConst("gravity_z")));
+
+      PyObject *args = PyTuple_Pack(3, pos_list, vel_list, cfg);
+      torchSolver = PyObject_CallObject(pClass, args);
+      Py_DECREF(args);
+      Py_DECREF(pos_list);
+      Py_DECREF(vel_list);
+      Py_DECREF(cfg);
+      Py_DECREF(pClass);
+      if (!torchSolver) {
+        PyErr_Print();
+        throw std::runtime_error("Failed to create PytorchSolver instance");
+      }
+      ocl_solver = nullptr;
+    } else {
+      if (config->numOfElasticP != 0) {
+        ocl_solver = new owOpenCLSolver(
+            position_cpp, velocity_cpp, config, elasticConnectionsData_cpp,
+            membraneData_cpp,
+            particleMembranesList_cpp); // Create new openCLsolver instance
+      } else
+        ocl_solver = new owOpenCLSolver(position_cpp, velocity_cpp,
+                                        config); // Create new openCLsolver instance
+    }
     this->genShellPaticlesList();
   } catch (std::runtime_error &ex) {
     /* Clearing all allocated buffers and created object only not ocl_solver
@@ -156,14 +229,63 @@ void owPhysicsFluidSimulator::reset() {
                               elasticConnectionsData_cpp, membraneData_cpp,
                               particleMembranesList_cpp,
                               config); // Load configuration from file to buffer
-  if (config->numOfElasticP != 0) {
-    ocl_solver->reset(
-        position_cpp, velocity_cpp, config, elasticConnectionsData_cpp,
-        membraneData_cpp,
-        particleMembranesList_cpp); // Create new openCLsolver instance
-  } else
-    ocl_solver->reset(position_cpp, velocity_cpp,
-                      config); // Create new openCLsolver instance
+  if (useTorchBackend) {
+    if (torchSolver) {
+      Py_DECREF(torchSolver);
+    }
+    PyObject *pName = PyUnicode_FromString("pytorch_solver");
+    PyObject *pModule = PyImport_Import(pName);
+    Py_DECREF(pName);
+    PyObject *pClass = PyObject_GetAttrString(pModule, "PytorchSolver");
+    Py_DECREF(pModule);
+    int count = config->getParticleCount();
+    PyObject *pos_list = PyList_New(count);
+    PyObject *vel_list = PyList_New(count);
+    for (int i = 0; i < count; ++i) {
+      PyObject *rp = PyList_New(4);
+      PyObject *rv = PyList_New(4);
+      for (int j = 0; j < 4; ++j) {
+        PyList_SetItem(rp, j, PyFloat_FromDouble(position_cpp[i * 4 + j]));
+        PyList_SetItem(rv, j, PyFloat_FromDouble(velocity_cpp[i * 4 + j]));
+      }
+      PyList_SetItem(pos_list, i, rp);
+      PyList_SetItem(vel_list, i, rv);
+    }
+    PyObject *cfg = PyDict_New();
+    PyDict_SetItemString(cfg, "xmin", PyFloat_FromDouble(config->xmin));
+    PyDict_SetItemString(cfg, "ymin", PyFloat_FromDouble(config->ymin));
+    PyDict_SetItemString(cfg, "zmin", PyFloat_FromDouble(config->zmin));
+    PyDict_SetItemString(cfg, "hash_grid_cell_size_inv",
+                         PyFloat_FromDouble(config->getConst("hashGridCellSizeInv")));
+    PyDict_SetItemString(cfg, "grid_cells_x", PyLong_FromUnsignedLong(config->gridCellsX));
+    PyDict_SetItemString(cfg, "grid_cells_y", PyLong_FromUnsignedLong(config->gridCellsY));
+    PyDict_SetItemString(cfg, "grid_cells_z", PyLong_FromUnsignedLong(config->gridCellsZ));
+    PyDict_SetItemString(cfg, "grid_cell_count", PyLong_FromUnsignedLong(config->gridCellCount));
+    PyDict_SetItemString(cfg, "h", PyFloat_FromDouble(config->getConst("h")));
+    PyDict_SetItemString(cfg, "mass_mult_Wpoly6Coefficient",
+                         PyFloat_FromDouble(config->getConst("mass_mult_Wpoly6Coefficient")));
+    PyDict_SetItemString(cfg, "mass_mult_gradWspikyCoefficient",
+                         PyFloat_FromDouble(config->getConst("mass_mult_gradWspikyCoefficient")));
+    PyDict_SetItemString(cfg, "rho0", PyFloat_FromDouble(config->getConst("rho0")));
+    PyDict_SetItemString(cfg, "delta", PyFloat_FromDouble(config->getDelta()));
+    PyDict_SetItemString(cfg, "time_step", PyFloat_FromDouble(config->getTimeStep()));
+    PyObject *args = PyTuple_Pack(3, pos_list, vel_list, cfg);
+    torchSolver = PyObject_CallObject(pClass, args);
+    Py_DECREF(args);
+    Py_DECREF(pos_list);
+    Py_DECREF(vel_list);
+    Py_DECREF(cfg);
+    Py_DECREF(pClass);
+  } else {
+    if (config->numOfElasticP != 0) {
+      ocl_solver->reset(
+          position_cpp, velocity_cpp, config, elasticConnectionsData_cpp,
+          membraneData_cpp,
+          particleMembranesList_cpp); // Create new openCLsolver instance
+    } else
+      ocl_solver->reset(position_cpp, velocity_cpp,
+                        config); // Create new openCLsolver instance
+  }
   this->genShellPaticlesList();
 }
 int update_muscle_activity_signals_log_file(int iterationCount,
@@ -356,6 +478,35 @@ double owPhysicsFluidSimulator::simulationStep(const bool load_to) {
   // the scene
 
   helper->refreshTime();
+
+  if (useTorchBackend) {
+    PyObject_CallMethod(torchSolver, "run_hash_particles", nullptr);
+    PyObject_CallMethod(torchSolver, "run_sort", nullptr);
+    PyObject_CallMethod(torchSolver, "run_index", nullptr);
+    PyObject_CallMethod(torchSolver, "run_index_post_pass", nullptr);
+    PyObject_CallMethod(torchSolver, "run_find_neighbors", nullptr);
+    PyObject_CallMethod(torchSolver, "run_compute_density", nullptr);
+    PyObject_CallMethod(torchSolver, "run_compute_pressure", nullptr);
+    PyObject_CallMethod(torchSolver, "run_compute_pressure_force_acceleration",
+                        nullptr);
+    PyObject_CallMethod(torchSolver, "run_integrate", nullptr);
+    PyObject *state = PyObject_CallMethod(torchSolver, "get_state", nullptr);
+    if (state && PyTuple_Check(state)) {
+      PyObject *pos = PyTuple_GetItem(state, 0);
+      PyObject *vel = PyTuple_GetItem(state, 1);
+      for (Py_ssize_t i = 0; i < PyList_Size(pos); ++i) {
+        PyObject *row_p = PyList_GetItem(pos, i);
+        PyObject *row_v = PyList_GetItem(vel, i);
+        for (int j = 0; j < 4; ++j) {
+          position_cpp[i * 4 + j] = (float)PyFloat_AsDouble(PyList_GetItem(row_p, j));
+          velocity_cpp[i * 4 + j] = (float)PyFloat_AsDouble(PyList_GetItem(row_v, j));
+        }
+      }
+    }
+    Py_XDECREF(state);
+    iterationCount++;
+    return helper->getElapsedTime();
+  }
   std::cout << "\n[[ Step " << iterationCount << " (total steps: ";
   if (config->getNumberOfIterations() == 0)
     std::cout << "unlimited";
@@ -532,7 +683,12 @@ void owPhysicsFluidSimulator::makeSnapshot() {
 owPhysicsFluidSimulator::~owPhysicsFluidSimulator(void) {
   destroy();
   delete config;
-  delete ocl_solver;
+  if (ocl_solver)
+    delete ocl_solver;
+  if (torchSolver) {
+    Py_DECREF(torchSolver);
+    Py_Finalize();
+  }
 }
 
 void owPhysicsFluidSimulator::destroy() {

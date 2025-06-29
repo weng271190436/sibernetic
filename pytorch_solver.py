@@ -73,8 +73,11 @@ class PytorchSolver:
     def run_index_post_pass(self):
         """Fill empty cell slots with the next non-empty cell index."""
         fixed = self.grid_cell_index.clone()
-        mask = (fixed == -1)
-        fixed[mask] = torch.flip(torch.cumsum(torch.flip((fixed != -1).long() * fixed, dims=[0]), dim=0), dims=[0])[mask]
+        mask = fixed == -1
+        fixed[mask] = torch.flip(
+            torch.cumsum(torch.flip((fixed != -1).long() * fixed, dims=[0]), dim=0),
+            dims=[0],
+        )[mask]
         self.grid_cell_index_fixed = fixed
 
     def run_find_neighbors(self):
@@ -91,7 +94,9 @@ class PytorchSolver:
 
         # Populate the neighbors tensor
         for i in range(n):
-            neighbor_indices = torch.nonzero(neighbor_mask[i], as_tuple=False).squeeze(1)
+            neighbor_indices = torch.nonzero(neighbor_mask[i], as_tuple=False).squeeze(
+                1
+            )
             count = min(len(neighbor_indices), max_n)
             neighbors[i, :count] = neighbor_indices[:count]
         self.neighbor_map = neighbors
@@ -165,3 +170,7 @@ class PytorchSolver:
         inv = torch.argsort(self.particle_index_back)
         self.position = self.sorted_position[inv]
         self.velocity = self.sorted_velocity[inv]
+
+    def get_state(self):
+        """Return position and velocity as Python lists for easy C++ access."""
+        return self.position.cpu().tolist(), self.velocity.cpu().tolist()
