@@ -2,9 +2,17 @@
 # files produced
 set -ex
 
-# Ensure system site-packages are visible to embedded Python
-export PYTHONPATH="${PYTHONPATH:+$PYTHONPATH:}/usr/local/lib/python3.12/dist-packages:$(pwd)"
+# Ensure Python can locate packages installed via pip
+PY_SITE=$(python3 - <<'EOF'
+import site, sys
+sys.stdout.write(site.getsitepackages()[0])
+EOF
+)
+export PYTHONPATH="${PYTHONPATH:+$PYTHONPATH:}$PY_SITE:$(pwd)"
 export PATH="/usr/bin:$PATH"
+
+# Warn if pyneuroml is missing; the simulator can fall back to subprocess
+python3 -c "import pyneuroml" 2>/dev/null || echo 'Warning: pyneuroml not found, using subprocess fallback'
 
 # No c302
 python3 sibernetic_c302.py -test -noc302 -duration 0.1
