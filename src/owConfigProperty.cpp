@@ -49,6 +49,7 @@ owConfigProperty::owConfigProperty(int argc, char **argv)
   nrnSimRun = false;
   nrnSimulationFileName = "";
   simulation = nullptr;
+  useTorch = false;
     
   fillConstMap(); // map must be filled before parsing arguments, otherwise beta will be NaN because of division by zero
 
@@ -61,6 +62,12 @@ owConfigProperty::owConfigProperty(int argc, char **argv)
         prefDeviceType = GPU;
       if (strTemp.find("cpu") != std::string::npos)
         prefDeviceType = CPU;
+    }
+    if (strTemp.find("backend=") == 0) {
+      std::string backend = strTemp.substr(strTemp.find('=') + 1);
+      std::transform(backend.begin(), backend.end(), backend.begin(), ::tolower);
+      if (backend == "torch")
+        useTorch = true;
     }
     if (strTemp.find("timestep=") == 0) {
 
