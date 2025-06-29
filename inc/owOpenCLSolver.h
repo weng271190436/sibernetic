@@ -44,10 +44,16 @@
 #endif
 
 #if defined(__APPLE__) || defined(__MACOSX)
-#include "../inc/OpenCL/cl.hpp"
-//	#include <OpenCL/cl_d3d10.h>
+#include "OpenCL/cl.hpp"
+//#      include <OpenCL/cl_d3d10.h>
 #else
+#if __has_include(<CL/cl.hpp>)
 #include <CL/cl.hpp>
+#elif __has_include(<CL/opencl.hpp>)
+#include <CL/opencl.hpp>
+#else
+#include "OpenCL/cl.hpp"
+#endif
 #endif
 
 #include "owConfigProperty.h"
