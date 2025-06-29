@@ -2,6 +2,8 @@
 
 Sibernetic is physical simulator of biomechanical matter (membranes, elastic matter, contractile matter) and environments (liquids, solids and elastic matter with variable physical properties) developed for simulations of C. elegans physical body dynamics within the [OpenWorm project](http://www.openworm.org) by Andrey Palyanov, Sergey Khayrulin and Mike Vella (development of a Python module for external muscle activating signals generation and input) as part of the [OpenWorm team](http://www.openworm.org/people.html). At its core, Sibernetic is built as an extension to Predictive-Corrective Incompressible Smoothed Particle Hydrodynamics (PCISPH). It is primarily written in  C++ and OpenCL, which makes possible to run simulations on CPUs or GPUs, and has 3D visualization support built on top of OpenGL.
 
+This repository also ships a simplified solver written in PyTorch (`pytorch_solver.py`) which is used in the unit tests.
+
 There is a separate effort lead by [Giovanni Idili](https://github.com/gidili) and [Sergey Khayrulin](https://github.com/skhayrulin) to port this code to Java, as part of the [Geppetto simulation framework](http://www.geppetto.org/).
 
 Compiling / running (Linux/mac)
@@ -12,10 +14,12 @@ Compiling / running (Linux/mac)
 **Linux**
 Install OpenCL on Ubuntu. We suggest you initially go with [AMD OpenCL drivers](http://developer.amd.com/tools-and-sdks/heterogeneous-computing/amd-accelerated-parallel-processing-app-sdk/downloads/) as we have found these to be the most stable and complete. You can also try [Intel's drivers](http://develnoter.blogspot.co.uk/2012/05/installing-opencl-in-ubuntu-1204.html). This step often causes problems, contact the [openworm-discuss](https://groups.google.com/forum/#!forum/openworm-discuss) mailing list if you encounter issues. The AMD drivers include samples in `/opt/AMDAPP/samples/opencl/bin` which you can use to verify your OpenCL support is working.
 
-You'll also need a variety of libraries. In ubuntu, install the dependencies with:
+You'll also need a variety of libraries.  A helper script `setup.sh`
+installs all required packages, including OpenCL headers, build tools and
+the Python dependencies:
 
 ```bash
-sudo apt-get install g++ python-dev freeglut3-dev nvidia-opencl-dev libglu1-mesa-dev libglew-dev python-numpy
+./setup.sh
 ```
 
 Next, from the `sibernetic/` directory run:
