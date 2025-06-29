@@ -4,14 +4,15 @@ c302 neuronal models. Provides command line options for configuring
 duration, device selection and other parameters.
 """
 
+import sys
+
 try:
     from pyneuroml import pynml
-except ImportError:  # pyneuroml may not be installed for simple tests
+except ImportError:  # pyneuroml is optional; we can fall back to subprocess
     pynml = None
 import argparse
 import re
 import os
-import sys
 import time
 import math
 
@@ -421,12 +422,25 @@ def run(a=None, **kwargs):
         % (a.duration, command, run_dir, env)
     )
     try:
-        pynml_success = pynml.execute_command_in_dir_with_realtime_output(
-            command, run_dir, prefix="Sibernetic >> ", env=env, verbose=True
-        )
-        completion_status = (
-            SUCCESS if pynml_success else "Failure running command: %s" % command
-        )
+        if pynml is not None:
+            pynml_success = pynml.execute_command_in_dir_with_realtime_output(
+                command, run_dir, prefix="Sibernetic >> ", env=env, verbose=True
+            )
+            completion_status = (
+                SUCCESS if pynml_success else "Failure running command: %s" % command
+            )
+        else:
+            import subprocess
+            import shlex
+
+            res = subprocess.run(
+                shlex.split(command), cwd=run_dir, env=env, capture_output=True
+            )
+            if res.returncode == 0:
+                completion_status = SUCCESS
+            else:
+                sys.stderr.write(res.stderr.decode())
+                completion_status = f"Failure running command: {command}"
     except KeyboardInterrupt:
         print_("\nCaught CTRL+C. Continue...\n")
         completion_status = "Caught CTRL+C"
