@@ -15,6 +15,7 @@ kernels and a number of helper Python scripts.
   `plot_positions.py` can drive the simulator or analyse its output.
 
 ## Building and Testing
+Before building you should install dependencies via `./setup.sh`.
 To compile the C++ code use `make`.  A convenience script `test.sh`
 runs code formatting, static checks via **ruff**, builds the simulator
 and executes the test suite:
