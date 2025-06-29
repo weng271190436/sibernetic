@@ -83,44 +83,18 @@ class PytorchSolver:
         n = self.sorted_position.shape[0]
         max_n = self.config.get("max_neighbor_count", 50)
         neighbors = torch.full((n, max_n), -1, dtype=torch.long, device=self.device)
-        cell_id = self.particle_index[:, 0]
         pos = self.sorted_position[:, :3]
-        gsx = self.config["grid_cells_x"]
-        gsy = self.config["grid_cells_y"]
-        gsz = self.config["grid_cells_z"]
-        for p in range(n):
-            cid = cell_id[p].item()
-            gz = cid // (gsx * gsy)
-            rem = cid % (gsx * gsy)
-            gy = rem // gsx
-            gx = rem % gsx
-            idx = 0
-            for dz in (-1, 0, 1):
-                nz = gz + dz
-                if nz < 0 or nz >= gsz:
-                    continue
-                for dy in (-1, 0, 1):
-                    ny = gy + dy
-                    if ny < 0 or ny >= gsy:
-                        continue
-                    for dx in (-1, 0, 1):
-                        nx = gx + dx
-                        if nx < 0 or nx >= gsx:
-                            continue
-                        cell = nx + ny * gsx + nz * gsx * gsy
-                        start = self.grid_cell_index_fixed[cell]
-                        end = self.grid_cell_index_fixed[cell + 1]
-                        if start < 0 or end <= start:
-                            continue
-                        ids = self.particle_index[start:end, 1]
-                        for j in ids:
-                            j = j.item()
-                            if j == self.particle_index[p, 1].item():
-                                continue
-                            if torch.norm(pos[p] - pos[j]) < self.config["h"]:
-                                if idx < max_n:
-                                    neighbors[p, idx] = j
-                                    idx += 1
+        h = self.config["h"]
+
+        # Compute all pairwise distances within the search radius
+        dist_matrix = torch.cdist(pos, pos)
+        neighbor_mask = (dist_matrix < h) & (dist_matrix > 0)
+
+        # Populate the neighbors tensor
+        for i in range(n):
+            neighbor_indices = torch.nonzero(neighbor_mask[i], as_tuple=False).squeeze(1)
+            count = min(len(neighbor_indices), max_n)
+            neighbors[i, :count] = neighbor_indices[:count]
         self.neighbor_map = neighbors
 
     # ------------------------------------------------------------------
