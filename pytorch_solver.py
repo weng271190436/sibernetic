@@ -73,9 +73,8 @@ class PytorchSolver:
     def run_index_post_pass(self):
         """Fill empty cell slots with the next non-empty cell index."""
         fixed = self.grid_cell_index.clone()
-        for i in range(fixed.shape[0] - 2, -1, -1):
-            if fixed[i] == -1:
-                fixed[i] = fixed[i + 1]
+        mask = (fixed == -1)
+        fixed[mask] = torch.flip(torch.cumsum(torch.flip((fixed != -1).long() * fixed, dims=[0]), dim=0), dims=[0])[mask]
         self.grid_cell_index_fixed = fixed
 
     def run_find_neighbors(self):
