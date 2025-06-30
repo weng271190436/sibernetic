@@ -89,6 +89,7 @@ jobs:
       run: |
         pip install c302
         pip install neuron
+        pip install pytest
         pip list
         which nrniv
         export NEURON_HOME=/home/runner/.local
