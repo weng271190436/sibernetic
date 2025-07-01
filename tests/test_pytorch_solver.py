@@ -1,3 +1,9 @@
+import os
+import pytest
+
+if os.environ.get("RUN_ENGINE_TESTS") != "1":
+    pytest.skip("Skipping torch solver tests", allow_module_level=True)
+
 import torch
 from pytorch_solver import PytorchSolver
 
