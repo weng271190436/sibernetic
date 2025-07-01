@@ -13,6 +13,11 @@ class PytorchSolver:
         self.velocity = torch.as_tensor(
             velocity, dtype=torch.float32, device=self.device
         )
+        # The reference engine does not preserve the placeholder fourth
+        # velocity component and always outputs zeros.  Mirror this
+        # behaviour so our logs match the reference files.
+        if self.velocity.shape[1] > 3:
+            self.velocity[:, 3] = 0.0
         self.acceleration = torch.zeros_like(self.position)
         self.pressure = torch.zeros(self.position.shape[0], device=self.device)
         self.rho = torch.zeros(self.position.shape[0], device=self.device)
