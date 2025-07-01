@@ -6,9 +6,20 @@ DATA_DIR = os.path.join(os.path.dirname(__file__), "data", "reference_logs")
 
 
 def _load_matrix(name, base=DATA_DIR):
+    """Return rows of floats while skipping header lines."""
     path = os.path.join(base, name)
+    rows = []
     with open(path) as f:
-        return [list(map(float, line.split())) for line in f if line.strip()]
+        for line in f:
+            if not line.strip():
+                continue
+            parts = line.split()
+            if len(parts) != 4:
+                # position/velocity logs begin with metadata that should be
+                # ignored; these lines do not contain four columns
+                continue
+            rows.append([float(v) for v in parts])
+    return rows
 
 
 def test_reference_logs_exist():

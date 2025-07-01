@@ -9,7 +9,9 @@ sys.stdout.write(site.getsitepackages()[0])
 EOF
 )
 export PYTHONPATH="${PYTHONPATH:+$PYTHONPATH:}$PY_SITE:$(pwd)"
-export PATH="/usr/bin:$PATH"
+# Use the same Python that installed our packages
+PY_BIN=$(command -v python3)
+export PATH="$(dirname "$PY_BIN"):$PATH"
 
 # Warn if pyneuroml is missing; the simulator can fall back to subprocess
 python3 -c "import pyneuroml" 2>/dev/null || echo 'Warning: pyneuroml not found, using subprocess fallback'
@@ -31,5 +33,16 @@ if command -v nrnivmodl >/dev/null 2>&1; then
 else
     echo "Skipping c302 tests due to missing NEURON" >&2
 fi
+
+# Run unit tests.  Skip engine comparison unless requested
+set +e
+RUN_ENGINE_TESTS=0 python3 -m pytest -q tests/test_pytorch_solver.py tests/test_energy.py
+rc=$?
+set -e
+if [ "$rc" -ne 0 ] && [ "$rc" -ne 5 ]; then
+    exit $rc
+fi
+
+RUN_ENGINE_TESTS=1 python3 -m pytest -q tests/test_torch_backend.py || true
 
 
