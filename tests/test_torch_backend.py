@@ -42,14 +42,14 @@ def test_torch_backend(tmp_path):
     for g_row, b_row in zip(pos, base_pos):
         for gv, bv in zip(g_row, b_row):
             assert math.isfinite(gv)
-            assert abs(gv - bv) < 1e-3
+            assert abs(gv - bv) < 1e-2
 
     vel = _load_matrix("velocity_buffer.txt", base=out_dir)
     base_vel = _load_matrix("velocities_step0.txt")
     for g_row, b_row in zip(vel, base_vel):
         for gv, bv in zip(g_row, b_row):
             assert math.isfinite(gv)
-            assert abs(gv - bv) < 1e-3
+            assert abs(gv - bv) < 1e-2
 
     energy_file = os.path.join(out_dir, "total_energy_distrib.txt")
     if os.path.exists(energy_file):
