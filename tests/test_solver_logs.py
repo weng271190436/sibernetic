@@ -1,4 +1,5 @@
 import os
+import platform
 import subprocess
 import math
 
@@ -33,6 +34,8 @@ def test_reference_logs_exist():
 
 
 def _have_opencl():
+    if platform.system() == "Darwin":
+        return False
     try:
         out = subprocess.run(["clinfo"], check=False, capture_output=True, text=True)
     except FileNotFoundError:

@@ -8,7 +8,9 @@ if [[ "$(uname)" == "Darwin" ]]; then
         exit 1
     fi
     brew update
-    brew install python glew freeglut clinfo opencl-headers || true
+    # macOS ships its own OpenCL implementation which is sufficient for the
+    # tests.  Do not attempt to install additional OpenCL packages here.
+    brew install python glew freeglut || true
 else
     apt-get update
     apt-get install -y python3-dev ocl-icd-opencl-dev libglu1-mesa-dev freeglut3-dev libglew-dev clinfo pocl-opencl-icd

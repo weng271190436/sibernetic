@@ -15,9 +15,11 @@ Compiling / running (Linux/mac)
 Install OpenCL on Ubuntu. We suggest you initially go with [AMD OpenCL drivers](http://developer.amd.com/tools-and-sdks/heterogeneous-computing/amd-accelerated-parallel-processing-app-sdk/downloads/) as we have found these to be the most stable and complete. You can also try [Intel's drivers](http://develnoter.blogspot.co.uk/2012/05/installing-opencl-in-ubuntu-1204.html). This step often causes problems, contact the [openworm-discuss](https://groups.google.com/forum/#!forum/openworm-discuss) mailing list if you encounter issues. The AMD drivers include samples in `/opt/AMDAPP/samples/opencl/bin` which you can use to verify your OpenCL support is working.
 
 You'll also need a variety of libraries.  A helper script `setup.sh`
-installs all required packages, including OpenCL headers, build tools and
-the Python dependencies.  The script now detects Linux or macOS and
-uses either `apt` or Homebrew as appropriate:
+installs all required packages along with the Python dependencies.
+On Linux this includes OpenCL headers and related tools, while on macOS
+the script relies on the system's OpenCL implementation and skips those
+packages.  The script detects the platform and uses either `apt` or
+Homebrew as appropriate:
 
 ```bash
 ./setup.sh
@@ -53,6 +55,8 @@ Also you may need to give compiler path to OpenCL header files usually you can f
 export PYTHONHEADERDIR=/usr/local/Cellar/python/<version_of_installed_pythonFramework>/Python.framework/Headers/
 export PYTHONLIBDIR=/usr/local/lib/python2...
 export PYTHONFRAMEWORKDIR=/usr/local/Frameworks/
+# OpenCL is provided by macOS so `setup.sh` does not install additional
+# packages.
 ```
 
 Then

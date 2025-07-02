@@ -16,6 +16,9 @@ kernels and a number of helper Python scripts.
 
 ## Building and Testing
 Before building you should install dependencies via `./setup.sh`.
+On Linux this script installs OpenCL along with PyTorch; on macOS it
+only installs the Python and OpenGL dependencies and relies on the
+system-provided OpenCL implementation.
 To compile the C++ code use `make`.  A convenience script `test.sh`
 runs code formatting, static checks via **ruff**, builds the simulator
 and executes the test suite:
