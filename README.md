@@ -16,7 +16,8 @@ Install OpenCL on Ubuntu. We suggest you initially go with [AMD OpenCL drivers](
 
 You'll also need a variety of libraries.  A helper script `setup.sh`
 installs all required packages, including OpenCL headers, build tools and
-the Python dependencies:
+the Python dependencies.  The script now detects Linux or macOS and
+uses either `apt` or Homebrew as appropriate:
 
 ```bash
 ./setup.sh
