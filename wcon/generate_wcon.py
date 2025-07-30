@@ -56,8 +56,6 @@ def generate_wcon(
 
     num_frames = 0
 
-    angles = {}
-
     xs0 = None
     ys0 = None
     for line in postions_file:
@@ -113,9 +111,9 @@ def generate_wcon(
                 avy += ys[-1]
                 points_plotted += 1
 
-            if xs0 == None:
+            if xs0 is None:
                 xs0 = xs
-            if ys0 == None:
+            if ys0 is None:
                 ys0 = ys
 
             avx = avx / points
@@ -130,7 +128,7 @@ def generate_wcon(
                 middle_point_speed_y.append(
                     (ys[int(middle_point)] - middle_points[-1][1]) / dt
                 )
-                dav = dist(avx, avy, ave_points[-1][0], ave_points[-1][1])
+                # dav = dist(avx, avy, ave_points[-1][0], ave_points[-1][1])
 
                 ave_point_speed_x.append((avx - ave_points[-1][0]) / dt)
                 ave_point_speed_y.append((avy - ave_points[-1][1]) / dt)
@@ -175,7 +173,7 @@ def generate_wcon(
 
             num_plotted_frames += 1
 
-            l = ax.plot(xs, ys, "-")
+            lines = ax.plot(xs, ys, "-")
             if num_plotted_frames % 5 == 1:
                 time_ = "%ss" % t_s if not t_s == int(t_s) else "%ss" % int(t_s)
 
@@ -186,7 +184,7 @@ def generate_wcon(
                 [xx + offset for xx in xs0],
                 ys0,
                 ":",
-                color=l[0].get_color(),
+                color=lines[0].get_color(),
                 linewidth=0.5,
             )
 
@@ -355,7 +353,8 @@ def generate_wcon(
 
 
 def validate(wcon_file):
-    import json, jsonschema
+    import json
+    import jsonschema
 
     wcon_schema = "wcon_schema.json"
 
@@ -411,8 +410,6 @@ def get_rainbow_color_for_volts(fract):
     return "pigment { color CHSL2RGB(<%f,1,0.5>) } // v = %f, fract = %f"%( hue , v, fract)"""
 
 if __name__ == "__main__":
-    import matplotlib.pyplot as plt
-    import matplotlib
     import math
 
     validate("test.wcon")
