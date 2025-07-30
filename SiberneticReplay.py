@@ -1,3 +1,10 @@
+"""
+A PyVista based viewer/player for saved Sibernetic simulations
+
+Loads in the generated position_buffer.txt file
+
+"""
+
 import pyvista as pv
 import sys
 import os
@@ -176,12 +183,19 @@ def create_mesh(step):
 if __name__ == "__main__":
     plotter = pv.Plotter()
 
-    position_file = "Sibernetic/position_buffer.txt"
+    position_file = "buffers/position_buffer.txt"  # can be overwritten by arg
+
+    if not os.path.isfile(position_file):
+        position_file = (
+            "Sibernetic/position_buffer.txt"  # example location in Worm3DViewer repo
+        )
 
     include_boundary = False
 
     if "-b" in sys.argv:
         include_boundary = True
+    else:
+        print("Run with -b to display boundary box")
 
     if len(sys.argv) > 1 and os.path.isfile(sys.argv[1]):
         position_file = sys.argv[1]
