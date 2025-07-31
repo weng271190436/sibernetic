@@ -285,7 +285,7 @@ def run(a=None, **kwargs):
     if not os.path.isdir(a.out_dir):
         os.mkdir(a.out_dir)
 
-    current_time = time.strftime("%Y-%m-%d_%H-%M-%S", time.gmtime())
+    current_time = time.strftime("%Y-%m-%d_%H-%M-%S", time.localtime())
 
     if not a.noc302:
         ref = a.reference
