@@ -352,7 +352,7 @@ if __name__ == "__main__":
 
     if try_c302:
         # ms = C302Simulation('configuration/test/c302/c302_B_Muscles.muscles.activity.dat', scale_to_max=True)
-        ms = C302Simulation(  # noqa
+        ms = C302NRNSimulation(  # noqa
             "configuration/test/c302/c302_C1_Muscles.muscles.activity.dat",  # noqa
             scale_to_max=True,  # noqa
         )  # noqa
@@ -370,6 +370,7 @@ if __name__ == "__main__":
         increment = time_per_step / default_time_per_step
 
         ms = C302NRNSimulation(tstop=maxt, dt=dt, verbose=False)
+        ms.set_timestep(dt)
 
     activation = {}
     row = "11"
