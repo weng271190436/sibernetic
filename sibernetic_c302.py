@@ -252,7 +252,6 @@ def run(a=None, **kwargs):
     try:
         import neuroml  # noqa: F401
         import pyneuroml  # noqa: F401
-        import xlrd  # noqa: F401
     except Exception as e:
         print_(
             "Cannot import one of the required packages. Please install!\n"

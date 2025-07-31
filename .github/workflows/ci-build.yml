@@ -87,12 +87,11 @@ jobs:
 
     - name: Run tests
       run: |
-        pip install c302
-        pip install neuron
+        pip install -r requirements.txt
         pip list
         which nrniv
         export NEURON_HOME=/home/runner/.local
-        ./run_all_tests.sh 
+        ./run_all_tests.sh -all
 
     - name: Generated file info
       run: |
