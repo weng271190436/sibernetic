@@ -22,7 +22,7 @@ colours[quadrant3] = "#ff0000"
 
 
 def print_(msg):
-    pre = "Python >> "
+    pre = "Sib_main >>> "
     print("%s %s" % (pre, msg.replace("\n", "\n" + pre)))
 
 
@@ -174,7 +174,7 @@ class C302NRNSimulation:
         # from LEMS_c302_C1_Full_nrn import NeuronSimulation
         # from LEMS_c302_nrn import NeuronSimulation
 
-        print("Initialising C302NRNSimulation...")
+        print_("Initialising C302NRNSimulation...")
 
         self.tstop = tstop
         self.verbose = verbose
@@ -183,7 +183,7 @@ class C302NRNSimulation:
         # print_("Initialised C302NRNSimulation of length %s ms and dt = %s ms..."%(tstop,dt))
 
     def set_timestep(self, dt):
-        print("Setting timestep to %s..." % dt)
+        print_("Setting timestep to %s..." % dt)
 
         dt = float("{:0.1e}".format(dt)) * 1000.0  # memory issue fix
 
@@ -215,45 +215,66 @@ class C302NRNSimulation:
 
         if hasattr(self.h, "a_MDR01"):
             var_pre = "a_M"
-            var_post = "cai"
+            var_template = "a_M{0}{1}{2}{3}"
+            var_name = "cai"
             scale_it = True
             print_it = False
 
+        elif hasattr(self.h, "m_GenericMuscleCell_MDR01"):
+            var_pre = "m_GenericMuscleCell_M"
+            var_template = "m_GenericMuscleCell_M{0}{1}{2}{3}"
+            var_name = "output"
+            scale_it = False
+            print_it = False
         else:
             var_pre = "m_GenericMuscleCell_M"
-            var_post = "output"
+            var_template = "m_M{0}1_PopM{0}1"
+            var_name = "state"
             scale_it = False
             print_it = False
 
         values = []
         vars_read = []
         for i in range(24):
-            var = "%sDR%s" % (var_pre, (i + 1 if i > 8 else ("0%i" % (i + 1))))
+            DV = "D"
+            RL = "R"
+            index = i + 1
+            zero = "0" if index <= 9 else ""
+
+            var = var_template.format(DV, RL, zero, index)
+
             try:
-                h_obj = getattr(self.h, var)[0]
+                h_obj = getattr(self.h, var)[0 if "{3}" in var_template else i]
                 val = (
-                    getattr(h_obj.soma, var_post)
+                    getattr(h_obj.soma, var_name)
                     if hasattr(h_obj, "soma")
-                    else getattr(h_obj, var_post)
+                    else getattr(h_obj, var_name)
                 )
             except AttributeError as e:
                 raise Exception(
-                    "Problem passing neuronal output of %s to muscle in Sibernetic: %s"
-                    % (var, e)
+                    "Problem passing neuronal output of %s to muscle in Sibernetic (i=%i): %s"
+                    % (var, i, e)
                 )
             scaled_val = self._scale(val, print_it=print_it, scale_it=scale_it)
             values.append(scaled_val)
             vars_read.append(var)
         for i in range(24):
-            var = "%sVR%s" % (var_pre, (i + 1 if i > 8 else ("0%i" % (i + 1))))
+            DV = "V"
+            RL = "R"
+            index = i + 1
+            zero = "0" if index <= 9 else ""
+
+            var = var_template.format(DV, RL, zero, index)
+
+            # var = "%sVR%s" % (var_pre, (i + 1 if i > 8 else ("0%i" % (i + 1))))
             if i == 23:
-                var = "%sVR23" % var_pre
+                var = var_template.format(DV, RL, "", 23)
             try:
-                h_obj = getattr(self.h, var)[0]
+                h_obj = getattr(self.h, var)[0 if "{3}" in var_template else i]
                 val = (
-                    getattr(h_obj.soma, var_post)
+                    getattr(h_obj.soma, var_name)
                     if hasattr(h_obj, "soma")
-                    else getattr(h_obj, var_post)
+                    else getattr(h_obj, var_name)
                 )
             except AttributeError as e:
                 raise Exception(
@@ -264,13 +285,20 @@ class C302NRNSimulation:
             values.append(scaled_val)
             vars_read.append(var)
         for i in range(24):
-            var = "%sVL%s" % (var_pre, (i + 1 if i > 8 else ("0%i" % (i + 1))))
+            DV = "V"
+            RL = "L"
+            index = i + 1
+            zero = "0" if index <= 9 else ""
+
+            var = var_template.format(DV, RL, zero, index)
+
+            # var = "%sVL%s" % (var_pre, (i + 1 if i > 8 else ("0%i" % (i + 1))))
             try:
-                h_obj = getattr(self.h, var)[0]
+                h_obj = getattr(self.h, var)[0 if "{3}" in var_template else i]
                 val = (
-                    getattr(h_obj.soma, var_post)
+                    getattr(h_obj.soma, var_name)
                     if hasattr(h_obj, "soma")
-                    else getattr(h_obj, var_post)
+                    else getattr(h_obj, var_name)
                 )
             except AttributeError as e:
                 if var == "%sVL24" % var_pre:
@@ -291,13 +319,21 @@ class C302NRNSimulation:
             values.append(scaled_val)
             vars_read.append(var)
         for i in range(24):
-            var = "%sDL%s" % (var_pre, (i + 1 if i > 8 else ("0%i" % (i + 1))))
+            DV = "D"
+            RL = "L"
+            index = i + 1
+            zero = "0" if index <= 9 else ""
+
+            var = var_template.format(DV, RL, zero, index)
+
+            # var = "%sDL%s" % (var_pre, (i + 1 if i > 8 else ("0%i" % (i + 1))))
+
             try:
-                h_obj = getattr(self.h, var)[0]
+                h_obj = getattr(self.h, var)[0 if "{3}" in var_template else i]
                 val = (
-                    getattr(h_obj.soma, var_post)
+                    getattr(h_obj.soma, var_name)
                     if hasattr(h_obj, "soma")
-                    else getattr(h_obj, var_post)
+                    else getattr(h_obj, var_name)
                 )
             except AttributeError as e:
                 raise Exception(
@@ -309,7 +345,14 @@ class C302NRNSimulation:
             vars_read.append(var)
 
         if self.verbose:
-            print_("Returning %s values: %s; %s" % (len(values), values, vars_read))
+            print_(
+                "Returning %s values: %s; %s"
+                % (
+                    len(values),
+                    values[:3] + ["<truncated...>"],
+                    vars_read[:3] + ["<truncated...>"],
+                )
+            )
         return values
 
     def _scale(self, ca, print_it=False, scale_it=True):
@@ -363,7 +406,7 @@ if __name__ == "__main__":
 
     elif try_c302_nrn or testnrn:
         dt = 0.1  # ms
-        max_time = 0.5  # s
+        max_time = 0.05  # s
         maxt = max_time * 1000
 
         time_per_step = dt / 1000  #  s
