@@ -296,9 +296,8 @@ def run(a=None, **kwargs):
     current_time = time.strftime("%Y-%m-%d_%H-%M-%S", time.localtime())
 
     if not a.noc302:
-
         if a.lems:
-            sim_ref = "Sim_%s" % (a.lems.split('/')[-1])
+            sim_ref = "Sim_%s" % (a.lems.split("/")[-1])
         else:
             ref = a.reference
             sim_ref = "%s_%s_%s" % (a.c302params, ref, current_time)
@@ -317,9 +316,7 @@ def run(a=None, **kwargs):
         run_dir = os.environ["SIBERNETIC_HOME"]
 
     if not a.noc302:
-
         if a.lems:
-
             lems_file = a.lems
 
         else:
@@ -340,8 +337,6 @@ def run(a=None, **kwargs):
             lems_file = os.path.join(sim_dir, "LEMS_c302.xml")
             print_("Renaming %s -> %s" % (lems_file0, lems_file))
             os.rename(lems_file0, lems_file)
-
-        
 
         announce("Generating NEURON files from: %s..." % lems_file)
 
@@ -467,7 +462,7 @@ def run(a=None, **kwargs):
 
     if not a.noc302:
         if a.lems:
-            reportj["lems"] = a.lems 
+            reportj["lems"] = a.lems
         else:
             reportj["reference"] = a.reference
             reportj["c302params"] = a.c302params
