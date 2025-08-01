@@ -332,9 +332,9 @@ def run(a=None, **kwargs):
             lems_file = a.lems
 
         else:
-            id = "%s_%s" % (a.c302params, ref)
+            id = "%s_%s" % (a.c302params, a.reference)
 
-            setup = dynamic_import("c302.c302_%s" % ref, "setup")
+            setup = dynamic_import("c302.c302_%s" % a.reference, "setup")
 
             setup(
                 a.c302params,
