@@ -99,6 +99,13 @@ jobs:
         ls -alt  simulations/*
         more simulations/C1_*/report.json
 
+
+    - name: Run some OMV tests
+      run: |
+        pip install OSBModelValidation
+
+        omv all -V 
+
     - name: Final version info
       run: |
         
