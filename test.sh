@@ -1,11 +1,11 @@
 #!/bin/bash
 set -ex
 
-ruff format *.py
-ruff check *.py
+ruff format *.py tests/*.py
+ruff check *.py tests/*.py
 
 make clean
 make
 
-./run_all_tests.sh
+./run_all_tests.sh $@
 
