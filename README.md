@@ -48,9 +48,9 @@ Also you may need to give compiler path to OpenCL header files usually you can f
 **Mac**: stay in the top-level folder. You need before run export several environment variables:
 
 ```bash
-export PYTHONHEADERDIR=/usr/local/Cellar/python/<version_of_installed_pythonFramework>/Python.framework/Headers/
-export PYTHONLIBDIR=/usr/local/lib/python2...
-export PYTHONFRAMEWORKDIR=/usr/local/Frameworks/
+export PYTHONHEADERDIR=/opt/homebrew/Frameworks/Python.framework/Headers/
+export PYTHONLIBDIR=/opt/homebrew/lib/python3.13/ #Replace with the specific minor version you have
+export PYTHONFRAMEWORKDIR=/opt/homebrew/Frameworks/
 ```
 
 Then
