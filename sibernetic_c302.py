@@ -143,6 +143,14 @@ def process_args():
     )
 
     parser.add_argument(
+        "-lems",
+        type=str,
+        metavar="<lems>",
+        default=None,
+        help="Parameter ..? ",
+    )
+
+    parser.add_argument(
         "-datareader",
         type=str,
         metavar="<datareader>",
@@ -288,8 +296,12 @@ def run(a=None, **kwargs):
     current_time = time.strftime("%Y-%m-%d_%H-%M-%S", time.localtime())
 
     if not a.noc302:
-        ref = a.reference
-        sim_ref = "%s_%s_%s" % (a.c302params, ref, current_time)
+
+        if a.lems:
+            sim_ref = "Sim_%s" % (a.lems.split('/')[-1])
+        else:
+            ref = a.reference
+            sim_ref = "%s_%s_%s" % (a.c302params, ref, current_time)
 
     else:
         sim_ref = "Sibernetic_%s" % (current_time)
@@ -297,30 +309,39 @@ def run(a=None, **kwargs):
     # sim_dir = "simulations/%s" % (sim_ref)
     sim_dir = os.path.join(a.out_dir, sim_ref)
 
-    os.mkdir(sim_dir)
+    if not os.path.isdir(sim_dir):
+        os.mkdir(sim_dir)
 
     run_dir = "."
     if "SIBERNETIC_HOME" in os.environ:
         run_dir = os.environ["SIBERNETIC_HOME"]
 
     if not a.noc302:
-        id = "%s_%s" % (a.c302params, ref)
 
-        setup = dynamic_import("c302.c302_%s" % ref, "setup")
+        if a.lems:
 
-        setup(
-            a.c302params,
-            generate=True,
-            duration=a.duration,
-            dt=a.dt,
-            target_directory=sim_dir,
-            data_reader=a.datareader,
-        )
+            lems_file = a.lems
 
-        lems_file0 = os.path.join(sim_dir, "LEMS_c302_%s.xml" % id)
-        lems_file = os.path.join(sim_dir, "LEMS_c302.xml")
-        print_("Renaming %s -> %s" % (lems_file0, lems_file))
-        os.rename(lems_file0, lems_file)
+        else:
+            id = "%s_%s" % (a.c302params, ref)
+
+            setup = dynamic_import("c302.c302_%s" % ref, "setup")
+
+            setup(
+                a.c302params,
+                generate=True,
+                duration=a.duration,
+                dt=a.dt,
+                target_directory=sim_dir,
+                data_reader=a.datareader,
+            )
+
+            lems_file0 = os.path.join(sim_dir, "LEMS_c302_%s.xml" % id)
+            lems_file = os.path.join(sim_dir, "LEMS_c302.xml")
+            print_("Renaming %s -> %s" % (lems_file0, lems_file))
+            os.rename(lems_file0, lems_file)
+
+        
 
         announce("Generating NEURON files from: %s..." % lems_file)
 
@@ -445,8 +466,11 @@ def run(a=None, **kwargs):
     reportj["os_version"] = ", ".join(platform.uname())
 
     if not a.noc302:
-        reportj["reference"] = a.reference
-        reportj["c302params"] = a.c302params
+        if a.lems:
+            reportj["lems"] = a.lems 
+        else:
+            reportj["reference"] = a.reference
+            reportj["c302params"] = a.c302params
         reportj["c302_version"] = c302.__version__
 
         for m in ["pyneuroml", "neuroml", "matplotlib", "numpy", "cect"]:
