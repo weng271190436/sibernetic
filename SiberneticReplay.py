@@ -8,8 +8,12 @@ Loads in the generated position_buffer.txt file
 import pyvista as pv
 import sys
 import os
+import time
 
 last_mesh = None
+
+replay_speed = 0.05  # seconds between frames
+replaying = False
 
 all_points = []
 all_point_types = []
@@ -26,6 +30,8 @@ plotter = None
 
 offset_ = 50
 
+slider = None
+
 color_range = {1.1: "blue", 2.2: "turquoise"}
 
 
@@ -36,7 +42,7 @@ def add_sibernetic_model(
     offset=50,
     include_boundary=False,
 ):
-    global all_points, all_point_types, last_mesh, plotter, offset_
+    global all_points, all_point_types, last_mesh, plotter, offset_, slider
 
     offset_ = offset
     plotter = pl
@@ -138,30 +144,73 @@ def add_sibernetic_model(
     plotter.remove_scalar_bar("types")
 
     max_time = len(all_points) - 1
-    pl.add_slider_widget(create_mesh, rng=[0, max_time], value=0, title="Time point")
-    pl.add_timer_event(max_steps=5, duration=2, callback=create_mesh)
+
+    slider = pl.add_slider_widget(
+        create_mesh, rng=[0, max_time], value=0, title="Time point", style="modern"
+    )
+
+    pl.add_checkbox_button_widget(play_animation, value=False)
+
+
+def play_animation(play):
+    global plotter, last_mesh, all_points, all_point_types, replaying, slider
+    print("Playing animation: %s" % play)
+
+    if not play:
+        replaying = False
+        print("Animation stopped.")
+        return
+    else:
+        replaying = True
+        print("Animation started.")
+
+    if last_mesh is None:
+        print("No mesh to animate. Please load a model first.")
+        return
+
+    for i in range(len(all_points)):
+        if not replaying:
+            break
+        curr_time = slider.GetSliderRepresentation().GetValue()
+
+        print(
+            " --- Animating step %i (curr_time: %s) of %i, %s"
+            % (i, curr_time, len(all_points), play)
+        )
+        next_time = curr_time + 1
+        slider.GetSliderRepresentation().SetValue(next_time)
+
+        create_mesh(next_time)
+        plotter.update()
+        plotter.render()
+        time.sleep(replay_speed)
 
 
 def create_mesh(step):
-    import time
-
     step_count = step
     value = step_count
-    global all_points, all_point_types, last_mesh, plotter, offset_
+    global all_points, all_point_types, last_mesh, plotter, offset_, replaying
 
     index = int(value)
+    if index >= len(all_points):
+        print(
+            "Index %i out of bounds for all_points with length %i"
+            % (index, len(all_points))
+        )
+        replaying = False
+        return
 
-    print("Changing to time point: %s (%s) " % (index, value))
+    print("   -- Creating new mesh at time point: %s (%s) " % (index, value))
     curr_points = all_points[index]
     curr_types = all_point_types[index]
 
-    print("Plotting %i points with %i types" % (len(curr_points), len(curr_types)))
+    print("     Plotting %i points with %i types" % (len(curr_points), len(curr_types)))
 
     if last_mesh is None:
         last_mesh = pv.PolyData(curr_points)
         last_mesh["types"] = curr_types
         last_mesh.translate((0, -1000, 0), inplace=True)
-        print(last_mesh)
+        # print(last_mesh)
 
         # last_actor =
         plotter.add_mesh(
@@ -175,7 +224,7 @@ def create_mesh(step):
         last_mesh.translate((offset_, -50, -100), inplace=True)
 
     plotter.render()
-    time.sleep(0.1)
+    # time.sleep(0.1)
 
     return
 
