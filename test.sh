@@ -1,8 +1,8 @@
 #!/bin/bash
 set -ex
 
-ruff format *.py wcon/*.py
-ruff check *.py wcon/*.py
+ruff format *.py wcon/*.py tests/*.py
+ruff check *.py wcon/*.py tests/*.py
 
 make clean
 make

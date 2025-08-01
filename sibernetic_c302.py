@@ -26,6 +26,7 @@ DEFAULTS = {
     "outDir": "simulations",
     "datareader": "SpreadsheetDataReader",
     "test": False,
+    "simName": None,  # This is set to None by default (will be generated from otehr info), but can be set explicitly
 }
 
 
@@ -69,7 +70,7 @@ def process_args():
         "-noc302",
         action="store_true",
         default=DEFAULTS["noc302"],
-        help="Use this flag to run Sibernetic with the inbuilt (Python based) sine wave generator, using specified duration/configuration etc. and saving in simulations directory, default: %s"
+        help="Use this flag to run Sibernetic with the inbuilt (Python based) sine wave generator, using specified duration/configuration etc. and saving in <outDir> directory, default: %s"
         % DEFAULTS["noc302"],
     )
 
@@ -164,6 +165,15 @@ def process_args():
         metavar="<outDir>",
         default=DEFAULTS["outDir"],
         help="Output directory, default: %s" % DEFAULTS["outDir"],
+    )
+
+    parser.add_argument(
+        "-simName",
+        type=str,
+        metavar="<simName>",
+        default=DEFAULTS["simName"],
+        help="Simulation name, default: %s, if not set, will be generated from other info incl date/time"
+        % DEFAULTS["simName"],
     )
 
     return parser.parse_args()
@@ -295,21 +305,23 @@ def run(a=None, **kwargs):
 
     current_time = time.strftime("%Y-%m-%d_%H-%M-%S", time.localtime())
 
-    if not a.noc302:
-        if a.lems:
-            sim_ref = "Sim_%s" % (a.lems.split("/")[-1])
-        else:
-            ref = a.reference
-            sim_ref = "%s_%s_%s" % (a.c302params, ref, current_time)
-
+    if a.sim_name is not None:
+        sim_ref = a.sim_name
     else:
-        sim_ref = "Sibernetic_%s" % (current_time)
+        if not a.noc302:
+            if a.lems:
+                sim_ref = "Sim_%s" % (a.lems.split("/")[-1])
+            else:
+                ref = a.reference
+                sim_ref = "%s_%s_%s" % (a.c302params, ref, current_time)
+
+        else:
+            sim_ref = "Sibernetic_%s" % (current_time)
 
     # sim_dir = "simulations/%s" % (sim_ref)
     sim_dir = os.path.join(a.out_dir, sim_ref)
 
-    if not os.path.isdir(sim_dir):
-        os.mkdir(sim_dir)
+    os.makedirs(sim_dir, exist_ok=a.sim_name is not None)
 
     run_dir = "."
     if "SIBERNETIC_HOME" in os.environ:
@@ -609,6 +621,8 @@ def run(a=None, **kwargs):
             exit(-1)
         else:
             announce("Passed all tests!!")
+
+    return sim_dir, reportj
 
 
 if __name__ == "__main__":
