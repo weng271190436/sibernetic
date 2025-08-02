@@ -1,5 +1,6 @@
 import pprint
 import os
+import copy
 
 SIMULATION_BOX = "simulation box"
 POSITION = "position"
@@ -17,9 +18,15 @@ class Configuration:
     def __init__(self):
         self.simulation_box = []
         self.particles = {}
-        self.connections = {}
-        self.membranes = {}
-        self.particle_mem_index = {}
+        self.connections = []
+        self.membranes = []
+        self.particle_mem_index = []
+
+    def is_liquid_type(self, particle_type):
+        """
+        Check if a particle type is liquid.
+        """
+        return int(particle_type) == 1
 
     def is_elastic_type(self, particle_type):
         """
@@ -32,6 +39,15 @@ class Configuration:
         Check if a particle type is a boundary particle.
         """
         return int(particle_type) == 3
+
+    def is_liquid(self, particle_id):
+        """
+        Check if a particle is liquid based on its type.
+        """
+        if particle_id in self.particles:
+            particle_type = self.particles[particle_id].get(POSITION)[3]
+            return self.is_liquid_type(particle_type)
+        return False
 
     def is_elastic(self, particle_id):
         """
@@ -51,18 +67,101 @@ class Configuration:
             return self.is_boundary_type(particle_type)
         return False
 
+    def get_particles(
+        self,
+        translate=(0, 0, 0),
+        include_liquid=True,
+        include_elastic=True,
+        include_boundary=True,
+    ):
+        """
+        Get a list of particles with their positions and velocities.
+        """
+        particles = []
+
+        for i in self.particles:
+            if (
+                (include_liquid and self.is_liquid(i))
+                or (include_elastic and self.is_elastic(i))
+                or (include_boundary and self.is_boundary(i))
+            ):
+                pos = self.particles[i].get(POSITION)
+                vel = self.particles[i].get(VELOCITY)
+                particles.append(
+                    (
+                        pos[0] + translate[0],
+                        pos[1] + translate[1],
+                        pos[2] + translate[2],
+                        pos[3],
+                        vel,
+                    )
+                )
+
+        if include_elastic:
+            return particles, copy.deepcopy(self.connections)
+        else:
+            return particles, []
+
+    def add_particles(self, particles, connections):
+        liquid_count = 0
+        elast_count = 0
+        boundary_count = 0
+
+        for i in self.particles:
+            if self.is_elastic(i):
+                elast_count += 1
+            elif self.is_boundary(i):
+                boundary_count += 1
+            elif self.is_liquid(i):
+                liquid_count += 1
+
+        for p in particles:
+            self.particles[len(self.particles)] = {
+                POSITION: (p[0], p[1], p[2], p[3]),
+                VELOCITY: (p[4][0], p[4][1], p[4][2], p[4][3]),
+            }
+        for c in connections:
+            # print (f"Adding connection: {c}")
+            if c[0] > 0:
+                c[0] = c[0] + elast_count
+
+        self.connections += connections
+
     def __str__(self):
         pos_count = 0
         vel_count = 0
+
+        liquid_count = 0
+        elastic_count = 0
+        boundary_count = 0
+
         for i in self.particles:
             if POSITION in self.particles[i]:
                 pos_count += 1
             if VELOCITY in self.particles[i]:
                 vel_count += 1
+
+            if self.is_liquid(i):
+                liquid_count += 1
+            elif self.is_elastic(i):
+                elastic_count += 1
+            elif self.is_boundary(i):
+                boundary_count += 1
+            else:
+                raise ValueError(
+                    f"Unknown particle type for particle {i}: {self.particles[i]}"
+                )
+
             # print(f"Particle {i}: {self.particles[i]}: Positions: {pos_count}, Velocities: {vel_count}")
 
+        assert pos_count == vel_count, "Position and velocity counts do not match."
+        assert pos_count == liquid_count + elastic_count + boundary_count, (
+            "Particle counts do not match: "
+            f"Positions: {pos_count}, Liquid: {liquid_count}, Elastic: {elastic_count}, Boundary: {boundary_count}"
+        )
+
         return (
-            f"Configuration with {len(self.particles)} particles (pos: {pos_count}, vel: {vel_count}), {len(self.connections)} connections, "
+            f"Configuration with {len(self.particles)} particles (liq: {liquid_count}, elast: {elastic_count}, bound: {boundary_count}), {len(self.connections)}(={len(self.connections)/32}*32) connections, "
             f"{len(self.membranes)} membranes, and {len(self.particle_mem_index)} particle membrane indices."
         )
 
@@ -94,6 +193,7 @@ def load_configuration_file(filename, verbose=False):
 
             elif current_section == SIMULATION_BOX:
                 configuration.simulation_box.append(float(line))
+
             elif current_section == POSITION:
                 if verbose:
                     print("Checking position line: %s (%i)" % (line, pos_count))
@@ -102,6 +202,7 @@ def load_configuration_file(filename, verbose=False):
                     POSITION: (float(x), float(y), float(z), float(particle_type))
                 }
                 pos_count += 1
+
             elif current_section == VELOCITY:
                 if verbose:
                     print("Checking velocity line: %s (%i)" % (line, vel_count))
@@ -119,6 +220,23 @@ def load_configuration_file(filename, verbose=False):
                 # assert(configuration.particles[vel_count][POSITION][3] == float(particle_type))
 
                 vel_count += 1
+            elif current_section == CONNECTION:
+                a, b, c, d = line.split()
+                configuration.connections.append(
+                    [float(a), float(b), float(c), float(d)]
+                )
+
+            elif current_section == MEMBRANES:
+                if verbose:
+                    print("Checking membrane line: %s" % line)
+                a, b, c = line.split()
+                configuration.membranes.append((int(a), int(b), int(c)))
+
+            elif current_section == PARTICLE_MEM_INDEX:
+                if verbose:
+                    print("Checking particle membrane index line: %s" % line)
+                configuration.particle_mem_index.append(int(line))
+
             else:
                 pass
 
@@ -128,7 +246,13 @@ def load_configuration_file(filename, verbose=False):
 
 
 def write_configuration_file(
-    filename, configuration, include_velocity=True, include_elastics=True, verbose=False
+    filename,
+    configuration,
+    include_velocity=True,
+    include_liquid=True,
+    include_elastics=True,
+    include_boundary=True,
+    verbose=False,
 ):
     """
     Write a configuration file
@@ -139,21 +263,59 @@ def write_configuration_file(
             file.write(f"{value}\n")
 
         file.write(f"[{POSITION}]\n")
-        for i in configuration.particles:
-            if not (configuration.is_elastic(i) and not include_elastics):
-                if POSITION in configuration.particles[i]:
-                    pos = configuration.particles[i][POSITION]
-                    file.write(f"{pos[0]}\t{pos[1]}\t{pos[2]}\t{pos[3]}\n")
-            else:
-                if verbose:
-                    print(f"Skipping elastic particle {i} in position section.")
+        elastic_count = 0
 
-        file.write(f"[{VELOCITY}]\n")
+        elast = ""
+        elast_velocity = ""
+        liquid = ""
+        liquid_velocity = ""
+        boundary = ""
+        boundary_velocity = ""
+
         for i in configuration.particles:
-            if not (configuration.is_elastic(i) and not include_elastics):
-                if include_velocity and VELOCITY in configuration.particles[i]:
-                    vel = configuration.particles[i][VELOCITY]
-                    file.write(f"{vel[0]}\t{vel[1]}\t{vel[2]}\t{vel[3]}\n")
+            pos = configuration.particles[i][POSITION]
+            p = f"{pos[0]}\t{pos[1]}\t{pos[2]}\t{pos[3]}\n"
+
+            vel = configuration.particles[i][VELOCITY]
+            v = f"{vel[0]}\t{vel[1]}\t{vel[2]}\t{vel[3]}\n"
+
+            if configuration.is_elastic(i) and include_elastics:
+                elast += p
+                elast_velocity += v
+            elif configuration.is_liquid(i) and include_liquid:
+                liquid += p
+                liquid_velocity += v
+            elif configuration.is_boundary(i) and include_boundary:
+                boundary += p
+                boundary_velocity += v
+
+            if configuration.is_elastic(i):
+                elastic_count += 1
+
+        file.write(elast)
+        file.write(liquid)
+        file.write(boundary)
+        file.write(f"[{VELOCITY}]\n")
+        if include_velocity:
+            file.write(elast_velocity)
+            file.write(liquid_velocity)
+            file.write(boundary_velocity)
+
+        file.write(f"[{CONNECTION}]\n")
+        if include_elastics:
+            for conn in configuration.connections:
+                assert int(
+                    conn[0] < elastic_count
+                ), f"Connection: {conn} exceeds elastic count {elastic_count}."
+                file.write(f"{conn[0]}\t{conn[1]}\t{conn[2]}\t{conn[3]}\n")
+
+        file.write(f"[{MEMBRANES}]\n")
+        for mem in configuration.membranes:
+            file.write(f"{mem[0]}\t{mem[1]}\t{mem[2]}\n")
+
+        file.write(f"[{PARTICLE_MEM_INDEX}]\n")
+        for index in configuration.particle_mem_index:
+            file.write(f"{index}\n")
 
         file.write("[end]\n")
 
@@ -167,11 +329,30 @@ if __name__ == "__main__":
 
     config_file = sys.argv[1]
     out_file = sys.argv[2]
-    conf = load_configuration_file(config_file)
+    conf = load_configuration_file(
+        config_file,
+    )
 
-    """ """
+    print("-----")
+    particles, connections = conf.get_particles(
+        translate=(5, 20, 5),
+        include_liquid=True,
+        include_elastic=True,
+        include_boundary=False,
+    )
+    print(
+        " Adding %s particles with %s connections to configuration."
+        % (len(particles), len(connections))
+    )
+    conf.add_particles(particles, connections)
+
+    """  """
     write_configuration_file(
-        out_file, conf, include_velocity=True, include_elastics=False
+        out_file,
+        conf,
+        include_liquid=True,
+        include_elastics=True,
+        include_boundary=True,
     )
     conf2 = load_configuration_file(out_file)
     print("Configuration reloaded from output file: %s" % conf2)
