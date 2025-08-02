@@ -88,6 +88,8 @@ jobs:
     - name: Run tests
       run: |
         pip install -r requirements.txt
+      
+        pip install OSBModelValidation # For the OMV tests
         pip list
         which nrniv
         export NEURON_HOME=/home/runner/.local
@@ -97,17 +99,12 @@ jobs:
       run: |
         
         ls -alt  simulations/*
-        more simulations/C1_*/report.json
+        more simulations/test_*/report.json
 
-
-    - name: Run some OMV tests
-      run: |
-        pip install OSBModelValidation
-
-        omv all -V 
 
     - name: Final version info
       run: |
         
         python -V
+        omv all -V 
         pip list
