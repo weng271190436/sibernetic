@@ -17,10 +17,21 @@ class Configuration:
     def __init__(self):
         self.simulation_box = []
         self.particles = {}
-        self.particles = {}
         self.connections = {}
         self.membranes = {}
         self.particle_mem_index = {}
+
+    def is_elastic_type(self, particle_type):
+        """
+        Check if a particle type is elastic.
+        """
+        return int(particle_type) == 2
+
+    def is_boundary_type(self, particle_type):
+        """
+        Check if a particle type is a boundary particle.
+        """
+        return int(particle_type) == 3
 
     def is_elastic(self, particle_id):
         """
@@ -28,11 +39,19 @@ class Configuration:
         """
         if particle_id in self.particles:
             particle_type = self.particles[particle_id].get(POSITION)[3]
-            return int(particle_type) == 2 or int(particle_type) == 3
+            return self.is_elastic_type(particle_type)
+        return False
+
+    def is_boundary(self, particle_id):
+        """
+        Check if a particle is a boundary particle based on its type.
+        """
+        if particle_id in self.particles:
+            particle_type = self.particles[particle_id].get(POSITION)[3]
+            return self.is_boundary_type(particle_type)
         return False
 
     def __str__(self):
-
         pos_count = 0
         vel_count = 0
         for i in self.particles:
@@ -42,8 +61,6 @@ class Configuration:
                 vel_count += 1
             # print(f"Particle {i}: {self.particles[i]}: Positions: {pos_count}, Velocities: {vel_count}")
 
-                
-        velocity_count = len(self.particles.get(VELOCITY, []))
         return (
             f"Configuration with {len(self.particles)} particles (pos: {pos_count}, vel: {vel_count}), {len(self.connections)} connections, "
             f"{len(self.membranes)} membranes, and {len(self.particle_mem_index)} particle membrane indices."
@@ -79,17 +96,26 @@ def load_configuration_file(filename, verbose=False):
                 configuration.simulation_box.append(float(line))
             elif current_section == POSITION:
                 if verbose:
-                    print("Checking position line: %s (%i)"% (line, pos_count))
+                    print("Checking position line: %s (%i)" % (line, pos_count))
                 x, y, z, particle_type = line.split()
-                configuration.particles[pos_count] = {POSITION: (float(x), float(y), float(z), float(particle_type))}
+                configuration.particles[pos_count] = {
+                    POSITION: (float(x), float(y), float(z), float(particle_type))
+                }
                 pos_count += 1
             elif current_section == VELOCITY:
                 if verbose:
-                    print("Checking velocity line: %s (%i)"% (line, vel_count))
-                vx, vy, vz, particle_type = line.split() 
-                configuration.particles[vel_count][VELOCITY] = (float(vx), float(vy), float(vz), float(particle_type))
+                    print("Checking velocity line: %s (%i)" % (line, vel_count))
+                vx, vy, vz, particle_type = line.split()
+                configuration.particles[vel_count][VELOCITY] = (
+                    float(vx),
+                    float(vy),
+                    float(vz),
+                    float(particle_type),
+                )
                 if verbose:
-                    print(f' Particle {vel_count} - pos: {configuration.particles[vel_count][POSITION]}; vel: {configuration.particles[vel_count][VELOCITY]}')
+                    print(
+                        f" Particle {vel_count} - pos: {configuration.particles[vel_count][POSITION]}; vel: {configuration.particles[vel_count][VELOCITY]}"
+                    )
                 # assert(configuration.particles[vel_count][POSITION][3] == float(particle_type))
 
                 vel_count += 1
@@ -108,14 +134,12 @@ def write_configuration_file(
     Write a configuration file
     """
     with open(filename, "w") as file:
-
         file.write(f"[{SIMULATION_BOX}]\n")
         for value in configuration.simulation_box:
             file.write(f"{value}\n")
 
         file.write(f"[{POSITION}]\n")
         for i in configuration.particles:
-
             if not (configuration.is_elastic(i) and not include_elastics):
                 if POSITION in configuration.particles[i]:
                     pos = configuration.particles[i][POSITION]
@@ -131,8 +155,7 @@ def write_configuration_file(
                     vel = configuration.particles[i][VELOCITY]
                     file.write(f"{vel[0]}\t{vel[1]}\t{vel[2]}\t{vel[3]}\n")
 
-        file.write(f"[end]\n")
-
+        file.write("[end]\n")
 
 
 if __name__ == "__main__":
@@ -151,4 +174,4 @@ if __name__ == "__main__":
         out_file, conf, include_velocity=True, include_elastics=False
     )
     conf2 = load_configuration_file(out_file)
-    print("Configuration reloaded from output file: %s"%conf2)
+    print("Configuration reloaded from output file: %s" % conf2)
