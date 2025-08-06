@@ -332,27 +332,34 @@ if __name__ == "__main__":
     conf = load_configuration_file(
         config_file,
     )
+    conf2 = load_configuration_file(
+        config_file,
+    )
 
     print("-----")
-    particles, connections = conf.get_particles(
-        translate=(5, 20, 5),
-        include_liquid=True,
-        include_elastic=True,
-        include_boundary=False,
-    )
-    print(
-        " Adding %s particles with %s connections to configuration."
-        % (len(particles), len(connections))
-    )
-    conf.add_particles(particles, connections)
+    poses = [(25, 20, 5), (5, 30, 25), (5, 20, 65)]
+
+    adds = []
+    for p in poses:
+        particles, connections = conf.get_particles(
+            translate=p,
+            include_liquid=True,
+            include_elastic=True,
+            include_boundary=False,
+        )
+        print(
+            " Adding %s particles with %s connections to configuration."
+            % (len(particles), len(connections))
+        )
+        conf2.add_particles(particles, connections)
 
     """  """
     write_configuration_file(
         out_file,
-        conf,
+        conf2,
         include_liquid=True,
         include_elastics=True,
         include_boundary=True,
     )
-    conf2 = load_configuration_file(out_file)
-    print("Configuration reloaded from output file: %s" % conf2)
+    conf3 = load_configuration_file(out_file)
+    print("Configuration reloaded from output file: %s" % conf3)
