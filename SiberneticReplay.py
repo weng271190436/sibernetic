@@ -9,6 +9,10 @@ import pyvista as pv
 import sys
 import os
 import time
+import json
+import numpy as np
+import matplotlib.pyplot as plt
+
 
 last_mesh = None
 
@@ -38,6 +42,7 @@ color_range = {1.1: "blue", 2.2: "turquoise"}
 def add_sibernetic_model(
     pl,
     position_file="Sibernetic/position_buffer.txt",
+    report_file=None,
     swap_y_z=False,
     offset=50,
     include_boundary=False,
@@ -54,6 +59,35 @@ def add_sibernetic_model(
     pcount = 0
     time_count = 0
     logStep = None
+
+    report_data = None
+
+    if report_file is not None:
+        sim_dir = os.path.dirname(os.path.abspath(report_file))
+        report_data = json.load(open(report_file, "r"))
+        print(report_data)
+        position_file = os.path.join(sim_dir, "position_buffer.txt")
+        muscle_activation_file = os.path.join(sim_dir, "muscles_activity_buffer.txt")
+        print("Loading muscle activation file from: %s" % muscle_activation_file)
+        musc_dat = np.loadtxt(muscle_activation_file, delimiter="\t").T
+        print(musc_dat)
+        print(musc_dat.shape)
+        # plt.imshow(musc_dat, interpolation="none", aspect="auto", cmap="YlOrRd")
+
+        f, ax = plt.subplots(tight_layout=True)
+        ax.imshow(musc_dat, interpolation="none", aspect="auto", cmap="YlOrRd")
+        # ax.set_ylim([-1, 1])
+        ax.set_xlabel("Time (s)")
+        _ = ax.set_ylabel("Muscle")
+
+        h_chart = pv.ChartMPL(f, size=(0.35, 0.35), loc=(0.02, 0.06))
+        h_chart.title = None
+        h_chart.border_color = "white"
+        h_chart.show_title = False
+        h_chart.background_color = (1.0, 1.0, 1.0, 0.4)
+        pl.add_chart(
+            h_chart,
+        )
 
     for line in open(position_file):
         ws = line.split()
@@ -233,6 +267,7 @@ if __name__ == "__main__":
     plotter = pv.Plotter()
 
     position_file = "buffers/position_buffer.txt"  # can be overwritten by arg
+    report_file = None
 
     if not os.path.isfile(position_file):
         position_file = (
@@ -247,10 +282,18 @@ if __name__ == "__main__":
         print("Run with -b to display boundary box")
 
     if len(sys.argv) > 1 and os.path.isfile(sys.argv[1]):
-        position_file = sys.argv[1]
+        if "json" in sys.argv[1]:
+            position_file = None
+            report_file = sys.argv[1]
+        else:
+            position_file = sys.argv[1]
 
     add_sibernetic_model(
-        plotter, position_file, swap_y_z=True, include_boundary=include_boundary
+        plotter,
+        position_file,
+        report_file,
+        swap_y_z=True,
+        include_boundary=include_boundary,
     )
     plotter.set_background("white")
     plotter.add_axes()
