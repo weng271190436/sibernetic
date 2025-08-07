@@ -321,7 +321,7 @@ def run(a=None, **kwargs):
     # sim_dir = "simulations/%s" % (sim_ref)
     sim_dir = os.path.join(a.out_dir, sim_ref)
 
-    os.makedirs(sim_dir, exist_ok=a.sim_name is not None)
+    os.makedirs(sim_dir, exist_ok=True)
 
     run_dir = "."
     if "SIBERNETIC_HOME" in os.environ:
