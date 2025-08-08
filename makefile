@@ -11,6 +11,12 @@ INCDIR := inc
 BUILDDIR = ./Release
 BINARYDIR = $(BUILDDIR)/obj
 SOURCES = $(wildcard $(SRCDIR)/*.$(SRCEXT))
+
+ARCH := $(shell uname -m)
+ifeq ($(ARCH),arm64)
+SOURCES := $(filter-out $(SRCDIR)/owOpenCLSolver.cpp,$(SOURCES))
+endif
+
 BINARYTESTDIR = $(BINARYDIR)/test
 OBJECTS := $(patsubst $(SRCDIR)/%,$(BINARYDIR)/%,$(SOURCES:.$(SRCEXT)=.o))
 OBJECTS += $(BINARYTESTDIR)/owPhysicTest.o
@@ -20,8 +26,16 @@ PYTHON_CONFIG ?= /usr/bin/python$(PYTHON_VER_MAIN)-config
 
 CPP_DEPS = $(OBJECTS:.o=.d)
 
-LIBS := -lGL -lGLU -lOpenCL -lrt -lglut
-# For python3.8+, you have to include a --embed option
+LIBS := -lGL -lGLU -lrt -lglut
+ifeq ($(ARCH),arm64)
+CXXFLAGS += -DOW_NO_OPENCL
+else
+LIBS += -lOpenCL
+CXXFLAGS += -DCL_TARGET_OPENCL_VERSION=120 # Target OpenCL version is 1.2
+CXXFLAGS += -DCL_HPP_TARGET_OPENCL_VERSION=120 # C++ bindings target OpenCL version 1.2
+CXXFLAGS += -DCL_HPP_MINIMUM_OPENCL_VERSION=120 # Minimum OpenCL version supported is 1.2
+CXXFLAGS += -DCL_HPP_ENABLE_PROGRAM_CONSTRUCTION_FROM_ARRAY_COMPATIBILITY # Enable compatibility for program construction from arrays
+endif
 PYTHON_CONFIG_BASENAME=$(basename $(PYTHON_CONFIG))
 PYTHON_VERSION=$(patsubst python%-config,%,$(PYTHON_CONFIG_BASENAME))
 
@@ -37,10 +51,6 @@ CXXFLAGS += $(shell $(PYTHON_CONFIG) --embed --cflags)
 endif
 
 CXXFLAGS += -fPIE
-CXXFLAGS += -DCL_TARGET_OPENCL_VERSION=120 # Target OpenCL version is 1.2
-CXXFLAGS += -DCL_HPP_TARGET_OPENCL_VERSION=120 # C++ bindings target OpenCL version 1.2
-CXXFLAGS += -DCL_HPP_MINIMUM_OPENCL_VERSION=120 # Minimum OpenCL version supported is 1.2
-CXXFLAGS += -DCL_HPP_ENABLE_PROGRAM_CONSTRUCTION_FROM_ARRAY_COMPATIBILITY # Enable compatibility for program construction from arrays
 EXTRA_LIBS := -L/usr/lib64/OpenCL/vendors/amd/ -L/opt/AMDAPP/lib/x86_64/ -L/usr/lib/x86_64-linux-gnu/
 
 all: CXXFLAGS += -O3

@@ -50,6 +50,9 @@ owConfigProperty::owConfigProperty(int argc, char **argv)
   nrnSimulationFileName = "";
   simulation = nullptr;
   useTorch = false;
+#ifdef OW_NO_OPENCL
+  useTorch = true;
+#endif
     
   fillConstMap(); // map must be filled before parsing arguments, otherwise beta will be NaN because of division by zero
 
