@@ -95,11 +95,17 @@ owPhysicsFluidSimulator::owPhysicsFluidSimulator(owHelper *helper, int argc,
     useTorchBackend = config->torchEnabled();
     if (useTorchBackend) {
       Py_Initialize();
+      // Ensure the repository root is on the Python path so the solver
+      // module can be located when running the compiled binary from any
+      // directory.
+      PyRun_SimpleString("import sys, os; sys.path.append(os.getcwd())");
       PyObject *pName = PyUnicode_FromString("pytorch_solver");
       PyObject *pModule = PyImport_Import(pName);
       Py_DECREF(pName);
-      if (!pModule)
+      if (!pModule) {
+        PyErr_Print();
         throw std::runtime_error("Failed to load pytorch_solver module");
+      }
       PyObject *pClass = PyObject_GetAttrString(pModule, "PytorchSolver");
       Py_DECREF(pModule);
       if (!pClass)
@@ -238,9 +244,16 @@ void owPhysicsFluidSimulator::reset() {
     if (torchSolver) {
       Py_DECREF(torchSolver);
     }
+    // Ensure the solver module can be resolved even if the working
+    // directory changes between runs.
+    PyRun_SimpleString("import sys, os; sys.path.append(os.getcwd())");
     PyObject *pName = PyUnicode_FromString("pytorch_solver");
     PyObject *pModule = PyImport_Import(pName);
     Py_DECREF(pName);
+    if (!pModule) {
+      PyErr_Print();
+      throw std::runtime_error("Failed to load pytorch_solver module");
+    }
     PyObject *pClass = PyObject_GetAttrString(pModule, "PytorchSolver");
     Py_DECREF(pModule);
     int count = config->getParticleCount();
