@@ -161,8 +161,12 @@ owPhysicsFluidSimulator::owPhysicsFluidSimulator(owHelper *helper, int argc,
         PyErr_Print();
         throw std::runtime_error("Failed to create PytorchSolver instance");
       }
+#ifndef OW_NO_OPENCL
       ocl_solver = nullptr;
-    } else {
+#endif
+    }
+#ifndef OW_NO_OPENCL
+    else {
       if (config->numOfElasticP != 0) {
         ocl_solver = new owOpenCLSolver(
             position_cpp, velocity_cpp, config, elasticConnectionsData_cpp,
@@ -172,6 +176,7 @@ owPhysicsFluidSimulator::owPhysicsFluidSimulator(owHelper *helper, int argc,
         ocl_solver = new owOpenCLSolver(position_cpp, velocity_cpp,
                                         config); // Create new openCLsolver instance
     }
+#endif
     this->genShellPaticlesList();
   } catch (std::runtime_error &ex) {
     /* Clearing all allocated buffers and created object only not ocl_solver
@@ -276,7 +281,9 @@ void owPhysicsFluidSimulator::reset() {
     Py_DECREF(vel_list);
     Py_DECREF(cfg);
     Py_DECREF(pClass);
-  } else {
+  }
+#ifndef OW_NO_OPENCL
+  else {
     if (config->numOfElasticP != 0) {
       ocl_solver->reset(
           position_cpp, velocity_cpp, config, elasticConnectionsData_cpp,
@@ -286,6 +293,7 @@ void owPhysicsFluidSimulator::reset() {
       ocl_solver->reset(position_cpp, velocity_cpp,
                         config); // Create new openCLsolver instance
   }
+#endif
   this->genShellPaticlesList();
 }
 int update_muscle_activity_signals_log_file(int iterationCount,
@@ -519,6 +527,7 @@ double owPhysicsFluidSimulator::simulationStep(const bool load_to) {
     iterationCount++;
     return helper->getElapsedTime();
   }
+#ifndef OW_NO_OPENCL
   std::cout << "\n[[ Step " << iterationCount << " (total steps: ";
   if (config->getNumberOfIterations() == 0)
     std::cout << "unlimited";
@@ -676,6 +685,10 @@ double owPhysicsFluidSimulator::simulationStep(const bool load_to) {
   ocl_solver->updateMuscleActivityData(muscle_activation_signal_cpp, config);
   iterationCount++;
   return helper->getElapsedTime();
+#else
+  (void)load_to;
+  throw std::runtime_error("OpenCL backend disabled");
+#endif
 }
 /** Prepare data and log it to special configuration
  *  file you can run your simulation from place you snapshoted it
@@ -695,8 +708,10 @@ void owPhysicsFluidSimulator::makeSnapshot() {
 owPhysicsFluidSimulator::~owPhysicsFluidSimulator(void) {
   destroy();
   delete config;
+#ifndef OW_NO_OPENCL
   if (ocl_solver)
     delete ocl_solver;
+#endif
   if (torchSolver) {
     Py_DECREF(torchSolver);
     Py_Finalize();
