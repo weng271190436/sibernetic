@@ -6,11 +6,22 @@ SOURCES = src/owSignalSimulator.cpp \
 src/owVtkExport.cpp \
 src/main.cpp \
 src/owHelper.cpp \
-src/owOpenCLSolver.cpp \
 src/owPhysicsFluidSimulator.cpp \
 src/owWorldSimulation.cpp \
 src/owNeuronSimulator.cpp \
 src/owConfigProperty.cpp
+
+ARCH := $(shell uname -m)
+ifeq ($(ARCH),arm64)
+TORCH_FLAGS := -DOW_NO_OPENCL
+OPENCL_FLAG :=
+LIBS := -framework Python -framework OpenGL -framework GLUT
+else
+SOURCES += src/owOpenCLSolver.cpp
+TORCH_FLAGS :=
+OPENCL_FLAG := -framework OpenCL
+LIBS := -framework Python -framework OpenGL -framework GLUT -framework OpenCL
+endif
 
 TEST_SOURCES = src/test/owPhysicTest.cpp
 
@@ -19,6 +30,7 @@ SRCDIR := src
 INCDIR := inc
 BUILDDIR = ./Release
 BINARYDIR = $(BUILDDIR)/obj
+# Change these to set the different python directories
 BINARYTESTDIR = $(BINARYDIR)/test
 OBJECTS := $(patsubst $(SRCDIR)/%,$(BINARYDIR)/%,$(SOURCES:.$(SRCEXT)=.o))
 OBJECTS += $(BINARYTESTDIR)/owPhysicTest.o
@@ -30,9 +42,6 @@ CPP_DEPS = $(OBJECTS:.o=.d)
 # PYTHONLIBDIR = /opt/local/Library/Frameworks/Python.framework/Versions/2.7/lib/python2.7/
 # PYTHONFRAMEWORKDIR = /Library/Frameworks/
 
-LIBS := -framework Python -framework OpenGL -framework GLUT -framework OpenCL
-
-
 # All Target
 all: $(TARGET)
 
@@ -40,7 +49,7 @@ all: $(TARGET)
 $(TARGET): $(OBJECTS)
 	@echo 'Building target: $@'
 	@echo 'Invoking: clang C++ Linker'
-	g++ -std=c++14 -L/usr/lib -F$(PYTHONFRAMEWORKDIR) -L$(PYTHONLIBDIR) -o $(BUILDDIR)/$(TARGET) $(OBJECTS) $(LIBS)
+        g++ -std=c++14 -L/usr/lib -F$(PYTHONFRAMEWORKDIR) -L$(PYTHONLIBDIR) -o $(BUILDDIR)/$(TARGET) $(OBJECTS) $(LIBS)
 	@echo 'Finished building target: $@'
 	@echo ' '
 
@@ -51,7 +60,7 @@ $(BINARYDIR)/%.o: $(SRCDIR)/%.cpp
 	@echo 'Invoking: clang C++ Compiler'
 #### use this to compile against homebrew installed python
 #### change version number as necessary (2.7.n)
-	g++ -std=c++14 -O3 -Wall -c -I$(PYTHONHEADERDIR) -I$(INCDIR) -framework OpenCL -fmessage-length=0 -MMD -MP -MF"$(@:%.o=%.d)" -MT"$(@:%.o=%.d)" -o "$@" "$<"
+        g++ -std=c++14 -O3 -Wall $(TORCH_FLAGS) -c -I$(PYTHONHEADERDIR) -I$(INCDIR) $(OPENCL_FLAG) -fmessage-length=0 -MMD -MP -MF"$(@:%.o=%.d)" -MT"$(@:%.o=%.d)" -o "$@" "$<"
 	@echo 'Finished building: $<'
 	@echo ' '
 

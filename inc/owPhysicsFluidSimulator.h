@@ -38,8 +38,15 @@
 
 #include "owPhysicsConstant.h"
 #include "owHelper.h"
-#include "owOpenCLSolver.h"
 #include <Python.h>
+
+#if defined(__APPLE__) && defined(__aarch64__)
+#define OW_NO_OPENCL
+#endif
+
+#ifndef OW_NO_OPENCL
+#include "owOpenCLSolver.h"
+#endif
 
 /** owPhysicsFluidSimulator class contains
  *  realization of algorithms.
@@ -67,11 +74,13 @@ class owPhysicsFluidSimulator
 	 *
 	 *  @return velocity_cpp
 	 */
-	float *getVelocity_cpp()
-	{
-		ocl_solver->read_velocity_buffer(velocity_cpp, config);
-		return velocity_cpp;
-	};
+        float *getVelocity_cpp()
+        {
+#ifndef OW_NO_OPENCL
+                ocl_solver->read_velocity_buffer(velocity_cpp, config);
+#endif
+                return velocity_cpp;
+        };
 	/** Getter for density_cpp buffer
 	 *
 	 *  When run this method information about new values of density
@@ -80,11 +89,13 @@ class owPhysicsFluidSimulator
 	 *
 	 *  @return density_cpp
 	 */
-	float *getDensity_cpp()
-	{
-		ocl_solver->read_density_buffer(density_cpp, config);
-		return density_cpp;
-	};
+        float *getDensity_cpp()
+        {
+#ifndef OW_NO_OPENCL
+                ocl_solver->read_density_buffer(density_cpp, config);
+#endif
+                return density_cpp;
+        };
 	/** Getter for particleIndex_cpp buffer
 	 *
 	 *  When run this method information about new values of particleIndex
@@ -93,11 +104,13 @@ class owPhysicsFluidSimulator
 	 *
 	 *  @return particleIndex_cpp
 	 */
-	unsigned int *getParticleIndex_cpp()
-	{
-		ocl_solver->read_particleIndex_buffer(particleIndex_cpp, config);
-		return particleIndex_cpp;
-	};
+        unsigned int *getParticleIndex_cpp()
+        {
+#ifndef OW_NO_OPENCL
+                ocl_solver->read_particleIndex_buffer(particleIndex_cpp, config);
+#endif
+                return particleIndex_cpp;
+        };
 	/** Getter for elasticConnectionsData_cpp buffer
 	 *
 	 *  Method doesn't need to request data from OpenCL device's memory
@@ -136,7 +149,9 @@ class owPhysicsFluidSimulator
 
   private:
     struct timeval simulation_start;
-	owOpenCLSolver *ocl_solver;
+#ifndef OW_NO_OPENCL
+        owOpenCLSolver *ocl_solver;
+#endif
 	PyObject *torchSolver;
 	bool useTorchBackend;
 	float *position_cpp;			   // everywhere in the code %variableName%_cpp means that we create
