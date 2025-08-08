@@ -134,10 +134,16 @@ class Configuration:
         liquid_count = 0
         elastic_count = 0
         boundary_count = 0
+        type_counts = {}
 
         for i in self.particles:
             if POSITION in self.particles[i]:
                 pos_count += 1
+                type = self.particles[i][POSITION][3]
+                if type not in type_counts:
+                    type_counts[type] = 0
+                type_counts[type] += 1
+
             if VELOCITY in self.particles[i]:
                 vel_count += 1
 
@@ -160,10 +166,14 @@ class Configuration:
             f"Positions: {pos_count}, Liquid: {liquid_count}, Elastic: {elastic_count}, Boundary: {boundary_count}"
         )
 
-        return (
+        info = (
             f"Configuration with {len(self.particles)} particles (liq: {liquid_count}, elast: {elastic_count}, bound: {boundary_count}), {len(self.connections)}(={len(self.connections)/32}*32) connections, "
             f"{len(self.membranes)} membranes, and {len(self.particle_mem_index)} particle membrane indices."
         )
+        info += f"\n    Simulation box: x: {self.simulation_box[0]}->{self.simulation_box[1]}, y: {self.simulation_box[2]}->{self.simulation_box[3]}, z: {self.simulation_box[4]}->{self.simulation_box[5]} "
+        info += "\n    Type counts: %s" % dict(sorted(type_counts.items()))
+
+        return info
 
     def __repr__(self):
         return self.__str__()
@@ -323,43 +333,70 @@ def write_configuration_file(
 if __name__ == "__main__":
     import sys
 
-    if len(sys.argv) != 3:
-        print("Usage: python ConfigBuilder.py <config_file> <output_file>")
-        sys.exit(1)
-
-    config_file = sys.argv[1]
-    out_file = sys.argv[2]
-    conf = load_configuration_file(
-        config_file,
-    )
-    conf2 = load_configuration_file(
-        config_file,
-    )
-
-    print("-----")
-    poses = [(25, 20, 5), (5, 30, 25), (5, 20, 65)]
-
-    adds = []
-    for p in poses:
-        particles, connections = conf.get_particles(
-            translate=p,
-            include_liquid=True,
-            include_elastic=True,
-            include_boundary=False,
+    if len(sys.argv) == 2 and sys.argv[1] == "-g":
+        config_file = "configuration/demo2"
+        out_file = "configuration/gravity_test"
+        conf = load_configuration_file(
+            config_file,
         )
-        print(
-            " Adding %s particles with %s connections to configuration."
-            % (len(particles), len(connections))
+        write_configuration_file(
+            out_file,
+            conf,
+            verbose=True,
+            include_liquid=False,
+            include_elastics=True,
+            include_boundary=True,
         )
-        conf2.add_particles(particles, connections)
+        print("Configuration loaded for gravity test: %s" % conf)
 
-    """  """
-    write_configuration_file(
-        out_file,
-        conf2,
-        include_liquid=True,
-        include_elastics=True,
-        include_boundary=True,
-    )
-    conf3 = load_configuration_file(out_file)
-    print("Configuration reloaded from output file: %s" % conf3)
+        print("================================")
+        conf3 = load_configuration_file(out_file)
+        print("Configuration reloaded from output file: %s" % conf3)
+
+    else:
+        if len(sys.argv) == 3:
+            print("Usage: python ConfigBuilder.py <config_file> <output_file>")
+
+            config_file = sys.argv[1]
+            out_file = sys.argv[2]
+            conf = load_configuration_file(
+                config_file,
+            )
+            conf2 = load_configuration_file(
+                config_file,
+            )
+
+            print("-----")
+            poses = [(25, 20, 5), (5, 30, 25), (5, 20, 65)]
+
+            adds = []
+            for p in poses:
+                particles, connections = conf.get_particles(
+                    translate=p,
+                    include_liquid=True,
+                    include_elastic=True,
+                    include_boundary=False,
+                )
+                print(
+                    " Adding %s particles with %s connections to configuration."
+                    % (len(particles), len(connections))
+                )
+                conf2.add_particles(particles, connections)
+
+            """  """
+            write_configuration_file(
+                out_file,
+                conf2,
+                include_liquid=True,
+                include_elastics=True,
+                include_boundary=True,
+            )
+            conf3 = load_configuration_file(out_file)
+            print("Configuration reloaded from output file: %s" % conf3)
+
+        else:
+            config_file = sys.argv[1]
+
+            conf = load_configuration_file(
+                config_file,
+            )
