@@ -49,7 +49,7 @@ all: $(TARGET)
 $(TARGET): $(OBJECTS)
 	@echo 'Building target: $@'
 	@echo 'Invoking: clang C++ Linker'
-        g++ -std=c++14 -L/usr/lib -F$(PYTHONFRAMEWORKDIR) -L$(PYTHONLIBDIR) -o $(BUILDDIR)/$(TARGET) $(OBJECTS) $(LIBS)
+	g++ -std=c++14 -L/usr/lib -F$(PYTHONFRAMEWORKDIR) -L$(PYTHONLIBDIR) -o $(BUILDDIR)/$(TARGET) $(OBJECTS) $(LIBS)
 	@echo 'Finished building target: $@'
 	@echo ' '
 
@@ -60,7 +60,7 @@ $(BINARYDIR)/%.o: $(SRCDIR)/%.cpp
 	@echo 'Invoking: clang C++ Compiler'
 #### use this to compile against homebrew installed python
 #### change version number as necessary (2.7.n)
-        g++ -std=c++14 -O3 -Wall $(TORCH_FLAGS) -c -I$(PYTHONHEADERDIR) -I$(INCDIR) $(OPENCL_FLAG) -fmessage-length=0 -MMD -MP -MF"$(@:%.o=%.d)" -MT"$(@:%.o=%.d)" -o "$@" "$<"
+	g++ -std=c++14 -O3 -Wall $(TORCH_FLAGS) -c -I$(PYTHONHEADERDIR) -I$(INCDIR) $(OPENCL_FLAG) -fmessage-length=0 -MMD -MP -MF"$(@:%.o=%.d)" -MT"$(@:%.o=%.d)" -o "$@" "$<"
 	@echo 'Finished building: $<'
 	@echo ' '
 

@@ -41,7 +41,7 @@
 #include <Python.h>
 
 #if defined(__APPLE__) && defined(__aarch64__)
-#define OW_NO_OPENCL
+#include <sys/time.h>
 #endif
 
 #ifndef OW_NO_OPENCL

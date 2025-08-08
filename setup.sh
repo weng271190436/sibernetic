@@ -17,6 +17,8 @@ if [[ "$(uname)" == "Darwin" ]]; then
     pipx install torch ruff pytest pyneuroml || echo "Warning: failed to install pyneuroml"
 
     export PYTHONHEADERDIR="$(python3 -c 'import sysconfig; print(sysconfig.get_path("include"))')"
+    export PYTHONLIBDIR=$(python3 -c 'import sysconfig; print(sysconfig.get_config_var("LIBDIR"))')
+    export PYTHONFRAMEWORKDIR=$(python3 -c 'import sysconfig; print(sysconfig.get_config_var("PYTHONFRAMEWORKPREFIX"))')
 
     make clean -f makefile.OSX
     make all -f makefile.OSX
