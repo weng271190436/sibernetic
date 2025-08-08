@@ -16,6 +16,8 @@ if [[ "$(uname)" == "Darwin" ]]; then
     # Install Python packages
     pipx install torch ruff pytest pyneuroml || echo "Warning: failed to install pyneuroml"
 
+    export PYTHONHEADERDIR="$(python3 -c 'import sysconfig; print(sysconfig.get_path("include"))')"
+
     make clean -f makefile.OSX
     make all -f makefile.OSX
 
