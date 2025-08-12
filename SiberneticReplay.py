@@ -14,7 +14,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 
-last_mesh = None
+last_meshes = {}
 
 replay_speed = 0.05  # seconds between frames
 replaying = False
@@ -32,11 +32,25 @@ boundary_color = "#eeeeee"
 
 plotter = None
 
-offset_ = 50
+offset_ = 0
 
 slider = None
 
-color_range = {1.1: "blue", 2.2: "turquoise"}
+color_range = {1.1: "blue", 1.2: "red", 2.2: "turquoise", 30: "green"}
+color_range = ["blue", "red", "turquoise", "green"]
+
+
+def get_color_for_type(type_):
+    if type_ == 1.1:
+        return "blue"
+    elif type_ == 1.2:
+        return "red"
+    elif type_ == 2.2:
+        return "turquoise"
+    elif type_ == 3:
+        return "green"
+    else:
+        return "gray"
 
 
 def add_sibernetic_model(
@@ -44,15 +58,15 @@ def add_sibernetic_model(
     position_file="Sibernetic/position_buffer.txt",
     report_file=None,
     swap_y_z=False,
-    offset=50,
+    offset=0,
     include_boundary=False,
 ):
-    global all_points, all_point_types, last_mesh, plotter, offset_, slider
+    global all_points, all_point_types, last_meshes, plotter, offset_, slider
 
     offset_ = offset
     plotter = pl
 
-    points = []
+    points = {}
     types = []
 
     line_count = 0
@@ -61,33 +75,40 @@ def add_sibernetic_model(
     logStep = None
 
     report_data = None
+    count_point_types = {}
 
     if report_file is not None:
         sim_dir = os.path.dirname(os.path.abspath(report_file))
         report_data = json.load(open(report_file, "r"))
         print(report_data)
         position_file = os.path.join(sim_dir, "position_buffer.txt")
-        muscle_activation_file = os.path.join(sim_dir, "muscles_activity_buffer.txt")
-        print("Loading muscle activation file from: %s" % muscle_activation_file)
-        musc_dat = np.loadtxt(muscle_activation_file, delimiter="\t").T
-        print(musc_dat)
-        print(musc_dat.shape)
-        # plt.imshow(musc_dat, interpolation="none", aspect="auto", cmap="YlOrRd")
 
-        f, ax = plt.subplots(tight_layout=True)
-        ax.imshow(musc_dat, interpolation="none", aspect="auto", cmap="YlOrRd")
-        # ax.set_ylim([-1, 1])
-        ax.set_xlabel("Time (s)")
-        _ = ax.set_ylabel("Muscle")
+        if "worm" in report_data["configuration"]:
+            muscle_activation_file = os.path.join(
+                sim_dir, "muscles_activity_buffer.txt"
+            )
+            print("Loading muscle activation file from: %s" % muscle_activation_file)
+            musc_dat = np.loadtxt(muscle_activation_file, delimiter="\t").T
+            print(musc_dat)
+            print(musc_dat.shape)
+            # plt.imshow(musc_dat, interpolation="none", aspect="auto", cmap="YlOrRd")
 
-        h_chart = pv.ChartMPL(f, size=(0.35, 0.35), loc=(0.02, 0.06))
-        h_chart.title = None
-        h_chart.border_color = "white"
-        h_chart.show_title = False
-        h_chart.background_color = (1.0, 1.0, 1.0, 0.4)
-        pl.add_chart(
-            h_chart,
-        )
+            f, ax = plt.subplots(tight_layout=True)
+            ax.imshow(musc_dat, interpolation="none", aspect="auto", cmap="YlOrRd")
+            # ax.set_ylim([-1, 1])
+            ax.set_xlabel("Time (s)")
+            _ = ax.set_ylabel("Muscle")
+
+            h_chart = pv.ChartMPL(f, size=(0.35, 0.35), loc=(0.02, 0.06))
+            h_chart.title = None
+            h_chart.border_color = "white"
+            h_chart.show_title = False
+            h_chart.background_color = (1.0, 1.0, 1.0, 0.4)
+            pl.add_chart(
+                h_chart,
+            )
+
+    first_pass_complete = False
 
     for line in open(position_file):
         ws = line.split()
@@ -105,12 +126,19 @@ def add_sibernetic_model(
 
         if len(ws) == 4:
             type_ = float(ws[3])
+            if type_ not in points:
+                points[type_] = []
+
+            if not first_pass_complete:
+                if type_ not in count_point_types:
+                    count_point_types[type_] = 0
+                count_point_types[type_] += 1
 
             if type_ not in boundary_point_types:
                 if swap_y_z:
-                    points.append([float(ws[1]), 1 * float(ws[0]), float(ws[2])])
+                    points[type_].append([float(ws[1]), 1 * float(ws[0]), float(ws[2])])
                 else:
-                    points.append([float(ws[0]), float(ws[1]), float(ws[2])])
+                    points[type_].append([float(ws[0]), float(ws[1]), float(ws[2])])
 
                 types.append(type_)
 
@@ -131,6 +159,7 @@ def add_sibernetic_model(
             pcount += 1
 
             if pcount == numOfBoundaryP + numOfElasticP + numOfLiquidP:
+                first_pass_complete = True
                 print(
                     "End of one batch of %i added, %i total points at line %i, time: %i"
                     % (len(points), pcount, line_count, time_count)
@@ -138,7 +167,7 @@ def add_sibernetic_model(
                 all_points.append(points)
                 all_point_types.append(types)
 
-                points = []
+                points = {}
                 types = []
                 pcount = 0
                 numOfBoundaryP = 0
@@ -146,8 +175,6 @@ def add_sibernetic_model(
                 time_count += 1
 
         line_count += 1
-
-    # all_points_np = np.array(all_points)
 
     print(
         "Loaded positions with %i elastic, %i liquid and %i boundary points (%i total), %i lines"
@@ -162,7 +189,6 @@ def add_sibernetic_model(
 
     if include_boundary:
         bound_mesh = pv.PolyData(boundary_points)
-        bound_mesh.translate((offset_, -50, -100), inplace=True)
 
         plotter.add_mesh(
             bound_mesh,
@@ -172,10 +198,9 @@ def add_sibernetic_model(
         )
 
     print("Num of time points found: %i" % len(all_points))
+    print("Count of point types found: %s" % dict(sorted(count_point_types.items())))
 
     create_mesh(0)
-
-    plotter.remove_scalar_bar("types")
 
     max_time = len(all_points) - 1
 
@@ -187,7 +212,7 @@ def add_sibernetic_model(
 
 
 def play_animation(play):
-    global plotter, last_mesh, all_points, all_point_types, replaying, slider
+    global plotter, last_meshes, all_points, all_point_types, replaying, slider
     print("Playing animation: %s" % play)
 
     if not play:
@@ -198,8 +223,8 @@ def play_animation(play):
         replaying = True
         print("Animation started.")
 
-    if last_mesh is None:
-        print("No mesh to animate. Please load a model first.")
+    if last_meshes is None:
+        print("No meshes to animate. Please load a model first.")
         return
 
     for i in range(len(all_points)):
@@ -223,7 +248,7 @@ def play_animation(play):
 def create_mesh(step):
     step_count = step
     value = step_count
-    global all_points, all_point_types, last_mesh, plotter, offset_, replaying
+    global all_points, all_point_types, last_meshes, plotter, offset_, replaying
 
     index = int(value)
     if index >= len(all_points):
@@ -235,27 +260,32 @@ def create_mesh(step):
         return
 
     print("   -- Creating new mesh at time point: %s (%s) " % (index, value))
-    curr_points = all_points[index]
+    curr_points_dict = all_points[index]
     curr_types = all_point_types[index]
 
-    print("     Plotting %i points with %i types" % (len(curr_points), len(curr_types)))
+    print(
+        "      Plotting %i points with %i types"
+        % (len(curr_points_dict), len(curr_types))
+    )
 
-    if last_mesh is None:
-        last_mesh = pv.PolyData(curr_points)
-        last_mesh["types"] = curr_types
-        last_mesh.translate((0, -1000, 0), inplace=True)
-        # print(last_mesh)
+    for type_, curr_points in curr_points_dict.items():
+        print("       - Plotting %i points of type '%s'" % (len(curr_points), type_))
+        if len(curr_points) == 0:
+            continue
+        if type_ not in last_meshes:
+            last_meshes[type_] = pv.PolyData(curr_points)
+            last_meshes[type_].translate((0, 0, 0), inplace=True)
 
-        # last_actor =
-        plotter.add_mesh(
-            last_mesh,
-            render_points_as_spheres=True,
-            cmap=[c for c in color_range.values()],
-            point_size=point_size,
-        )
-    else:
-        last_mesh.points = curr_points
-        last_mesh.translate((offset_, -50, -100), inplace=True)
+            # last_actor =
+            plotter.add_mesh(
+                last_meshes[type_],
+                render_points_as_spheres=True,
+                point_size=point_size,
+                color=get_color_for_type(type_),
+            )
+        else:
+            last_meshes[type_].points = curr_points
+            last_meshes[type_].translate((offset_, 0, 0), inplace=True)
 
     plotter.render()
     # time.sleep(0.1)
