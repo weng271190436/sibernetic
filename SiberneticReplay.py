@@ -35,13 +35,15 @@ def get_color_info_for_type(type_):
     """
 
     if type_ == 1.1:
-        return "blue", "liquid 1", 5
+        return "#8BEBFC", "liquid 1", 5
     elif type_ == 1.2:
-        return "red", "liquid 2", 5
+        return "#3ACFF0", "liquid 2", 5
     elif type_ == 2.1:
-        return "green", "elastic 1", 5
+        return "yellow", "elastic 1", 5
     elif type_ == 2.2:
-        return "turquoise", "elastic 2", 5
+        return "#FF0000", "elastic 2", 5
+    elif type_ > 2 and type_ < 3:
+        return "#00cc00", "elastic variable", 5
     elif type_ == 3:
         return "grey", "boundary 0", 3
     elif type_ == 3.1:
@@ -308,7 +310,10 @@ if __name__ == "__main__":
     )
     plotter.set_background("white")
     plotter.add_axes()
-    # plotter.set_viewup([0, 0, 10])
+    plotter.camera_position = "zx"
+    plotter.camera.roll = 90
+    plotter.camera.elevation = 45
+    print(plotter.camera_position)
 
     if "-nogui" not in sys.argv:
         plotter.show()
