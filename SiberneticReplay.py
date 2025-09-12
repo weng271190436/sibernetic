@@ -22,35 +22,32 @@ replaying = False
 all_points = []
 all_point_types = []
 
-boundary_points = []
-boundary_point_types = [3, 3.1]
-
-point_size = 5
-boundary_point_size = 3
-
-boundary_color = "#eeeeee"
 
 plotter = None
-
 offset_ = 0
-
 slider = None
 
-color_range = {1.1: "blue", 1.2: "red", 2.2: "turquoise", 30: "green"}
-color_range = ["blue", "red", "turquoise", "green"]
 
+def get_color_info_for_type(type_):
+    """
+    Get color, info string and point size for a given point type
+    returns: color, info, size
+    """
 
-def get_color_for_type(type_):
     if type_ == 1.1:
-        return "blue"
+        return "blue", "liquid 1", 5
     elif type_ == 1.2:
-        return "red"
+        return "red", "liquid 2", 5
+    elif type_ == 2.1:
+        return "green", "elastic 1", 5
     elif type_ == 2.2:
-        return "turquoise"
+        return "turquoise", "elastic 2", 5
     elif type_ == 3:
-        return "green"
+        return "grey", "boundary 0", 3
+    elif type_ == 3.1:
+        return "black", "boundary 1", 7
     else:
-        return "gray"
+        return "orange", "unknown", 5
 
 
 def add_sibernetic_model(
@@ -134,26 +131,12 @@ def add_sibernetic_model(
                     count_point_types[type_] = 0
                 count_point_types[type_] += 1
 
-            if type_ not in boundary_point_types:
-                if swap_y_z:
-                    points[type_].append([float(ws[1]), 1 * float(ws[0]), float(ws[2])])
-                else:
-                    points[type_].append([float(ws[0]), float(ws[1]), float(ws[2])])
-
-                types.append(type_)
-
+            if swap_y_z:
+                points[type_].append([float(ws[1]), 1 * float(ws[0]), float(ws[2])])
             else:
-                if include_boundary:
-                    if swap_y_z:
-                        boundary_points.append(
-                            [float(ws[1]), 1 * float(ws[0]), float(ws[2])]
-                        )
-                    else:
-                        boundary_points.append(
-                            [float(ws[0]), float(ws[1]), float(ws[2])]
-                        )
+                points[type_].append([float(ws[0]), float(ws[1]), float(ws[2])])
 
-                    # types.append(type_)
+            types.append(type_)
 
         if logStep is not None:
             pcount += 1
@@ -161,8 +144,8 @@ def add_sibernetic_model(
             if pcount == numOfBoundaryP + numOfElasticP + numOfLiquidP:
                 first_pass_complete = True
                 print(
-                    "End of one batch of %i added, %i total points at line %i, time: %i"
-                    % (len(points), pcount, line_count, time_count)
+                    "End of one batch of %i total points (%i types), at line %i, time: %i"
+                    % (pcount, len(points), line_count, time_count)
                 )
                 all_points.append(points)
                 all_point_types.append(types)
@@ -177,7 +160,7 @@ def add_sibernetic_model(
         line_count += 1
 
     print(
-        "Loaded positions with %i elastic, %i liquid and %i boundary points (%i total), %i lines"
+        "Loaded positions with %i elastic, %i liquid and %i boundary points (%i total), over %i lines"
         % (
             numOfElasticP,
             numOfLiquidP,
@@ -186,16 +169,6 @@ def add_sibernetic_model(
             line_count,
         )
     )
-
-    if include_boundary:
-        bound_mesh = pv.PolyData(boundary_points)
-
-        plotter.add_mesh(
-            bound_mesh,
-            render_points_as_spheres=True,
-            color=boundary_color,
-            point_size=boundary_point_size,
-        )
 
     print("Num of time points found: %i" % len(all_points))
     print("Count of point types found: %s" % dict(sorted(count_point_types.items())))
@@ -248,7 +221,7 @@ def play_animation(play):
 def create_mesh(step):
     step_count = step
     value = step_count
-    global all_points, all_point_types, last_meshes, plotter, offset_, replaying
+    global all_points, last_meshes, plotter, offset_, replaying
 
     index = int(value)
     if index >= len(all_points):
@@ -261,15 +234,20 @@ def create_mesh(step):
 
     print("   -- Creating new mesh at time point: %s (%s) " % (index, value))
     curr_points_dict = all_points[index]
-    curr_types = all_point_types[index]
 
-    print(
-        "      Plotting %i points with %i types"
-        % (len(curr_points_dict), len(curr_types))
-    )
+    print("      Plotting %i point types" % (len(curr_points_dict)))
 
     for type_, curr_points in curr_points_dict.items():
-        print("       - Plotting %i points of type '%s'" % (len(curr_points), type_))
+        color, info, size = get_color_info_for_type(type_)
+        is_boundary = "boundary" in info
+        if include_boundary is False and is_boundary:
+            continue
+
+        print(
+            "       - Plotting %i points of type '%s' (%s), color: %s, size: %i"
+            % (len(curr_points), type_, info, color, size)
+        )
+
         if len(curr_points) == 0:
             continue
         if type_ not in last_meshes:
@@ -280,12 +258,15 @@ def create_mesh(step):
             plotter.add_mesh(
                 last_meshes[type_],
                 render_points_as_spheres=True,
-                point_size=point_size,
-                color=get_color_for_type(type_),
+                point_size=size,
+                color=color,
             )
         else:
-            last_meshes[type_].points = curr_points
-            last_meshes[type_].translate((offset_, 0, 0), inplace=True)
+            if not is_boundary:
+                last_meshes[type_].points = curr_points
+                last_meshes[type_].translate((offset_, 0, 0), inplace=True)
+            else:
+                print("Boundary points not translated")
 
     plotter.render()
     # time.sleep(0.1)
