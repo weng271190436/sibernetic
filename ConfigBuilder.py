@@ -167,7 +167,7 @@ class Configuration:
         )
 
         info = (
-            f"Configuration with {len(self.particles)} particles (liq: {liquid_count}, elast: {elastic_count}, bound: {boundary_count}), {len(self.connections)}(={len(self.connections)/32}*32) connections, "
+            f"Configuration with {len(self.particles)} particles (liq: {liquid_count}, elast: {elastic_count}, bound: {boundary_count}), {len(self.connections)}(={len(self.connections) / 32}*32) connections, "
             f"{len(self.membranes)} membranes, and {len(self.particle_mem_index)} particle membrane indices."
         )
         info += f"\n    Simulation box: x: {self.simulation_box[0]}->{self.simulation_box[1]}, y: {self.simulation_box[2]}->{self.simulation_box[3]}, z: {self.simulation_box[4]}->{self.simulation_box[5]} "
@@ -314,9 +314,9 @@ def write_configuration_file(
         file.write(f"[{CONNECTION}]\n")
         if include_elastics:
             for conn in configuration.connections:
-                assert int(
-                    conn[0] < elastic_count
-                ), f"Connection: {conn} exceeds elastic count {elastic_count}."
+                assert int(conn[0] < elastic_count), (
+                    f"Connection: {conn} exceeds elastic count {elastic_count}."
+                )
                 file.write(f"{conn[0]}\t{conn[1]}\t{conn[2]}\t{conn[3]}\n")
 
         file.write(f"[{MEMBRANES}]\n")
