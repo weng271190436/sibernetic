@@ -13,6 +13,7 @@ import json
 import numpy as np
 import matplotlib.pyplot as plt
 
+from enum import Enum
 
 last_meshes = {}
 
@@ -27,10 +28,117 @@ offset3d_ = (0, 0, 0)
 slider = None
 
 show_boundary = False
-
 max_time = None
 
 verbose = False
+
+
+class State(Enum):
+    PAUSED = "Paused"
+    RUNNING = "Running"
+
+
+class ReplayController:
+    slider_view = None
+
+    def __init__(self, times=None):
+        self.times = list(times)
+        self.state = State.PAUSED
+        self.current_time_index = 0
+
+    def play(self, should_play):
+        if should_play:
+            print(" > Starting replay playback.")
+
+            if self.current_time_index == len(self.times)-1:
+                print(" > Replay at end of time, resetting to start.")
+                self.set_to_time(0)
+
+            self.state = State.RUNNING
+            while self.state == State.RUNNING and self.current_time_index + 1 < len(
+                self.times
+            ):
+                self.current_time_index += 1
+                print(f" > Advancing to time index: {self.current_time_index}")
+                self.render_all()
+                time.sleep(replay_speed)
+            print(" > Replay playback finished or paused.")
+            self.state = State.PAUSED
+
+        else:
+            print(" > Pausing replay playback.")
+            self.state = State.PAUSED
+
+    def step_forward(self):
+        if self.state == State.RUNNING:
+            self.state = State.PAUSED
+
+        if self.current_time_index + 1 >= len(self.times):
+            print(" > Replay at end of time, cannot step forward.")
+            return
+
+        self.current_time_index += 1
+        print(f" > Stepping forward one time step to index: {self.current_time_index}")
+        self.render_all()
+
+    def step_backward(self):
+        if self.state == State.RUNNING:
+            self.state = State.PAUSED
+
+        if self.current_time_index == 0:
+            print(" > Replay at start of time, cannot step backward.")
+            return
+
+        self.current_time_index -= 1
+        print(f" > Stepping backward one time step to index: {self.current_time_index}")
+        self.render_all()
+
+    def set_to_time(self, time_value):
+        if time_value == 0:
+            closest_index = 0
+            closest_time = 0
+        else:
+            if time_value in self.times:
+                closest_index = self.times.index(time_value)
+                closest_time = self.times[closest_index]
+                print(
+                    f" > .Finding closest time to {time_value}, got index: {closest_index}"
+                )
+            else:
+                closest = min(self.times, key=lambda x: abs(x - time_value))
+                closest_index = self.times.index(closest)
+                print(
+                    f" > Finding closest time to {time_value}, got index: {closest_index}"
+                )
+                closest_time = self.times[closest_index]
+
+        self.current_time_index = closest_index
+
+        print(
+            " > Replay requested to be set to: %s; being set to time value %s (index: %d)."
+            % (time_value, self.current_time_index, closest_time)
+        )
+        self.state = State.PAUSED
+        self.render_all()
+
+    def render_all(self):
+        print(
+            " > Rendering replay at time index: %d (time: %s)"
+            % (self.current_time_index, self.times[self.current_time_index])
+        )
+        if self.slider_view is not None:
+            self.slider_view.GetSliderRepresentation().SetValue(
+                self.times[self.current_time_index]
+            )
+        create_mesh(self.current_time_index)
+        plotter.render()
+        plotter.update()
+
+    def get_state(self):
+        return f" > Replay state: {self.state}, current time index: {self.current_time_index}, so time is {self.times[self.current_time_index]} of max time {self.times[-1]} ({len(self.times)} time points)."
+
+
+replay_controller = None
 
 
 def get_color_info_for_type(type_):
@@ -77,7 +185,8 @@ def add_sibernetic_model(
         offset3d_, \
         slider, \
         show_boundary, \
-        max_time
+        max_time, \
+        replay_controller
 
     offset3d_ = offset3d
     plotter = pl
@@ -103,11 +212,26 @@ def add_sibernetic_model(
         position_file = os.path.join(sim_dir, "position_buffer.txt")
         dt = float(report_data.get("dt").split(" ")[0])
         duration = float(report_data.get("duration").split(" ")[0])
+        log_step = int(report_data.get("logstep"))
+
         max_time = duration
-        time_points = np.linspace(0, duration, int(duration / dt) + 1)
+        neuron_time_points = np.linspace(0, duration, int(duration / dt) + 1)
+
+        sibernetic_time_points = np.linspace(
+            0, duration, int((duration / dt) / log_step)
+        )
+        replay_controller = ReplayController(times=sibernetic_time_points)
+
         print(
-            "Simulation dt: %s ms, duration: %s ms, times: %s"
-            % (dt, duration, time_points)
+            "Simulation dt: %s ms, duration: %s ms, times simulated (%i): %s; sibernetic logged times (%i): %s"
+            % (
+                dt,
+                duration,
+                len(neuron_time_points),
+                neuron_time_points,
+                len(sibernetic_time_points),
+                sibernetic_time_points,
+            )
         )
 
         if "worm" in report_data["configuration"]:
@@ -207,28 +331,117 @@ def add_sibernetic_model(
     )
 
     print("Num of time points found: %i" % len(all_points))
+
+    if replay_controller is None:
+        time_points = np.arange(len(all_points))
+        replay_controller = ReplayController(times=time_points)
+
     print("Count of point types found: %s" % dict(sorted(count_point_types.items())))
 
     create_mesh(0)
 
     slider_text = "Time point"
+
     if max_time is None:
         max_time = len(all_points) - 1
     else:
         slider_text = "Time (ms)"
 
     slider = pl.add_slider_widget(
-        create_mesh, rng=[0, max_time], value=0, title=slider_text, style="modern"
+        slider_updated, rng=[0, max_time], value=0, title=slider_text, style="modern"
     )
 
-    pl.add_checkbox_button_widget(play_animation, value=False)
+    replay_controller.slider_view = slider
+
+    button_height = 10
+    txt_offset = 8
+    txt_voffset = 12
+
+    b1 = 10
+    pl.add_checkbox_button_widget(
+        back_checkbox_pressed,
+        value=False,
+        position=(b1, button_height),
+        color_on="lightgrey",
+        color_off="lightgrey",
+    )
+    pl.add_text(
+        "<|",
+        position=(b1 + txt_offset, button_height + txt_voffset),
+        font_size=12,
+        color="black",
+    )
+    b2 = 80
+    pl.add_checkbox_button_widget(
+        play_checkbox_pressed,
+        value=False,
+        position=(b2, button_height),
+        color_on="lightgrey",
+        color_off="darkgrey",
+    )
+    pl.add_text(
+        " >",
+        position=(b2 + txt_offset, button_height + txt_voffset),
+        font_size=12,
+        color="black",
+    )
+    b3 = 150
+    pl.add_checkbox_button_widget(
+        fwd_checkbox_pressed,
+        value=False,
+        position=(b3, button_height),
+        color_on="lightgrey",
+        color_off="lightgrey",
+    )
+    pl.add_text(
+        "|>",
+        position=(b3 + txt_offset, button_height + txt_voffset),
+        font_size=12,
+        color="black",
+    )
 
 
+def slider_updated(value):
+    global replay_controller
+    print(
+        f" > Slider updated to value: {value}, replay: {replay_controller.get_state()}"
+    )
+
+    replay_controller.set_to_time(value)
+
+
+def fwd_checkbox_pressed(value):
+    global replay_controller
+    print(f" > Fwd checkbox pressed, value: {value}")
+    replay_controller.step_forward()
+
+
+def play_checkbox_pressed(value):
+    global replay_controller
+    print(f" > Play checkbox pressed, value: {value}")
+    replay_controller.play(value)
+
+
+def back_checkbox_pressed(value):
+    global replay_controller
+    print(f" > Back checkbox pressed, value: {value}")
+    replay_controller.step_backward()
+
+'''
 def play_animation(play_button_active):
-    global plotter, last_meshes, all_points, all_point_types, replaying, slider
+    global \
+        plotter, \
+        last_meshes, \
+        all_points, \
+        all_point_types, \
+        replaying, \
+        slider, \
+        replay_controller
+
     print(
         f"Animation button pressed. Button active {play_button_active}; replaying: {replaying}, slider value: {slider.GetSliderRepresentation().GetValue()}"
     )
+    print(replay_controller.get_state())
 
     if not play_button_active:
         if not replaying:
@@ -268,25 +481,24 @@ def play_animation(play_button_active):
         plotter.render()
         time.sleep(replay_speed)
 
-    replaying = False
+    replaying = False'''
 
 
-def create_mesh(step):
-    step_count = step
-    value = step_count
-    global all_points, last_meshes, plotter, offset3d_, replaying, show_boundary
+def create_mesh(time_index):
+    global all_points, last_meshes, plotter, offset3d_, show_boundary
 
-    index = int(value)
-    if index >= len(all_points):
+    if time_index >= len(all_points):
         print(
             "Index %i out of bounds for all_points with length %i"
-            % (index, len(all_points))
+            % (time_index, len(all_points))
         )
-        replaying = False
         return
 
-    print("   -- Creating new mesh at time point: %s (%s) " % (index, value))
-    curr_points_dict = all_points[index]
+    print(
+        "   -- Creating new mesh at time point index: %s/%s"
+        % (time_index, len(all_points))
+    )
+    curr_points_dict = all_points[time_index]
 
     print("      Plotting %i point types" % (len(curr_points_dict)))
 
@@ -294,6 +506,18 @@ def create_mesh(step):
         color, info, size = get_color_info_for_type(type_)
         is_boundary = "boundary" in info
         if show_boundary is False and is_boundary:
+            mx = max(curr_points)
+            mn = min(curr_points)
+            print(mx)
+            print(mn)
+            a = [mn[0], mn[1], mn[2]]
+            b = [mn[0], mx[1], mn[2]]
+            c = [mn[0], mx[1], mx[2]]
+            d = [mn[0], mn[1], mx[2]]
+
+            points = np.array([a, b, b, c, c, d, d, a])
+            plotter.add_lines(points, color="grey", width=2)
+            # quit()
             continue
 
         if verbose:
@@ -372,11 +596,11 @@ if __name__ == "__main__":
     print(plotter.camera_position)
 
     def on_close_callback(plotter):
-        global replaying
+        global replay_controller
         print(
-            f"Plotter window is closing. Performing actions now (replaying: {replaying})."
+            f"Plotter window is closing. Performing actions now (replay: {replay_controller.get_state()})."
         )
-        replaying = False
+        replay_controller.state = State.PAUSED
 
     if "-nogui" not in sys.argv:
         plotter.show(before_close_callback=on_close_callback, auto_close=True)
