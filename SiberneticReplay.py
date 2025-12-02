@@ -46,11 +46,11 @@ class ReplayController:
         self.state = State.PAUSED
         self.current_time_index = 0
 
-    def play(self, should_play):
+    def play(self, should_play, step=1):
         if should_play:
             print(" > Starting replay playback.")
 
-            if self.current_time_index == len(self.times)-1:
+            if self.current_time_index == len(self.times) - 1:
                 print(" > Replay at end of time, resetting to start.")
                 self.set_to_time(0)
 
@@ -58,7 +58,9 @@ class ReplayController:
             while self.state == State.RUNNING and self.current_time_index + 1 < len(
                 self.times
             ):
-                self.current_time_index += 1
+                self.current_time_index = min(
+                    self.current_time_index + step, len(self.times) - 1
+                )
                 print(f" > Advancing to time index: {self.current_time_index}")
                 self.render_all()
                 time.sleep(replay_speed)
@@ -233,6 +235,18 @@ def add_sibernetic_model(
                 sibernetic_time_points,
             )
         )
+        from wcon.generate_wcon import generate_wcon
+
+        sib_position_file = os.path.join(sim_dir, "worm_motion_log.txt")
+        wcon_output_file = "/tmp/worm_motion_log.wcon"
+
+        x, y, z, ts, body_curv_data = generate_wcon(
+            sib_position_file,
+            wcon_file_name=wcon_output_file,
+            rate_to_plot=1,
+            plot=False,
+        )
+        print("WCON file (re)generated at: %s" % wcon_output_file)
 
         if "worm" in report_data["configuration"]:
             muscle_activation_file = os.path.join(
@@ -244,25 +258,52 @@ def add_sibernetic_model(
             print(musc_dat.shape)
             # plt.imshow(musc_dat, interpolation="none", aspect="auto", cmap="YlOrRd")
 
-            f, ax = plt.subplots(tight_layout=True)
-            ax.imshow(musc_dat, interpolation="none", aspect="auto", cmap="YlOrRd")
+            f_musc, ax_musc = plt.subplots(tight_layout=True)
+            ax_musc.imshow(musc_dat, interpolation="none", aspect="auto", cmap="YlOrRd")
 
             num_ticks = 5
-            ax.set_xticks(np.linspace(0, musc_dat.shape[1], num_ticks))
-            ax.set_xticklabels(np.linspace(0, duration, num_ticks))
+            ax_musc.set_xticks(np.linspace(0, musc_dat.shape[1], num_ticks))
+            ax_musc.set_xticklabels(np.linspace(0, duration, num_ticks))
             # quit()
 
             # ax.set_ylim([-1, 1])
-            ax.set_xlabel("Time (ms)")
-            _ = ax.set_ylabel("Muscle")
+            ax_musc.set_xlabel("Time (ms)")
+            _ = ax_musc.set_ylabel("Muscle")
 
-            h_chart = pv.ChartMPL(f, size=(0.35, 0.35), loc=(0.02, 0.06))
-            h_chart.title = None
-            h_chart.border_color = "white"
-            h_chart.show_title = False
-            h_chart.background_color = (1.0, 1.0, 1.0, 0.4)
+            musc_chart = pv.ChartMPL(f_musc, size=(0.35, 0.35), loc=(0.02, 0.06))
+            musc_chart.title = None
+            musc_chart.border_color = "white"
+            musc_chart.show_title = False
+            musc_chart.background_color = (1.0, 1.0, 1.0, 0.4)
+
             pl.add_chart(
-                h_chart,
+                musc_chart,
+            )
+
+            f_curv, ax_curv = plt.subplots(tight_layout=True)
+            im = ax_curv.imshow(
+                body_curv_data.transpose(),
+                interpolation="none",
+                aspect="auto",
+                cmap="bwr",
+                vmin=170,
+                vmax=190,
+            )
+            f_curv.colorbar(im)
+
+            ax_curv.set_xlabel("Time (ms)")
+            _ = ax_curv.set_ylabel("Body curv.")
+
+            ax_curv.set_xticks(np.linspace(0, body_curv_data.shape[0], num_ticks))
+            ax_curv.set_xticklabels(np.linspace(0, duration, num_ticks))
+
+            curv_chart = pv.ChartMPL(f_curv, size=(0.35, 0.35), loc=(0.62, 0.06))
+            curv_chart.title = None
+            curv_chart.border_color = "white"
+            curv_chart.show_title = False
+            curv_chart.background_color = (1.0, 1.0, 1.0, 0.4)
+            pl.add_chart(
+                curv_chart,
             )
 
     first_pass_complete = False
@@ -354,6 +395,7 @@ def add_sibernetic_model(
     replay_controller.slider_view = slider
 
     button_height = 10
+    button_separation = 70
     txt_offset = 8
     txt_voffset = 12
 
@@ -371,7 +413,8 @@ def add_sibernetic_model(
         font_size=12,
         color="black",
     )
-    b2 = 80
+
+    b2 = b1 + button_separation
     pl.add_checkbox_button_widget(
         play_checkbox_pressed,
         value=False,
@@ -385,17 +428,33 @@ def add_sibernetic_model(
         font_size=12,
         color="black",
     )
-    b3 = 150
+
+    b3 = b2 + button_separation
+    pl.add_checkbox_button_widget(
+        ff_checkbox_pressed,
+        value=False,
+        position=(b3, button_height),
+        color_on="lightgrey",
+        color_off="darkgrey",
+    )
+    pl.add_text(
+        ">>",
+        position=(b3 + txt_offset, button_height + txt_voffset),
+        font_size=12,
+        color="black",
+    )
+
+    b4 = b3 + button_separation
     pl.add_checkbox_button_widget(
         fwd_checkbox_pressed,
         value=False,
-        position=(b3, button_height),
+        position=(b4, button_height),
         color_on="lightgrey",
         color_off="lightgrey",
     )
     pl.add_text(
         "|>",
-        position=(b3 + txt_offset, button_height + txt_voffset),
+        position=(b4 + txt_offset, button_height + txt_voffset),
         font_size=12,
         color="black",
     )
@@ -419,7 +478,13 @@ def fwd_checkbox_pressed(value):
 def play_checkbox_pressed(value):
     global replay_controller
     print(f" > Play checkbox pressed, value: {value}")
-    replay_controller.play(value)
+    replay_controller.play(value, 1)
+
+
+def ff_checkbox_pressed(value):
+    global replay_controller
+    print(f" > FF checkbox pressed, value: {value}")
+    replay_controller.play(value, 10)
 
 
 def back_checkbox_pressed(value):
@@ -427,7 +492,8 @@ def back_checkbox_pressed(value):
     print(f" > Back checkbox pressed, value: {value}")
     replay_controller.step_backward()
 
-'''
+
+"""
 def play_animation(play_button_active):
     global \
         plotter, \
@@ -481,7 +547,7 @@ def play_animation(play_button_active):
         plotter.render()
         time.sleep(replay_speed)
 
-    replaying = False'''
+    replaying = False"""
 
 
 def create_mesh(time_index):

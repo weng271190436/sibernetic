@@ -188,7 +188,7 @@ def generate_wcon(
                 linewidth=0.5,
             )
 
-    data = np.zeros((len(ts), len(xs) - 4))
+    body_curv_data = np.zeros((len(ts), len(xs) - 4))
 
     print_("Finished parsing %i lines" % line_num)
 
@@ -212,9 +212,9 @@ def generate_wcon(
 
             deg = 360 * (angle / (2 * math.pi))
 
-            data[ti][i - 2] = deg
+            body_curv_data[ti][i - 2] = deg
 
-            ###print("At t=%s, i=%s: angle from between (%s,%s) - (%s,%s) - (%s,%s) = %s, %sdeg"%(ts[ti], i, x1,y1,xc,yc,x2,y2,angle,deg))
+            #print("At t=%s, i=%s: angle from between (%s,%s) - (%s,%s) - (%s,%s) = %s, %sdeg"%(ts[ti], i, x1,y1,xc,yc,x2,y2,angle,deg))
 
     info = "Loaded: %s points from %s, saving %i frames" % (
         line_num,
@@ -327,7 +327,7 @@ def generate_wcon(
     plt.xlabel("Time (s)")
     plt.ylabel("Percentage along worm")
 
-    plot0 = plt.imshow(data.transpose(), interpolation="nearest", aspect="auto")
+    plot0 = plt.imshow(body_curv_data.transpose(), interpolation="nearest", aspect="auto")
     ax = plt.gca()
     info = "Propagation of curvature along body of worm (180=straight)"
     fig.canvas.manager.set_window_title(info)
@@ -349,7 +349,7 @@ def generate_wcon(
     if plot:
         plt.show()
 
-    return x, y, z, ts
+    return x, y, z, ts, body_curv_data
 
 
 def validate(wcon_file):
