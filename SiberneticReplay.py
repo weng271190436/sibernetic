@@ -134,7 +134,10 @@ class ReplayController:
             )
         create_mesh(self.current_time_index)
         plotter.render()
-        plotter.update()
+        try:
+            plotter.update()
+        except Exception:
+            pass  # plotter may not be initialised yet
 
     def get_state(self):
         return f" > Replay state: {self.state}, current time index: {self.current_time_index}, so time is {self.times[self.current_time_index]} of max time {self.times[-1]} ({len(self.times)} time points)."
@@ -273,7 +276,6 @@ def add_sibernetic_model(
             musc_chart = pv.ChartMPL(f_musc, size=(0.35, 0.35), loc=(0.02, 0.06))
             musc_chart.title = None
             musc_chart.border_color = "white"
-            musc_chart.show_title = False
             musc_chart.background_color = (1.0, 1.0, 1.0, 0.4)
 
             pl.add_chart(
@@ -293,6 +295,7 @@ def add_sibernetic_model(
 
             ax_curv.set_xlabel("Time (ms)")
             _ = ax_curv.set_ylabel("Body curv.")
+            ax_curv.set_in_layout(False)
 
             ax_curv.set_xticks(np.linspace(0, body_curv_data.shape[0], num_ticks))
             ax_curv.set_xticklabels(np.linspace(0, duration, num_ticks))
@@ -300,7 +303,6 @@ def add_sibernetic_model(
             curv_chart = pv.ChartMPL(f_curv, size=(0.35, 0.35), loc=(0.62, 0.06))
             curv_chart.title = None
             curv_chart.border_color = "white"
-            curv_chart.show_title = False
             curv_chart.background_color = (1.0, 1.0, 1.0, 0.4)
             pl.add_chart(
                 curv_chart,
