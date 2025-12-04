@@ -29,6 +29,8 @@ DEFAULTS = {
     "simName": None,  # This is set to None by default (will be generated from otehr info), but can be set explicitly
 }
 
+SUCCESS = "Completed successfully"
+
 
 """
     For recording the version of core Sibernetic in report file
@@ -187,7 +189,9 @@ def print_(msg):
 def main(args=None):
     if args is None:
         args = process_args()
-    run(a=args)
+    simdir, reportj = run(a=args)
+    if not reportj["completion_status"] == SUCCESS:
+        exit(-1)  # Exit with error if simulation not successful
 
 
 def build_namespace(a=None, **kwargs):
@@ -431,7 +435,6 @@ def run(a=None, **kwargs):
 
     reportj = {}
 
-    SUCCESS = "Completed successfully"
     completion_status = "Not completed"
 
     announce(
@@ -618,7 +621,7 @@ def run(a=None, **kwargs):
 
         if not passed:
             announce("Failed tests!!")
-            exit(-1)
+            reportj["completion_status"] += " (Failed tests)"
         else:
             announce("Passed all tests!!")
 
