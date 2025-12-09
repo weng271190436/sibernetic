@@ -84,7 +84,7 @@ void test_energy_conservation(int argc, char **argv) {
     energy_evolution_total.push_back(total_energy);
     energy_evolution_kinetic.push_back(kinetic_energy);
     energy_evolution_potential.push_back(potential_energy);
-    fluid_simulation->simulationStep();
+    fluid_simulation->simulationStep(false, false);
     if (counter == 5000)
       break;
     counter++;

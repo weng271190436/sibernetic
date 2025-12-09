@@ -27,6 +27,7 @@ DEFAULTS = {
     "datareader": "SpreadsheetDataReader",
     "test": False,
     "simName": None,  # This is set to None by default (will be generated from otehr info), but can be set explicitly
+    "q": False,
 }
 
 SUCCESS = "Completed successfully"
@@ -176,6 +177,14 @@ def process_args():
         default=DEFAULTS["simName"],
         help="Simulation name, default: %s, if not set, will be generated from other info incl date/time"
         % DEFAULTS["simName"],
+    )
+
+    parser.add_argument(
+        "-q",
+        action="store_true",
+        default=DEFAULTS["q"],
+        help="Use this flag to run Sibernetic with less output to console per time step, default: %s"
+        % DEFAULTS["q"],
     )
 
     return parser.parse_args()
@@ -407,9 +416,10 @@ def run(a=None, **kwargs):
             sys.exit()
 
     command = (
-        "./Release/Sibernetic %s -f %s -no_g -l_to lpath=%s timelimit=%s timestep=%s logstep=%s device=%s"
+        "./Release/Sibernetic %s %s -f %s -no_g -l_to lpath=%s timelimit=%s timestep=%s logstep=%s device=%s"
         % (
             "" if a.noc302 else "-c302",
+            "-q" if a.q else "",
             a.configuration,
             sim_dir,
             a.duration / 1000.0,

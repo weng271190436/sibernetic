@@ -43,6 +43,7 @@ extern bool load_to;
 extern bool skip_display_particles;
 extern bool skip_display_membranes;
 extern bool skip_display_connections;
+extern bool quiet_mode;
 
 int old_x = 0, old_y = 0; // Used for mouse event
 float camera_trans[] = {0, 0, -8.0};
@@ -152,7 +153,7 @@ void display(void) {
     if (!load_from_file) {
       try {
         calculationTime = fluid_simulation->simulationStep(
-            load_to); // Run one simulation step
+            load_to, quiet_mode); // Run one simulation step
         p_indexb = fluid_simulation->getParticleIndex_cpp();
         p_cpp = fluid_simulation->getPosition_cpp();
         d_cpp = fluid_simulation->getDensity_cpp();
@@ -484,7 +485,7 @@ void display(void) {
   }
   glLineWidth((GLfloat)1.0);
   glutSwapBuffers();
-  helper->watch_report(
+  if (!quiet_mode) helper->watch_report(
       "graphics: \t\t%9.3f ms\n====================================\n");
   renderTime = helper->getElapsedTime();
   totalTime += calculationTime + renderTime;
@@ -1099,7 +1100,7 @@ int run(int argc, char **argv, const bool with_graphics) {
   } else {
     while (1) {
       try {
-        fluid_simulation->simulationStep(load_to);
+        fluid_simulation->simulationStep(load_to, quiet_mode);
       } catch (std::runtime_error &ex) {
         cleanupSimulation();
         std::cout << "ERROR: " << ex.what() << std::endl;

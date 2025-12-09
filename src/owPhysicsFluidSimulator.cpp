@@ -340,10 +340,12 @@ void owPhysicsFluidSimulator::genShellPaticlesList() {
  *      Boundary Handling and Adaptive Time-stepping for PCISPH
  *      Proc. VRIPHYS, Copenhagen, Denmark, pp. 79-88, Nov 11-12, 2010
  *
- *  @param looad_to
- *  If it's true than Sibernetic works "load simulation data in file" mode.
+ *  @param load_to
+ *  If it's true then Sibernetic works in "load simulation data in file" mode.
+ *  @param quiet_mode
+ *  If it's true then Sibernetic works in quiet mode, suppressing some verbose output.
  */
-double owPhysicsFluidSimulator::simulationStep(const bool load_to) {
+double owPhysicsFluidSimulator::simulationStep(const bool load_to, const bool quiet_mode) {
   int iter = 0; // PCISPH prediction-correction iterations counter
   //
   // now we will implement sensory system of the c. elegans worm, mechanosensory
@@ -391,17 +393,17 @@ double owPhysicsFluidSimulator::simulationStep(const bool load_to) {
   // ocl_solver->_runClearBuffers();
   // helper->watch_report("_runClearBuffers: \t%9.3f ms\n");
   ocl_solver->_runHashParticles(config);
-  helper->watch_report("_runHashParticles: \t%9.3f ms\n");
+  if (!quiet_mode) helper->watch_report("_runHashParticles: \t%9.3f ms\n");
   ocl_solver->_runSort(config);
-  helper->watch_report("_runSort: \t\t%9.3f ms\n");
+  if (!quiet_mode) helper->watch_report("_runSort: \t\t%9.3f ms\n");
   ocl_solver->_runSortPostPass(config);
-  helper->watch_report("_runSortPostPass: \t%9.3f ms\n");
+  if (!quiet_mode) helper->watch_report("_runSortPostPass: \t%9.3f ms\n");
   ocl_solver->_runIndexx(config);
-  helper->watch_report("_runIndexx: \t\t%9.3f ms\n");
+  if (!quiet_mode) helper->watch_report("_runIndexx: \t\t%9.3f ms\n");
   ocl_solver->_runIndexPostPass(config);
-  helper->watch_report("_runIndexPostPass: \t%9.3f ms\n");
+  if (!quiet_mode) helper->watch_report("_runIndexPostPass: \t%9.3f ms\n");
   ocl_solver->_runFindNeighbors(config);
-  helper->watch_report("_runFindNeighbors: \t%9.3f ms\n");
+  if (!quiet_mode) helper->watch_report("_runFindNeighbors: \t%9.3f ms\n");
   // PCISPH PART
   if (config->getIntegrationMethod() == LEAPFROG) { // in this case we should
                                                     // remmember value of
@@ -426,10 +428,10 @@ double owPhysicsFluidSimulator::simulationStep(const bool load_to) {
   if (config->getIntegrationMethod() == LEAPFROG) {
     ocl_solver->_run_pcisph_integrate(iterationCount, 1 /*=velocities_mode*/,
                                       config);
-    helper->watch_report("_runPCISPH: \t\t%9.3f ms\t3 iteration(s)\n");
+    if (!quiet_mode) helper->watch_report("_runPCISPH: \t\t%9.3f ms\t3 iteration(s)\n");
   } else {
     ocl_solver->_run_pcisph_integrate(iterationCount, 2, config);
-    helper->watch_report("_runPCISPH: \t\t%9.3f ms\t3 iteration(s)\n");
+    if (!quiet_mode) helper->watch_report("_runPCISPH: \t\t%9.3f ms\t3 iteration(s)\n");
   }
   // Handling of Interaction with membranes
   if (config->numOfMembranes > 0) {
@@ -437,17 +439,19 @@ double owPhysicsFluidSimulator::simulationStep(const bool load_to) {
     ocl_solver->_run_computeInteractionWithMembranes(config);
     // compute change of coordinates due to interactions with membranes
     ocl_solver->_run_computeInteractionWithMembranes_finalize(config);
-    helper->watch_report("membraneHandling: \t%9.3f ms\n");
+    if (!quiet_mode) helper->watch_report("membraneHandling: \t%9.3f ms\n");
   }
   // END
   ocl_solver->read_position_buffer(position_cpp, config);
   ocl_solver->read_pressure_buffer(pressure_cpp, config);
-  helper->watch_report("_readBuffer: \t\t%9.3f ms\n");
+  if (!quiet_mode) helper->watch_report("_readBuffer: \t\t%9.3f ms\n");
 
   // END PCISPH algorithm
-  printf("------------------------------------\n");
-  printf("_Total_step_time:\t%9.3f ms\n", helper->getElapsedTime());
-  printf("------------------------------------\n");
+  if (!quiet_mode) {
+    printf("------------------------------------\n");
+    printf("_Total_step_time:\t%9.3f ms\n", helper->getElapsedTime());
+    printf("------------------------------------\n");
+  }
   if (load_to) {
     if (iterationCount == 0) {
 
