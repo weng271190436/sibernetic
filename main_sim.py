@@ -170,7 +170,7 @@ class C302NRNSimulation:
     max_ca = 4e-7
     max_ca_found = -1
 
-    def __init__(self, tstop=100, dt=0.005, activity_file=None, verbose=True):
+    def __init__(self, tstop=100, dt=0.005, activity_file=None, verbose=False):
         # from LEMS_c302_C1_Full_nrn import NeuronSimulation
         # from LEMS_c302_nrn import NeuronSimulation
 
@@ -207,11 +207,12 @@ class C302NRNSimulation:
         self.ns.save_results()
 
     def run(self, skip_to_time=-1):
-        print_("> Current NEURON time: %s ms" % self.h.t)
+        print_("> Current NEURON time pre advance: %s ms" % self.h.t)
 
         self.ns.advance()
 
-        print_("< Current NEURON time: %s ms" % self.h.t)
+        if self.verbose:
+            print_("< Current NEURON time: %s ms" % self.h.t)
 
         if hasattr(self.h, "a_MDR01"):
             var_pre = "a_M"
@@ -302,13 +303,14 @@ class C302NRNSimulation:
                 )
             except AttributeError as e:
                 if var == "%sVL24" % var_pre:
-                    print_(
-                        "Problem passing neuronal output of %s to muscle in Sibernetic: %s"
-                        % (var, e)
-                    )
-                    print_(
-                        "Note: not an issue as no muscle MVL24 in the real C. elegans"
-                    )
+                    if self.verbose:
+                        print_(
+                            "Problem passing neuronal output of %s to muscle in Sibernetic: %s"
+                            % (var, e)
+                        )
+                        print_(
+                            "Note: not an issue as no muscle MVL24 in the real C. elegans"
+                        )
                     val = 0
                 else:
                     raise Exception(
