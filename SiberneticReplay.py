@@ -262,7 +262,9 @@ def add_sibernetic_model(
             # plt.imshow(musc_dat, interpolation="none", aspect="auto", cmap="YlOrRd")
 
             f_musc, ax_musc = plt.subplots(tight_layout=True)
-            ax_musc.imshow(musc_dat, interpolation="none", aspect="auto", cmap="YlOrRd")
+            im = ax_musc.imshow(musc_dat, interpolation="none", aspect="auto", cmap="YlOrRd")
+
+            f_musc.colorbar(im)
 
             num_ticks = 5
             ax_musc.set_xticks(np.linspace(0, musc_dat.shape[1], num_ticks))
