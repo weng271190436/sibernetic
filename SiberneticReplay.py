@@ -155,7 +155,7 @@ def get_color_info_for_type(type_):
     if type_ == 1.1:
         return "cyan", "liquid 1", 2
     elif type_ == 1.2:
-        return "red", "liquid 2", 10
+        return "darkturquoise", "liquid 2", 3
 
     elif type_ == 2.1:
         return "pink", "elastic 1", 5
@@ -349,8 +349,8 @@ def add_sibernetic_model(
             if pcount == numOfBoundaryP + numOfElasticP + numOfLiquidP:
                 first_pass_complete = True
                 print(
-                    "End of one batch of %i total points (%i types), at line %i, time: %i"
-                    % (pcount, len(points), line_count, time_count)
+                    "End of one batch of %i total points (%i types), at line %i, time point: %i%s"
+                    % (pcount, len(points), line_count, time_count, '/%i'%len(sibernetic_time_points))
                 )
                 all_points.append(points)
                 all_point_types.append(types)
