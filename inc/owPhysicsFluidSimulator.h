@@ -171,6 +171,7 @@ class owPhysicsFluidSimulator
 	int iterationCount;
 	void destroy();
 	void genShellPaticlesList();
+	void initTorchSolver(bool isReset);  // Phase 1.4: Helper to eliminate duplicate init code
 };
 
 #endif //OW_PHYSICS_SIMULATOR_H
