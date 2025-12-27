@@ -149,7 +149,7 @@ Available options:
 device=<device_type>  Trying to init OpenCL on device <type> it could be cpu or gpu
                        default-ALL (it will try to init most powerful available device).
 timestep=<value>      Start simulation with time step = <value> in seconds.
-backend=torch         Use the simplified PyTorch solver instead of OpenCL.
+backend=<type>        Use alternative solver: torch, taichi, taichi-cuda, taichi-cpu
 timelimit=<value>     Run simulation until <value> will be reached in seconds.
 leapfrog              Use for integration LeapFrog method
 oclsourcepath=<value> You can indicate path to you'r OpenCL program just using this option
@@ -158,17 +158,38 @@ oclsourcepath=<value> You can indicate path to you'r OpenCL program just using t
 -help                 Print this information on screen.
 ```
 
-PyTorch backend
----------------
-Sibernetic can run a minimal solver implemented with PyTorch.  Pass
-`backend=torch` to switch to this mode.  For example:
+Compute Backends
+----------------
+Sibernetic supports multiple compute backends:
 
+| Backend | Command | Best For |
+|---------|---------|----------|
+| OpenCL | `device=gpu` | Linux/older Macs with OpenCL support |
+| Taichi Metal | `backend=taichi` | Apple Silicon Macs (fastest) |
+| Taichi CUDA | `backend=taichi-cuda` | NVIDIA GPUs |
+| Taichi CPU | `backend=taichi-cpu` | CPU fallback |
+| PyTorch | `backend=torch` | Quick tests, debugging |
+
+**Apple Silicon (M1/M2/M3)**: Use Taichi for best performance (~100x faster than CPU):
 ```bash
-./Release/Sibernetic -no_g -f configuration/test/test_energy \
-    -l_to lpath=./buffers/torch_example timelimit=0.001 logstep=25 backend=torch
+# Set Python paths (add to .zshrc for convenience)
+export PYTHONPATH=$(pwd):$(.venv/bin/python -c "import site; print(site.getsitepackages()[0])")
+
+# Run with Metal GPU
+./Release/Sibernetic -f worm backend=taichi
 ```
 
-This backend does not require OpenCL and is useful for quick tests.
+**Linux with NVIDIA GPU**:
+```bash
+./Release/Sibernetic -f worm backend=taichi-cuda
+```
+
+**PyTorch backend** (no GPU required):
+```bash
+./Release/Sibernetic -no_g -f demo1 backend=torch timelimit=0.01
+```
+
+The Taichi and PyTorch backends require Python dependencies from `setup.sh`.
 
 LeapFrog integration
 --------------

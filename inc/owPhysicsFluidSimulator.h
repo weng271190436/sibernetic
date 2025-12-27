@@ -153,7 +153,9 @@ class owPhysicsFluidSimulator
         owOpenCLSolver *ocl_solver;
 #endif
 	PyObject *torchSolver;
+	PyObject *taichiSolver;
 	bool useTorchBackend;
+	bool useTaichiBackend;
 	float *position_cpp;			   // everywhere in the code %variableName%_cpp means that we create
 	float *velocity_cpp;			   // and initialize in 'ordinary' memory some data, which will be
 	float *pressure_cpp;			   // and initialize in 'ordinary' memory some data, which will be
@@ -172,6 +174,7 @@ class owPhysicsFluidSimulator
 	void destroy();
 	void genShellPaticlesList();
 	void initTorchSolver(bool isReset);  // Phase 1.4: Helper to eliminate duplicate init code
+	void initTaichiSolver(bool isReset); // Taichi GPU solver initialization
 };
 
 #endif //OW_PHYSICS_SIMULATOR_H

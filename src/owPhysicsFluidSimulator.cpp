@@ -150,6 +150,115 @@ void owPhysicsFluidSimulator::initTorchSolver(bool isReset) {
   }
 }
 
+// Initialize Taichi GPU solver
+void owPhysicsFluidSimulator::initTaichiSolver(bool isReset) {
+  // Clean up existing solver if this is a reset
+  if (isReset && taichiSolver) {
+    Py_DECREF(taichiSolver);
+    taichiSolver = nullptr;
+  }
+
+  // Load module and class
+  PyObject *pName = PyUnicode_FromString("taichi_solver");
+  PyObject *pModule = PyImport_Import(pName);
+  Py_DECREF(pName);
+  if (!pModule) {
+    PyErr_Print();
+    throw std::runtime_error("Failed to load taichi_solver module");
+  }
+  PyObject *pClass = PyObject_GetAttrString(pModule, "TaichiSolver");
+  Py_DECREF(pModule);
+  if (!pClass) {
+    PyErr_Print();
+    throw std::runtime_error("Failed to get TaichiSolver class");
+  }
+
+  // Build position and velocity lists
+  int count = config->getParticleCount();
+  PyObject *pos_list = PyList_New(count);
+  PyObject *vel_list = PyList_New(count);
+  for (int i = 0; i < count; ++i) {
+    PyObject *row_p = PyList_New(4);
+    PyObject *row_v = PyList_New(4);
+    for (int j = 0; j < 4; ++j) {
+      PyList_SetItem(row_p, j, PyFloat_FromDouble(position_cpp[i * 4 + j]));
+      PyList_SetItem(row_v, j, PyFloat_FromDouble(velocity_cpp[i * 4 + j]));
+    }
+    PyList_SetItem(pos_list, i, row_p);
+    PyList_SetItem(vel_list, i, row_v);
+  }
+
+  // Build config dictionary
+  PyObject *cfg = PyDict_New();
+  PyObject *val;
+
+  // Grid boundaries
+  val = PyFloat_FromDouble(config->xmin);
+  PyDict_SetItemString(cfg, "xmin", val); Py_DECREF(val);
+  val = PyFloat_FromDouble(config->xmax);
+  PyDict_SetItemString(cfg, "xmax", val); Py_DECREF(val);
+  val = PyFloat_FromDouble(config->ymin);
+  PyDict_SetItemString(cfg, "ymin", val); Py_DECREF(val);
+  val = PyFloat_FromDouble(config->ymax);
+  PyDict_SetItemString(cfg, "ymax", val); Py_DECREF(val);
+  val = PyFloat_FromDouble(config->zmin);
+  PyDict_SetItemString(cfg, "zmin", val); Py_DECREF(val);
+  val = PyFloat_FromDouble(config->zmax);
+  PyDict_SetItemString(cfg, "zmax", val); Py_DECREF(val);
+
+  // SPH parameters
+  val = PyFloat_FromDouble(config->getConst("h"));
+  PyDict_SetItemString(cfg, "h", val); Py_DECREF(val);
+  val = PyFloat_FromDouble(config->getConst("rho0"));
+  PyDict_SetItemString(cfg, "rho0", val); Py_DECREF(val);
+  val = PyFloat_FromDouble(config->getDelta());
+  PyDict_SetItemString(cfg, "delta", val); Py_DECREF(val);
+  val = PyFloat_FromDouble(config->getTimeStep());
+  PyDict_SetItemString(cfg, "time_step", val); Py_DECREF(val);
+  val = PyFloat_FromDouble(config->getConst("mass"));
+  PyDict_SetItemString(cfg, "mass", val); Py_DECREF(val);
+
+  // Gravity
+  val = PyFloat_FromDouble(config->getConst("gravity_x"));
+  PyDict_SetItemString(cfg, "gravity_x", val); Py_DECREF(val);
+  val = PyFloat_FromDouble(config->getConst("gravity_y"));
+  PyDict_SetItemString(cfg, "gravity_y", val); Py_DECREF(val);
+  val = PyFloat_FromDouble(config->getConst("gravity_z"));
+  PyDict_SetItemString(cfg, "gravity_z", val); Py_DECREF(val);
+
+  // Additional parameters
+  val = PyFloat_FromDouble(config->getConst("r0"));
+  PyDict_SetItemString(cfg, "r0", val); Py_DECREF(val);
+  val = PyFloat_FromDouble(config->getConst("viscosity"));
+  PyDict_SetItemString(cfg, "mu", val); Py_DECREF(val);
+  val = PyLong_FromLong(MAX_NEIGHBOR_COUNT);
+  PyDict_SetItemString(cfg, "max_neighbor_count", val); Py_DECREF(val);
+
+  // Floor constraint
+  val = PyFloat_FromDouble(0.0);  // floor_y
+  PyDict_SetItemString(cfg, "floor_y", val); Py_DECREF(val);
+  val = PyFloat_FromDouble(0.3);  // floor_restitution
+  PyDict_SetItemString(cfg, "floor_restitution", val); Py_DECREF(val);
+
+  // Device (metal, cuda, cpu)
+  val = PyUnicode_FromString(config->getTaichiDevice().c_str());
+  PyDict_SetItemString(cfg, "device", val); Py_DECREF(val);
+
+  // Create solver instance
+  PyObject *args = PyTuple_Pack(3, pos_list, vel_list, cfg);
+  taichiSolver = PyObject_CallObject(pClass, args);
+  Py_DECREF(args);
+  Py_DECREF(pos_list);
+  Py_DECREF(vel_list);
+  Py_DECREF(cfg);
+  Py_DECREF(pClass);
+
+  if (!taichiSolver) {
+    PyErr_Print();
+    throw std::runtime_error("Failed to create TaichiSolver instance");
+  }
+}
+
 /** Constructor method for owPhysicsFluidSimulator.
  *
  *  @param helper
@@ -201,10 +310,19 @@ owPhysicsFluidSimulator::owPhysicsFluidSimulator(owHelper *helper, int argc,
 
     this->helper = helper;
     torchSolver = nullptr;
+    taichiSolver = nullptr;
     useTorchBackend = config->torchEnabled();
+    useTaichiBackend = config->taichiEnabled();
+
     if (useTorchBackend) {
       Py_Initialize();
       initTorchSolver(false);  // Phase 1.4: Use helper (not a reset)
+#ifndef OW_NO_OPENCL
+      ocl_solver = nullptr;
+#endif
+    } else if (useTaichiBackend) {
+      Py_Initialize();
+      initTaichiSolver(false);  // Initialize Taichi GPU solver
 #ifndef OW_NO_OPENCL
       ocl_solver = nullptr;
 #endif
@@ -280,6 +398,8 @@ void owPhysicsFluidSimulator::reset() {
                               config); // Load configuration from file to buffer
   if (useTorchBackend) {
     initTorchSolver(true);  // Phase 1.4: Use helper (is a reset)
+  } else if (useTaichiBackend) {
+    initTaichiSolver(true);  // Reset Taichi solver
   }
 #ifndef OW_NO_OPENCL
   else {
@@ -535,6 +655,54 @@ double owPhysicsFluidSimulator::simulationStep(const bool load_to) {
     iterationCount++;
     return helper->getElapsedTime();
   }
+
+  if (useTaichiBackend) {
+    // Taichi GPU solver path
+    auto callMethod = [this](const char* method) {
+      PyObject *result = PyObject_CallMethod(taichiSolver, method, nullptr);
+      if (!result) {
+        PyErr_Print();
+        throw std::runtime_error(std::string("Taichi solver method failed: ") + method);
+      }
+      Py_DECREF(result);
+    };
+
+    // Run full simulation step on GPU
+    callMethod("run_step");
+
+    // Get updated state back to CPU
+    PyObject *state = PyObject_CallMethod(taichiSolver, "get_state", nullptr);
+    if (state && PyTuple_Check(state)) {
+      PyObject *pos = PyTuple_GetItem(state, 0);
+      PyObject *vel = PyTuple_GetItem(state, 1);
+      for (Py_ssize_t i = 0; i < PyList_Size(pos); ++i) {
+        PyObject *row_p = PyList_GetItem(pos, i);
+        PyObject *row_v = PyList_GetItem(vel, i);
+        for (int j = 0; j < 4; ++j) {
+          position_cpp[i * 4 + j] = (float)PyFloat_AsDouble(PyList_GetItem(row_p, j));
+          velocity_cpp[i * 4 + j] = (float)PyFloat_AsDouble(PyList_GetItem(row_v, j));
+        }
+      }
+    }
+    Py_XDECREF(state);
+
+    // Handle logging
+    if (load_to) {
+      if (iterationCount == 0) {
+        owHelper::loadConfigurationToFile(position_cpp, config,
+                                          elasticConnectionsData_cpp,
+                                          membraneData_cpp, true);
+        owHelper::loadVelocityToFile(velocity_cpp, iterationCount, config);
+      } else if (iterationCount % config->getLogStep() == 0) {
+        owHelper::loadConfigurationToFile(position_cpp, config, nullptr,
+                                          nullptr, false);
+        owHelper::loadVelocityToFile(velocity_cpp, iterationCount, config);
+      }
+    }
+    iterationCount++;
+    return helper->getElapsedTime();
+  }
+
 #ifndef OW_NO_OPENCL
   std::cout << "\n[[ Step " << iterationCount << " (total steps: ";
   if (config->getNumberOfIterations() == 0)
@@ -722,6 +890,11 @@ owPhysicsFluidSimulator::~owPhysicsFluidSimulator(void) {
 #endif
   if (torchSolver) {
     Py_DECREF(torchSolver);
+  }
+  if (taichiSolver) {
+    Py_DECREF(taichiSolver);
+  }
+  if (torchSolver || taichiSolver) {
     Py_Finalize();
   }
 }

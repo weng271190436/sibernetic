@@ -50,8 +50,10 @@ owConfigProperty::owConfigProperty(int argc, char **argv)
   nrnSimulationFileName = "";
   simulation = nullptr;
   useTorch = false;
+  useTaichi = false;
+  taichiDevice = "metal";  // Default to Metal on Mac
 #ifdef OW_NO_OPENCL
-  useTorch = true;
+  useTaichi = true;  // Default to Taichi when OpenCL disabled
 #endif
     
   fillConstMap(); // map must be filled before parsing arguments, otherwise beta will be NaN because of division by zero
@@ -69,8 +71,22 @@ owConfigProperty::owConfigProperty(int argc, char **argv)
     if (strTemp.find("backend=") == 0) {
       std::string backend = strTemp.substr(strTemp.find('=') + 1);
       std::transform(backend.begin(), backend.end(), backend.begin(), ::tolower);
-      if (backend == "torch")
+      if (backend == "torch") {
         useTorch = true;
+        useTaichi = false;
+      } else if (backend == "taichi" || backend == "taichi-metal") {
+        useTaichi = true;
+        useTorch = false;
+        taichiDevice = "metal";
+      } else if (backend == "taichi-cuda") {
+        useTaichi = true;
+        useTorch = false;
+        taichiDevice = "cuda";
+      } else if (backend == "taichi-cpu") {
+        useTaichi = true;
+        useTorch = false;
+        taichiDevice = "cpu";
+      }
     }
     if (strTemp.find("timestep=") == 0) {
 
