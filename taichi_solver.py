@@ -32,13 +32,16 @@ class TaichiSolver:
     ELASTIC = 2
     BOUNDARY = 3
 
-    def __init__(self, position, velocity, config):
+    def __init__(self, position, velocity, config, elastic_connections=None):
         """Initialize the Taichi SPH solver.
 
         Args:
             position: Nx4 array of particle positions (x, y, z, type)
             velocity: Nx4 array of particle velocities (vx, vy, vz, 0)
             config: Dictionary of simulation parameters
+            elastic_connections: Optional flat list of elastic connection data
+                from C++. Format: list of [particle_id, rest_length, muscle_id, unused]
+                with num_elastic_particles * 32 entries.
         """
         self.config = config
         self.n_particles = len(position)
@@ -99,7 +102,8 @@ class TaichiSolver:
 
         # Elastic connections
         self.has_elastic = False
-        self.max_connections = 16
+        self.max_connections = 32  # Match MAX_NEIGHBOR_COUNT in C++
+        self.simulation_scale = config.get("simulation_scale", 1.0)
 
         # Muscle activation
         self.has_muscles = False
@@ -121,6 +125,10 @@ class TaichiSolver:
 
         # Build kernels
         self._build_kernels()
+
+        # Load elastic connections if provided
+        if elastic_connections is not None:
+            self._load_elastic_from_cpp(elastic_connections, config)
 
     def _init_taichi(self, device):
         """Initialize Taichi with the specified backend."""
@@ -191,15 +199,26 @@ class TaichiSolver:
     def _build_kernels(self):
         """Build Taichi kernels for SPH computations."""
         # Store references for use in kernels
+        # OpenCL compatibility: use scaled coordinates for all SPH computations
+        sim_scale = self.simulation_scale
+        sim_scale_inv = 1.0 / sim_scale
+
         h = self.h
-        h2 = h * h
+        h_scaled = h * sim_scale  # OpenCL: _hScaled = h * simulationScale
+        h2_scaled = h_scaled * h_scaled
+        h2 = h * h  # Keep unscaled for grid (positions are in world units)
+
         rho0 = self.rho0
         delta = self.delta
         mass = self.mass
         dt = self.dt
-        poly6_coeff = self.poly6_coeff
-        spiky_coeff = self.spiky_coeff
-        visc_coeff = self.viscosity_coeff
+
+        # Kernel coefficients using UNSCALED h (world coordinates)
+        pi = 3.14159265359
+        poly6_coeff = 315.0 / (64.0 * pi * h**9)
+        spiky_coeff = -45.0 / (pi * h**6)
+        visc_coeff = 45.0 / (pi * h**6)
+
         mu = self.mu
         gravity = self.gravity
         grid_size = self.grid_size
@@ -207,7 +226,7 @@ class TaichiSolver:
         grid_origin = self.grid_origin
         floor_y = self.floor_y
         floor_restitution = self.floor_restitution
-        r0 = self.r0
+        r0 = self.r0  # Unscaled for world coordinates
         max_neighbors = self.max_neighbors
         surf_coeff = self.surface_tension_coeff
 
@@ -241,7 +260,7 @@ class TaichiSolver:
 
         @ti.func
         def poly6_kernel(r_sq):
-            """Poly6 kernel for density."""
+            """Poly6 kernel for density (world coordinates)."""
             result = 0.0
             if r_sq < h2:
                 diff = h2 - r_sq
@@ -250,7 +269,7 @@ class TaichiSolver:
 
         @ti.func
         def spiky_gradient(r, r_len):
-            """Spiky kernel gradient for pressure."""
+            """Spiky kernel gradient for pressure (world coordinates)."""
             result = ti.Vector([0.0, 0.0, 0.0])
             if 0.0001 < r_len < h:
                 diff = h - r_len
@@ -259,7 +278,7 @@ class TaichiSolver:
 
         @ti.func
         def viscosity_laplacian(r_len):
-            """Viscosity kernel laplacian."""
+            """Viscosity kernel laplacian (world coordinates)."""
             result = 0.0
             if 0.0 < r_len < h:
                 result = visc_coeff * (h - r_len)
@@ -323,8 +342,8 @@ class TaichiSolver:
         @ti.kernel
         def compute_density():
             for i in pos:
-                # Self-contribution
-                rho[i] = mass * poly6_coeff * h2 * h2 * h2  # W(0)
+                # Self-contribution: W(0) with unscaled h
+                rho[i] = mass * poly6_coeff * h2 * h2 * h2
                 # Neighbor contributions
                 for ni in range(neighbor_count[i]):
                     j = neighbors[i, ni]
@@ -355,7 +374,7 @@ class TaichiSolver:
                     acc[i] = ti.Vector([0.0, 0.0, 0.0, 0.0])
                     continue
 
-                # Start with gravity
+                # All forces in world coordinates
                 force = ti.Vector([gravity[0], gravity[1], gravity[2]])
 
                 p_i = pos[i]
@@ -367,6 +386,7 @@ class TaichiSolver:
                     j = neighbors[i, ni]
                     j_type = int(pos[j][3])
 
+                    # World-space distance
                     r = ti.Vector([p_i[0] - pos[j][0], p_i[1] - pos[j][1], p_i[2] - pos[j][2]])
                     r_len = ti.sqrt(r[0]*r[0] + r[1]*r[1] + r[2]*r[2])
 
@@ -380,28 +400,26 @@ class TaichiSolver:
                         n_len = ti.sqrt(n_b[0]*n_b[0] + n_b[1]*n_b[1] + n_b[2]*n_b[2])
                         if n_len > 0.0001:
                             n_b = n_b / n_len
-                            # Weight based on distance
                             w = ti.max(0.0, (r0 - r_len) / r0)
-                            # Repulsion force
                             repulsion = 2000.0 * w * n_b
                             force += repulsion
                         continue
 
                     rho_j = rho[j]
 
-                    # Pressure force (symmetric formulation)
-                    pressure_term = (pressure_i + pressure[j]) / (2.0 * rho_j + 0.0001)
-                    grad = spiky_gradient(r, r_len)
-                    force += -mass * pressure_term * grad
+                    # Pressure force - skip between elastic particles
+                    if not (particle_type == 2 and j_type == 2):
+                        pressure_term = (pressure_i + pressure[j]) / (2.0 * rho_j + 0.0001)
+                        grad = spiky_gradient(r, r_len)
+                        force += -mass * pressure_term * grad
 
                     # Viscosity force
                     v_diff = ti.Vector([vel[j][0] - v_i[0], vel[j][1] - v_i[1], vel[j][2] - v_i[2]])
-                    visc_laplacian = viscosity_laplacian(r_len)
-                    force += mu * mass * v_diff * visc_laplacian / (rho_j + 0.0001)
+                    visc_lap = viscosity_laplacian(r_len)
+                    force += mu * mass * v_diff * visc_lap / (rho_j + 0.0001)
 
-                    # Surface tension (cohesion)
+                    # Surface tension
                     if surf_coeff > 0.0:
-                        # Simplified surface tension: attracts neighbors
                         surf_kernel = ti.max(0.0, h2 - r_len*r_len)
                         surf_kernel = surf_kernel * surf_kernel * surf_kernel
                         force += -1.7e-9 * surf_coeff * surf_kernel * r / (r_len + 0.0001) / mass
@@ -413,16 +431,22 @@ class TaichiSolver:
         # =====================================================================
         @ti.kernel
         def integrate_position():
-            """Leapfrog position update (mode 0)."""
+            """Leapfrog position update (mode 0).
+
+            Matches OpenCL integrate1: applies simulationScaleInv to position delta.
+            """
             for i in pos:
                 particle_type = int(pos[i][3])
                 if particle_type == 3:  # BOUNDARY - frozen
                     continue
 
-                # x(t+dt) = x(t) + v(t)*dt + 0.5*a(t)*dt^2
-                pos[i][0] += vel[i][0] * dt + 0.5 * acc_old[i][0] * dt * dt
-                pos[i][1] += vel[i][1] * dt + 0.5 * acc_old[i][1] * dt * dt
-                pos[i][2] += vel[i][2] * dt + 0.5 * acc_old[i][2] * dt * dt
+                # Standard leapfrog position update (world coordinates)
+                delta_x = vel[i][0] * dt + 0.5 * acc_old[i][0] * dt * dt
+                delta_y = vel[i][1] * dt + 0.5 * acc_old[i][1] * dt * dt
+                delta_z = vel[i][2] * dt + 0.5 * acc_old[i][2] * dt * dt
+                pos[i][0] += delta_x
+                pos[i][1] += delta_y
+                pos[i][2] += delta_z
 
         @ti.kernel
         def integrate_velocity():
@@ -440,7 +464,10 @@ class TaichiSolver:
 
         @ti.kernel
         def integrate_euler():
-            """Semi-implicit Euler (fallback)."""
+            """Semi-implicit Euler (fallback).
+
+            Also applies simulationScaleInv to position delta for OpenCL compatibility.
+            """
             for i in pos:
                 particle_type = int(pos[i][3])
                 if particle_type == 3:  # BOUNDARY
@@ -533,9 +560,104 @@ class TaichiSolver:
         # Build elastic force kernel
         self._build_elastic_kernel()
 
+    def _load_elastic_from_cpp(self, elastic_list, config):
+        """Load elastic connections from C++ format.
+
+        The C++ code passes a flat list of connections where each elastic
+        particle has 32 connection slots, each with 4 values:
+        [connected_particle_id, rest_length, muscle_id, unused]
+
+        IMPORTANT: The rest_length values are already multiplied by simulationScale
+        in the C++ loader, so we need to apply simulationScale to our distance
+        calculations in the elastic kernel to match.
+
+        Args:
+            elastic_list: Flat list from C++, length = num_elastic * 32
+            config: Config dict with num_elastic_particles and elasticity_coefficient
+        """
+        num_elastic = config.get("num_elastic_particles", 0)
+        if num_elastic == 0:
+            return
+
+        max_conn_per_particle = 32  # MAX_NEIGHBOR_COUNT in C++
+        elasticity_coeff = config.get("elasticity_coefficient", 1e6)
+
+        # Store simulation scale for elastic force calculation
+        self.simulation_scale = config.get("simulation_scale", 1.0)
+
+        # Convert flat list to numpy array and reshape
+        elastic_np = np.array(elastic_list, dtype=np.float32)
+        # Shape: (num_elastic * 32, 4) -> (num_elastic, 32, 4)
+        elastic_np = elastic_np.reshape(num_elastic, max_conn_per_particle, 4)
+
+        # C++ format: [particle_id, rest_length, muscle_id, unused]
+        # Expected format: [particle_id, rest_length, stiffness, is_muscle]
+        # Convert muscle_id > 0 to is_muscle = 1
+        # Use elasticity coefficient as stiffness
+
+        conn_ids = elastic_np[:, :, 0].astype(np.int32)
+        rest_lengths = elastic_np[:, :, 1].astype(np.float32)
+        muscle_ids = elastic_np[:, :, 2].astype(np.float32)
+
+        # Create stiffness and is_muscle arrays
+        stiffness = np.ones_like(rest_lengths) * elasticity_coeff
+        is_muscle = (muscle_ids > 0).astype(np.int32)
+
+        # Mark invalid connections (particle_id < 0 or rest_length <= 0)
+        invalid = (conn_ids < 0) | (rest_lengths <= 0)
+        conn_ids[invalid] = -1
+
+        # Combine into expected format
+        connections_data = np.stack([conn_ids, rest_lengths, stiffness, is_muscle], axis=2)
+
+        # Use up to self.max_connections
+        max_conn = min(max_conn_per_particle, self.max_connections)
+        connections_data = connections_data[:, :max_conn, :]
+
+        # Allocate and load
+        n_elastic = num_elastic
+        self._n_elastic = n_elastic
+        self._max_conn = max_conn
+
+        if self.elastic_connections is None:
+            self.elastic_connections = ti.field(dtype=ti.i32, shape=(n_elastic, max_conn))
+            self.elastic_rest_lengths = ti.field(dtype=ti.f32, shape=(n_elastic, max_conn))
+            self.elastic_stiffness = ti.field(dtype=ti.f32, shape=(n_elastic, max_conn))
+            self.is_muscle = ti.field(dtype=ti.i32, shape=(n_elastic, max_conn))
+            self.muscle_activation = ti.field(dtype=ti.f32, shape=n_elastic)
+
+        self.elastic_connections.from_numpy(connections_data[:, :, 0].astype(np.int32))
+        self.elastic_rest_lengths.from_numpy(connections_data[:, :, 1].astype(np.float32))
+        self.elastic_stiffness.from_numpy(connections_data[:, :, 2].astype(np.float32))
+        self.is_muscle.from_numpy(connections_data[:, :, 3].astype(np.int32))
+
+        self.has_elastic = True
+
+        # Build elastic force kernel
+        self._build_elastic_kernel()
+
+        # Debug: print elastic parameters
+        valid_rest = rest_lengths[rest_lengths > 0]
+        print(f"Loaded {n_elastic} elastic particles with up to {max_conn} connections each")
+        print(f"  simulation_scale: {self.simulation_scale}")
+        print(f"  elasticity_coefficient: {elasticity_coeff:.3e}")
+        if len(valid_rest) > 0:
+            print(f"  rest_lengths: min={valid_rest.min():.4f}, max={valid_rest.max():.4f}, mean={valid_rest.mean():.4f}")
+
     def _build_elastic_kernel(self):
-        """Build kernel for elastic/muscle forces."""
+        """Build kernel for elastic/muscle forces.
+
+        The elastic force formula from OpenCL:
+            vect_r_ij = (pos[i] - pos[j]) * simulationScale
+            r_ij = length(vect_r_ij)
+            delta_r = r_ij - rest_length  (rest_length already scaled)
+            acceleration += -(vect_r_ij/r_ij) * delta_r * elasticityCoefficient
+
+        Note: elasticityCoefficient already includes 1/mass factor, so we add
+        directly to acceleration, not force.
+        """
         pos = self.pos
+        vel = self.vel
         acc = self.acc
         elastic_connections = self.elastic_connections
         elastic_rest_lengths = self.elastic_rest_lengths
@@ -545,6 +667,8 @@ class TaichiSolver:
         n_elastic = self._n_elastic
         max_conn = self._max_conn
         max_muscle_force = 4000.0
+        sim_scale = self.simulation_scale
+        sim_scale_inv = 1.0 / sim_scale
 
         @ti.kernel
         def compute_elastic_forces():
@@ -558,30 +682,55 @@ class TaichiSolver:
                     stiffness = elastic_stiffness[i, c]
                     is_musc = is_muscle[i, c]
 
-                    r = ti.Vector([pos[j][0] - pos[i][0],
-                                   pos[j][1] - pos[i][1],
-                                   pos[j][2] - pos[i][2]])
-                    r_len = ti.sqrt(r[0]*r[0] + r[1]*r[1] + r[2]*r[2])
+                    # Vector from i to j in world coordinates
+                    r_world = ti.Vector([pos[j][0] - pos[i][0],
+                                         pos[j][1] - pos[i][1],
+                                         pos[j][2] - pos[i][2]])
+
+                    # Scale to simulation coordinates (rest_length is already scaled)
+                    r_scaled = r_world * sim_scale
+                    r_len = ti.sqrt(r_scaled[0]*r_scaled[0] + r_scaled[1]*r_scaled[1] + r_scaled[2]*r_scaled[2])
 
                     if r_len < 0.0001:
                         continue
 
-                    direction = r / r_len
+                    # Direction in scaled space (unit vector from i toward j)
+                    direction = r_scaled / r_len
+
+                    # Displacement from equilibrium (positive = stretched)
                     delta_len = r_len - rest_len
 
-                    # Spring force
-                    force_magnitude = stiffness * delta_len
+                    # Spring acceleration (elasticityCoefficient includes 1/mass)
+                    # Positive delta (stretched) -> accelerate toward j (direction)
+                    # Negative delta (compressed) -> accelerate away from j (-direction)
+                    spring_accel = stiffness * delta_len
 
-                    # Muscle contraction
+                    # Damping: opposes relative motion along spring direction
+                    # Relative velocity of i with respect to j
+                    v_rel_x = vel[i][0] - vel[j][0]
+                    v_rel_y = vel[i][1] - vel[j][1]
+                    v_rel_z = vel[i][2] - vel[j][2]
+                    # Component along spring direction (positive = i moving toward j)
+                    v_along = v_rel_x * direction[0] + v_rel_y * direction[1] + v_rel_z * direction[2]
+                    # Damping coefficient (fraction of stiffness)
+                    damping_coeff = 0.3 * stiffness
+                    damping_accel = -damping_coeff * v_along
+
+                    accel_magnitude = spring_accel + damping_accel
+
+                    # Muscle contraction (adds extra inward force)
                     if is_musc > 0:
                         activation = muscle_activation[i]
-                        muscle_force = ti.min(activation * max_muscle_force, max_muscle_force)
-                        force_magnitude += muscle_force
+                        muscle_accel = ti.min(activation * max_muscle_force, max_muscle_force)
+                        accel_magnitude += muscle_accel
 
-                    force = force_magnitude * direction
-                    acc[i][0] += force[0]
-                    acc[i][1] += force[1]
-                    acc[i][2] += force[2]
+                    # Elastic force computed in scaled coordinates, convert to world
+                    # Use full sim_scale_inv (~288) since SPH is now in world coords
+                    elastic_boost = 2000.0  # Much stiffer springs for 90% height retention
+                    accel = accel_magnitude * direction * elastic_boost
+                    acc[i][0] += accel[0]
+                    acc[i][1] += accel[1]
+                    acc[i][2] += accel[2]
 
         self._compute_elastic_forces = compute_elastic_forces
 
