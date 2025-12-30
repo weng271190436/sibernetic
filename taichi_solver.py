@@ -177,6 +177,11 @@ class TaichiSolver:
         self.elastic_connections = None
         self.elastic_rest_lengths = None
         self.elastic_stiffness = None
+
+        # Membrane triangles (allocated on demand)
+        self.membrane_triangles = None
+        self.n_membranes = 0
+        self.has_membranes = False
         self.is_muscle = None
 
         # Muscle activation
@@ -213,11 +218,12 @@ class TaichiSolver:
         mass = self.mass
         dt = self.dt
 
-        # Kernel coefficients using UNSCALED h (world coordinates)
+        # Kernel coefficients using SCALED h (OpenCL compatibility)
+        # SPH kernels work in scaled coordinate space
         pi = 3.14159265359
-        poly6_coeff = 315.0 / (64.0 * pi * h**9)
-        spiky_coeff = -45.0 / (pi * h**6)
-        visc_coeff = 45.0 / (pi * h**6)
+        poly6_coeff = 315.0 / (64.0 * pi * h_scaled**9)
+        spiky_coeff = -45.0 / (pi * h_scaled**6)
+        visc_coeff = 45.0 / (pi * h_scaled**6)
 
         mu = self.mu
         gravity = self.gravity
@@ -259,29 +265,29 @@ class TaichiSolver:
             ])
 
         @ti.func
-        def poly6_kernel(r_sq):
-            """Poly6 kernel for density (world coordinates)."""
+        def poly6_kernel(r_sq_scaled):
+            """Poly6 kernel for density (scaled coordinates)."""
             result = 0.0
-            if r_sq < h2:
-                diff = h2 - r_sq
+            if r_sq_scaled < h2_scaled:
+                diff = h2_scaled - r_sq_scaled
                 result = poly6_coeff * diff * diff * diff
             return result
 
         @ti.func
-        def spiky_gradient(r, r_len):
-            """Spiky kernel gradient for pressure (world coordinates)."""
+        def spiky_gradient(r_scaled, r_len_scaled):
+            """Spiky kernel gradient for pressure (scaled coordinates)."""
             result = ti.Vector([0.0, 0.0, 0.0])
-            if 0.0001 < r_len < h:
-                diff = h - r_len
-                result = spiky_coeff * diff * diff * (r / r_len)
+            if 0.0001 < r_len_scaled < h_scaled:
+                diff = h_scaled - r_len_scaled
+                result = spiky_coeff * diff * diff * (r_scaled / r_len_scaled)
             return result
 
         @ti.func
-        def viscosity_laplacian(r_len):
-            """Viscosity kernel laplacian (world coordinates)."""
+        def viscosity_laplacian(r_len_scaled):
+            """Viscosity kernel laplacian (scaled coordinates)."""
             result = 0.0
-            if 0.0 < r_len < h:
-                result = visc_coeff * (h - r_len)
+            if 0.0 < r_len_scaled < h_scaled:
+                result = visc_coeff * (h_scaled - r_len_scaled)
             return result
 
         # =====================================================================
@@ -342,14 +348,16 @@ class TaichiSolver:
         @ti.kernel
         def compute_density():
             for i in pos:
-                # Self-contribution: W(0) with unscaled h
-                rho[i] = mass * poly6_coeff * h2 * h2 * h2
+                # Self-contribution: W(0) with scaled h
+                rho[i] = mass * poly6_coeff * h2_scaled * h2_scaled * h2_scaled
                 # Neighbor contributions
                 for ni in range(neighbor_count[i]):
                     j = neighbors[i, ni]
                     r = pos[i] - pos[j]
                     r_sq = r[0]*r[0] + r[1]*r[1] + r[2]*r[2]
-                    rho[i] += mass * poly6_kernel(r_sq)
+                    # Scale r_sq for kernel (world coords -> scaled coords)
+                    r_sq_scaled = r_sq * sim_scale * sim_scale
+                    rho[i] += mass * poly6_kernel(r_sq_scaled)
                 # Minimum clamp
                 rho[i] = ti.max(rho[i], 0.01)
 
@@ -407,16 +415,25 @@ class TaichiSolver:
 
                     rho_j = rho[j]
 
+                    # Scale distance for SPH kernels (world -> scaled coords)
+                    r_scaled = ti.Vector([r[0] * sim_scale, r[1] * sim_scale, r[2] * sim_scale])
+                    r_len_scaled = r_len * sim_scale
+
                     # Pressure force - skip between elastic particles
+                    # Gradient computed in scaled coords, convert back to world coords
                     if not (particle_type == 2 and j_type == 2):
                         pressure_term = (pressure_i + pressure[j]) / (2.0 * rho_j + 0.0001)
-                        grad = spiky_gradient(r, r_len)
-                        force += -mass * pressure_term * grad
+                        grad_scaled = spiky_gradient(r_scaled, r_len_scaled)
+                        # dW/dr_world = dW/dr_scaled * sim_scale
+                        grad_world = ti.Vector([grad_scaled[0] * sim_scale, grad_scaled[1] * sim_scale, grad_scaled[2] * sim_scale])
+                        force += -mass * pressure_term * grad_world
 
-                    # Viscosity force
+                    # Viscosity force - also convert laplacian from scaled to world
                     v_diff = ti.Vector([vel[j][0] - v_i[0], vel[j][1] - v_i[1], vel[j][2] - v_i[2]])
-                    visc_lap = viscosity_laplacian(r_len)
-                    force += mu * mass * v_diff * visc_lap / (rho_j + 0.0001)
+                    visc_lap_scaled = viscosity_laplacian(r_len_scaled)
+                    # Laplacian has units 1/r^2, so scale by sim_scale^2
+                    visc_lap_world = visc_lap_scaled * sim_scale * sim_scale
+                    force += mu * mass * v_diff * visc_lap_world / (rho_j + 0.0001)
 
                     # Surface tension
                     if surf_coeff > 0.0:
@@ -726,7 +743,7 @@ class TaichiSolver:
 
                     # Elastic force computed in scaled coordinates, convert to world
                     # Use full sim_scale_inv (~288) since SPH is now in world coords
-                    elastic_boost = 2000.0  # Much stiffer springs for 90% height retention
+                    elastic_boost = 2000.0  # Balanced stiffness
                     accel = accel_magnitude * direction * elastic_boost
                     acc[i][0] += accel[0]
                     acc[i][1] += accel[1]
@@ -744,6 +761,155 @@ class TaichiSolver:
             activation = activation.numpy()
         self.muscle_activation.from_numpy(activation.astype(np.float32))
         self.has_muscles = True
+
+    # =========================================================================
+    # Membrane Collision (elastic shell containment)
+    # =========================================================================
+    def load_membranes(self, membrane_data):
+        """Load membrane triangle data for liquid containment.
+
+        Args:
+            membrane_data: Nx3 array of particle indices forming triangles
+        """
+        if hasattr(membrane_data, 'numpy'):
+            membrane_data = membrane_data.numpy()
+
+        membrane_data = np.array(membrane_data, dtype=np.int32)
+        self.n_membranes = len(membrane_data)
+
+        if self.n_membranes == 0:
+            return
+
+        # Allocate membrane field
+        self.membrane_triangles = ti.Vector.field(3, dtype=ti.i32, shape=self.n_membranes)
+        self.membrane_triangles.from_numpy(membrane_data)
+
+        self.has_membranes = True
+        print(f"Loaded {self.n_membranes} membrane triangles")
+
+        # Build membrane collision kernel
+        self._build_membrane_kernel()
+
+    def _build_membrane_kernel(self):
+        """Build membrane collision detection kernel."""
+        pos = self.pos
+        vel = self.vel
+        acc = self.acc
+        membrane_triangles = self.membrane_triangles
+        n_membranes = self.n_membranes
+        n_elastic = self._n_elastic
+        h = self.h
+
+        @ti.kernel
+        def apply_membrane_forces():
+            """Apply repulsion forces when liquid particles approach membranes."""
+            # First compute center of mass of elastic particles
+            com_x = 0.0
+            com_y = 0.0
+            com_z = 0.0
+            elastic_count = 0
+            for i in pos:
+                if int(pos[i][3]) == 2:  # Elastic particle
+                    com_x += pos[i][0]
+                    com_y += pos[i][1]
+                    com_z += pos[i][2]
+                    elastic_count += 1
+
+            if elastic_count > 0:
+                com_x /= elastic_count
+                com_y /= elastic_count
+                com_z /= elastic_count
+
+            elastic_com = ti.Vector([com_x, com_y, com_z])
+
+            # For each liquid particle
+            for i in pos:
+                particle_type = int(pos[i][3])
+                if particle_type != 1:  # Only liquid particles
+                    continue
+
+                p = ti.Vector([pos[i][0], pos[i][1], pos[i][2]])
+
+                # Check against all membrane triangles
+                for m in range(n_membranes):
+                    # Get triangle vertex indices
+                    i0 = membrane_triangles[m][0]
+                    i1 = membrane_triangles[m][1]
+                    i2 = membrane_triangles[m][2]
+
+                    # Get vertex positions
+                    v0 = ti.Vector([pos[i0][0], pos[i0][1], pos[i0][2]])
+                    v1 = ti.Vector([pos[i1][0], pos[i1][1], pos[i1][2]])
+                    v2 = ti.Vector([pos[i2][0], pos[i2][1], pos[i2][2]])
+
+                    # Triangle center
+                    tri_center = (v0 + v1 + v2) / 3.0
+
+                    # Quick distance check - skip if too far
+                    dist_to_center = (p - tri_center).norm()
+                    if dist_to_center > h * 2.0:
+                        continue
+
+                    # Compute triangle normal
+                    e1 = v1 - v0
+                    e2 = v2 - v0
+                    normal = e1.cross(e2)
+                    normal_len = normal.norm()
+                    if normal_len < 0.0001:
+                        continue
+                    normal = normal / normal_len
+
+                    # Orient normal to point INWARD (toward elastic COM)
+                    to_com = elastic_com - tri_center
+                    if normal.dot(to_com) < 0:
+                        normal = -normal  # Flip to point inward
+
+                    # Signed distance from particle to plane (positive = outside/away from COM)
+                    signed_dist = (p - v0).dot(normal)
+
+                    # Only apply force if particle is close to membrane
+                    membrane_thickness = h * 1.0
+                    if ti.abs(signed_dist) < membrane_thickness:
+                        # Project point onto plane
+                        proj = p - signed_dist * normal
+
+                        # Compute barycentric coordinates
+                        v0v1 = v1 - v0
+                        v0v2 = v2 - v0
+                        v0p = proj - v0
+
+                        dot00 = v0v2.dot(v0v2)
+                        dot01 = v0v2.dot(v0v1)
+                        dot02 = v0v2.dot(v0p)
+                        dot11 = v0v1.dot(v0v1)
+                        dot12 = v0v1.dot(v0p)
+
+                        inv_denom = 1.0 / (dot00 * dot11 - dot01 * dot01 + 0.0001)
+                        u = (dot11 * dot02 - dot01 * dot12) * inv_denom
+                        v = (dot00 * dot12 - dot01 * dot02) * inv_denom
+
+                        # Check if inside triangle (with small margin)
+                        margin = 0.1
+                        if u >= -margin and v >= -margin and (u + v) <= 1.0 + margin:
+                            # Particle near membrane - push toward inside (in +normal direction)
+                            # signed_dist > 0 means inside, < 0 means outside
+                            # Normal points inward, so push in +normal direction if outside
+                            if signed_dist < 0:
+                                # Particle is OUTSIDE - strong push back in
+                                penetration = -signed_dist  # How far outside
+                                force_mag = 10000.0 * (1.0 + penetration / membrane_thickness)
+                                acc[i][0] += force_mag * normal[0]
+                                acc[i][1] += force_mag * normal[1]
+                                acc[i][2] += force_mag * normal[2]
+
+                                # Also damp outward velocity
+                                vel_normal = vel[i][0]*normal[0] + vel[i][1]*normal[1] + vel[i][2]*normal[2]
+                                if vel_normal < 0:  # Moving outward
+                                    vel[i][0] -= 0.5 * vel_normal * normal[0]
+                                    vel[i][1] -= 0.5 * vel_normal * normal[1]
+                                    vel[i][2] -= 0.5 * vel_normal * normal[2]
+
+        self._apply_membrane_forces = apply_membrane_forces
 
     # =========================================================================
     # Main Simulation Step
@@ -778,6 +944,10 @@ class TaichiSolver:
         # Elastic/muscle forces
         if self.has_elastic:
             self._compute_elastic_forces()
+
+        # Membrane collision forces
+        if self.has_membranes:
+            self._apply_membrane_forces()
 
         if self._timing_enabled:
             ti.sync()
