@@ -169,6 +169,17 @@ class TaichiSolver:
         self.grid_offset = ti.field(dtype=ti.i32, shape=(gn, gn, gn))
         self.particle_ids = ti.field(dtype=ti.i32, shape=n)
 
+        # Flat 1D fields for parallel prefix sum optimization
+        self._grid_count_flat = ti.field(dtype=ti.i32, shape=gn * gn * gn)
+        self._grid_offset_flat = ti.field(dtype=ti.i32, shape=gn * gn * gn)
+
+        # Hierarchical prefix sum: block-level partial sums
+        # Using block size of 1024 for good GPU occupancy
+        self._prefix_block_size = 1024
+        n_blocks = (gn * gn * gn + self._prefix_block_size - 1) // self._prefix_block_size
+        self._prefix_block_sums = ti.field(dtype=ti.i32, shape=n_blocks)
+        self._prefix_block_offsets = ti.field(dtype=ti.i32, shape=n_blocks)
+
         # Neighbor list (for consistent neighbor access)
         self.neighbor_count = ti.field(dtype=ti.i32, shape=n)
         self.neighbors = ti.field(dtype=ti.i32, shape=(n, self.max_neighbors))
@@ -186,6 +197,12 @@ class TaichiSolver:
 
         # Muscle activation
         self.muscle_activation = None
+
+        # GPU state caching (Phase 3 optimization)
+        # Avoids redundant ti.sync() calls when state hasn't changed
+        self._gpu_dirty = True  # GPU has uncommitted changes
+        self._cached_pos = None  # Cached position numpy array
+        self._cached_vel = None  # Cached velocity numpy array
 
     def _init_particles(self, position, velocity):
         """Initialize particle positions and velocities."""
@@ -302,13 +319,96 @@ class TaichiSolver:
                 ti.atomic_add(grid_count[cell[0], cell[1], cell[2]], 1)
 
         @ti.kernel
-        def compute_grid_offsets():
-            offset = 0
+        def compute_grid_offsets_sequential():
+            """DEPRECATED: Sequential prefix sum - O(N) on GPU, very slow!"""
+            # Must serialize - has loop-carried dependency on offset
+            ti.loop_config(serialize=True)
             for i in range(grid_n):
                 for j in range(grid_n):
                     for k in range(grid_n):
-                        grid_offset[i, j, k] = offset
-                        offset += grid_count[i, j, k]
+                        if i == 0 and j == 0 and k == 0:
+                            grid_offset[0, 0, 0] = 0
+                        else:
+                            # Get previous cell in row-major order
+                            prev_k = k - 1
+                            prev_j = j
+                            prev_i = i
+                            if prev_k < 0:
+                                prev_k = grid_n - 1
+                                prev_j = j - 1
+                                if prev_j < 0:
+                                    prev_j = grid_n - 1
+                                    prev_i = i - 1
+                            grid_offset[i, j, k] = grid_offset[prev_i, prev_j, prev_k] + grid_count[prev_i, prev_j, prev_k]
+
+        # Flat fields for parallel prefix sum
+        grid_count_flat = self._grid_count_flat
+        grid_offset_flat = self._grid_offset_flat
+
+        @ti.kernel
+        def flatten_grid_count():
+            """Flatten 3D grid_count to 1D for fast CPU prefix sum."""
+            for i, j, k in grid_count:
+                flat_idx = i * grid_n * grid_n + j * grid_n + k
+                grid_count_flat[flat_idx] = grid_count[i, j, k]
+
+        @ti.kernel
+        def unflatten_grid_offset():
+            """Unflatten 1D grid_offset back to 3D after CPU prefix sum."""
+            for i, j, k in grid_offset:
+                flat_idx = i * grid_n * grid_n + j * grid_n + k
+                grid_offset[i, j, k] = grid_offset_flat[flat_idx]
+
+        # Hierarchical parallel prefix sum kernels
+        block_size = self._prefix_block_size
+        block_sums = self._prefix_block_sums
+        block_offsets = self._prefix_block_offsets
+        n_cells = grid_n * grid_n * grid_n
+        n_blocks = (n_cells + block_size - 1) // block_size
+
+        @ti.kernel
+        def prefix_sum_phase1():
+            """Phase 1: Compute local prefix sum within each block (parallel over blocks).
+
+            Each block computes its own exclusive prefix sum and stores the block total.
+            This is O(block_size) per block but all blocks run in parallel.
+            """
+            for block_id in range(n_blocks):
+                block_start = block_id * block_size
+                block_end = ti.min(block_start + block_size, n_cells)
+
+                # Sequential prefix sum within this block
+                running_sum = 0
+                for i in range(block_start, block_end):
+                    val = grid_count_flat[i]
+                    grid_offset_flat[i] = running_sum
+                    running_sum += val
+
+                # Store block total for phase 2
+                block_sums[block_id] = running_sum
+
+        @ti.kernel
+        def prefix_sum_phase2():
+            """Phase 2: Compute prefix sum of block totals (SERIAL but only ~1100 iterations).
+
+            This MUST be serialized due to the prefix sum dependency.
+            But with block_size=1024 and 1.1M cells, this is only ~1100 iterations
+            instead of 1.1M - a 1000x reduction in sequential work!
+            """
+            # Force serialization - this loop has data dependencies
+            ti.loop_config(serialize=True)
+            for block_id in range(n_blocks):
+                if block_id == 0:
+                    block_offsets[0] = 0
+                else:
+                    block_offsets[block_id] = block_offsets[block_id - 1] + block_sums[block_id - 1]
+
+        @ti.kernel
+        def prefix_sum_phase3():
+            """Phase 3: Add block offsets to local prefix sums (parallel over all elements)."""
+            for i in grid_offset_flat:
+                block_id = i // block_size
+                grid_offset_flat[i] += block_offsets[block_id]
 
         @ti.kernel
         def sort_particles():
@@ -523,7 +623,12 @@ class TaichiSolver:
 
         # Store kernel references
         self._count_particles_in_grid = count_particles_in_grid
-        self._compute_grid_offsets = compute_grid_offsets
+        self._compute_grid_offsets_sequential = compute_grid_offsets_sequential
+        self._flatten_grid_count = flatten_grid_count
+        self._unflatten_grid_offset = unflatten_grid_offset
+        self._prefix_sum_phase1 = prefix_sum_phase1
+        self._prefix_sum_phase2 = prefix_sum_phase2
+        self._prefix_sum_phase3 = prefix_sum_phase3
         self._sort_particles = sort_particles
         self._build_neighbor_list = build_neighbor_list
         self._compute_density = compute_density
@@ -534,6 +639,34 @@ class TaichiSolver:
         self._integrate_euler = integrate_euler
         self._apply_floor_constraint = apply_floor_constraint
         self._store_acceleration = store_acceleration
+
+    def _compute_grid_offsets(self):
+        """Compute grid offsets using HIERARCHICAL PARALLEL prefix sum.
+
+        This replaces the O(N) sequential GPU scan with a 3-phase algorithm:
+
+        Phase 1 (parallel): Divide into blocks of 1024, compute local prefix
+                           sums within each block. ~1100 blocks run in parallel.
+
+        Phase 2 (sequential): Compute prefix sum of block totals. Only ~1100
+                             iterations instead of 1.1M.
+
+        Phase 3 (parallel): Add block offsets to all elements. All elements
+                           update in parallel.
+
+        Complexity: O(B) + O(N/B) + O(1) where B=1024, vs O(N) for sequential.
+        For N=1.1M: ~1100 sequential ops vs 1.1M = ~1000x fewer sequential ops.
+        """
+        # Step 1: Flatten 3D grid_count to 1D (parallel on GPU)
+        self._flatten_grid_count()
+
+        # Step 2: Hierarchical parallel prefix sum (all on GPU)
+        self._prefix_sum_phase1()  # Parallel: local prefix sums + block totals
+        self._prefix_sum_phase2()  # Sequential: prefix sum of ~1100 block totals
+        self._prefix_sum_phase3()  # Parallel: add block offsets to all elements
+
+        # Step 3: Unflatten back to 3D (parallel on GPU)
+        self._unflatten_grid_offset()
 
     # =========================================================================
     # Elastic Connections (for worm body simulation)
@@ -916,6 +1049,9 @@ class TaichiSolver:
     # =========================================================================
     def run_step(self):
         """Execute one complete simulation step."""
+        # Mark GPU state as dirty (invalidate cache)
+        self._gpu_dirty = True
+
         start_time = time.perf_counter() if self._timing_enabled else 0
 
         # Neighbor search
@@ -987,21 +1123,32 @@ class TaichiSolver:
     # State Access (for C++ integration)
     # =========================================================================
     def get_state(self):
-        """Return position and velocity as Python lists."""
-        ti.sync()
-        pos_np = self.pos.to_numpy().tolist()
-        vel_np = self.vel.to_numpy().tolist()
-        return pos_np, vel_np
+        """Return position and velocity as contiguous float32 numpy arrays.
+
+        Optimized: Returns cached numpy arrays, only syncing when GPU state is dirty.
+        Use get_state_as_lists() if you need Python lists (slower).
+        """
+        if self._gpu_dirty or self._cached_pos is None:
+            ti.sync()
+            self._cached_pos = self.pos.to_numpy()
+            self._cached_vel = self.vel.to_numpy()
+            self._gpu_dirty = False
+        return self._cached_pos, self._cached_vel
+
+    def get_state_as_lists(self):
+        """Legacy method returning Python lists (slower, for compatibility)."""
+        pos, vel = self.get_state()
+        return pos.tolist(), vel.tolist()
 
     def get_positions(self):
-        """Return positions as numpy array."""
-        ti.sync()
-        return self.pos.to_numpy()
+        """Return positions as numpy array (uses cache)."""
+        pos, _ = self.get_state()
+        return pos
 
     def get_velocities(self):
-        """Return velocities as numpy array."""
-        ti.sync()
-        return self.vel.to_numpy()
+        """Return velocities as numpy array (uses cache)."""
+        _, vel = self.get_state()
+        return vel
 
     def get_density(self):
         """Return density array."""
@@ -1019,15 +1166,15 @@ class TaichiSolver:
 
     @property
     def position(self):
-        """Property for compatibility with PyTorch solver."""
-        ti.sync()
-        return self.pos.to_numpy()
+        """Property for compatibility with PyTorch solver (uses cache)."""
+        pos, _ = self.get_state()
+        return pos
 
     @property
     def velocity(self):
-        """Property for compatibility with PyTorch solver."""
-        ti.sync()
-        return self.vel.to_numpy()
+        """Property for compatibility with PyTorch solver (uses cache)."""
+        _, vel = self.get_state()
+        return vel
 
     # =========================================================================
     # Timing and Logging

@@ -1097,6 +1097,9 @@ int run(int argc, char **argv, const bool with_graphics) {
       return EXIT_SUCCESS;
     }
   } else {
+    int progress_interval = localConfig->getNumberOfIterations() / 20;  // 5% increments
+    if (progress_interval < 1) progress_interval = 1;
+    std::cout << "Starting simulation: " << localConfig->getNumberOfIterations() << " steps..." << std::endl;
     while (1) {
       try {
         fluid_simulation->simulationStep(load_to);
@@ -1106,8 +1109,13 @@ int run(int argc, char **argv, const bool with_graphics) {
         return EXIT_FAILURE;
       }
       helper->refreshTime();
-      if (fluid_simulation->getIteration() ==
-          localConfig->getNumberOfIterations()) {
+      int iter = fluid_simulation->getIteration();
+      if (iter % progress_interval == 0) {
+        int pct = (100 * iter) / localConfig->getNumberOfIterations();
+        std::cout << "Progress: " << iter << "/" << localConfig->getNumberOfIterations()
+                  << " (" << pct << "%)" << std::endl;
+      }
+      if (iter == localConfig->getNumberOfIterations()) {
         std::cout << "Simulation has reached the time limit" << std::endl;
         cleanupSimulation();
         return EXIT_SUCCESS;
