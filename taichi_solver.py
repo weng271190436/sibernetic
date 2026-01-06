@@ -48,7 +48,8 @@ class TaichiSolver:
 
         # Initialize Taichi with appropriate backend
         device = config.get("device", "metal")
-        self._init_taichi(device)
+        kernel_profiler = config.get("kernel_profiler", False)
+        self._init_taichi(device, kernel_profiler=kernel_profiler)
 
         # Extract parameters
         self.h = config.get("h", 0.1)
@@ -130,10 +131,10 @@ class TaichiSolver:
         if elastic_connections is not None:
             self._load_elastic_from_cpp(elastic_connections, config)
 
-    def _init_taichi(self, device):
+    def _init_taichi(self, device, kernel_profiler=False):
         """Initialize Taichi with the specified backend."""
         if device == "metal":
-            ti.init(arch=ti.metal)
+            ti.init(arch=ti.metal, kernel_profiler=kernel_profiler)
         elif device == "cuda":
             ti.init(arch=ti.cuda)
         elif device == "vulkan":
@@ -447,6 +448,7 @@ class TaichiSolver:
         # =====================================================================
         @ti.kernel
         def compute_density():
+            """Compute density using stored neighbor list."""
             for i in pos:
                 # Self-contribution: W(0) with scaled h
                 rho[i] = mass * poly6_coeff * h2_scaled * h2_scaled * h2_scaled
@@ -458,6 +460,85 @@ class TaichiSolver:
                     # Scale r_sq for kernel (world coords -> scaled coords)
                     r_sq_scaled = r_sq * sim_scale * sim_scale
                     rho[i] += mass * poly6_kernel(r_sq_scaled)
+                # Minimum clamp
+                rho[i] = ti.max(rho[i], 0.01)
+
+        @ti.kernel
+        def compute_density_direct():
+            """Compute density with on-the-fly neighbor search (no stored list)."""
+            for i in pos:
+                # Self-contribution: W(0) with scaled h
+                rho[i] = mass * poly6_coeff * h2_scaled * h2_scaled * h2_scaled
+
+                # On-the-fly neighbor search
+                cell = get_cell(pos[i])
+                for di in range(-1, 2):
+                    for dj in range(-1, 2):
+                        for dk in range(-1, 2):
+                            ni = cell[0] + di
+                            nj = cell[1] + dj
+                            nk = cell[2] + dk
+                            # Bounds check
+                            if 0 <= ni < grid_n and 0 <= nj < grid_n and 0 <= nk < grid_n:
+                                # Skip empty cells early
+                                cell_count = grid_count[ni, nj, nk]
+                                if cell_count > 0:
+                                    start = grid_offset[ni, nj, nk]
+                                    for idx in range(start, start + cell_count):
+                                        j = particle_ids[idx]
+                                        if i != j:
+                                            r = pos[i] - pos[j]
+                                            r_sq = r[0]*r[0] + r[1]*r[1] + r[2]*r[2]
+                                            if r_sq < h2:
+                                                # Scale r_sq for kernel
+                                                r_sq_scaled = r_sq * sim_scale * sim_scale
+                                                rho[i] += mass * poly6_kernel(r_sq_scaled)
+                # Minimum clamp
+                rho[i] = ti.max(rho[i], 0.01)
+
+        @ti.kernel
+        def compute_density_and_cache_neighbors():
+            """FUSED: Compute density AND cache neighbors in one pass.
+
+            This combines neighbor search with density computation,
+            storing neighbors for later use by force computation.
+            Only ONE neighbor search pass needed!
+            """
+            for i in pos:
+                # Self-contribution: W(0) with scaled h
+                rho[i] = mass * poly6_coeff * h2_scaled * h2_scaled * h2_scaled
+
+                # Reset neighbor count for this particle
+                neighbor_count[i] = 0
+
+                # On-the-fly neighbor search + density + caching
+                cell = get_cell(pos[i])
+                for di in range(-1, 2):
+                    for dj in range(-1, 2):
+                        for dk in range(-1, 2):
+                            ni = cell[0] + di
+                            nj = cell[1] + dj
+                            nk = cell[2] + dk
+                            # Bounds check
+                            if 0 <= ni < grid_n and 0 <= nj < grid_n and 0 <= nk < grid_n:
+                                # Skip empty cells early
+                                cell_count = grid_count[ni, nj, nk]
+                                if cell_count > 0:
+                                    start = grid_offset[ni, nj, nk]
+                                    for idx in range(start, start + cell_count):
+                                        j = particle_ids[idx]
+                                        if i != j:
+                                            r = pos[i] - pos[j]
+                                            r_sq = r[0]*r[0] + r[1]*r[1] + r[2]*r[2]
+                                            if r_sq < h2:
+                                                # Compute density contribution
+                                                r_sq_scaled = r_sq * sim_scale * sim_scale
+                                                rho[i] += mass * poly6_kernel(r_sq_scaled)
+
+                                                # Cache this neighbor for force computation
+                                                if neighbor_count[i] < max_neighbors:
+                                                    neighbors[i, neighbor_count[i]] = j
+                                                    neighbor_count[i] += 1
                 # Minimum clamp
                 rho[i] = ti.max(rho[i], 0.01)
 
@@ -540,6 +621,90 @@ class TaichiSolver:
                         surf_kernel = ti.max(0.0, h2 - r_len*r_len)
                         surf_kernel = surf_kernel * surf_kernel * surf_kernel
                         force += -1.7e-9 * surf_coeff * surf_kernel * r / (r_len + 0.0001) / mass
+
+                acc[i] = ti.Vector([force[0], force[1], force[2], 0.0])
+
+        @ti.kernel
+        def compute_forces_direct():
+            """Compute forces with on-the-fly neighbor search (no stored list)."""
+            for i in pos:
+                particle_type = int(pos[i][3])
+
+                # Boundary particles don't move
+                if particle_type == 3:  # BOUNDARY
+                    acc[i] = ti.Vector([0.0, 0.0, 0.0, 0.0])
+                    continue
+
+                # All forces in world coordinates
+                force = ti.Vector([gravity[0], gravity[1], gravity[2]])
+
+                p_i = pos[i]
+                v_i = vel[i]
+                rho_i = rho[i]
+                pressure_i = pressure[i]
+
+                # On-the-fly neighbor search
+                cell = get_cell(p_i)
+                for di in range(-1, 2):
+                    for dj in range(-1, 2):
+                        for dk in range(-1, 2):
+                            ni_cell = cell[0] + di
+                            nj_cell = cell[1] + dj
+                            nk_cell = cell[2] + dk
+                            # Bounds check
+                            if 0 <= ni_cell < grid_n and 0 <= nj_cell < grid_n and 0 <= nk_cell < grid_n:
+                                # Skip empty cells early
+                                cell_count = grid_count[ni_cell, nj_cell, nk_cell]
+                                if cell_count > 0:
+                                    start = grid_offset[ni_cell, nj_cell, nk_cell]
+                                    for idx in range(start, start + cell_count):
+                                        j = particle_ids[idx]
+                                        if i != j:
+                                            # Distance check
+                                            r = ti.Vector([p_i[0] - pos[j][0], p_i[1] - pos[j][1], p_i[2] - pos[j][2]])
+                                            r_sq = r[0]*r[0] + r[1]*r[1] + r[2]*r[2]
+                                            if r_sq < h2:
+                                                r_len = ti.sqrt(r_sq)
+                                                if r_len < 0.0001:
+                                                    continue
+
+                                                j_type = int(pos[j][3])
+
+                                                # Boundary handling (Ihmsen et al. 2010)
+                                                if j_type == 3:  # BOUNDARY
+                                                    n_b = ti.Vector([vel[j][0], vel[j][1], vel[j][2]])
+                                                    n_len = ti.sqrt(n_b[0]*n_b[0] + n_b[1]*n_b[1] + n_b[2]*n_b[2])
+                                                    if n_len > 0.0001:
+                                                        n_b = n_b / n_len
+                                                        w = ti.max(0.0, (r0 - r_len) / r0)
+                                                        repulsion = 2000.0 * w * n_b
+                                                        force += repulsion
+                                                    continue
+
+                                                rho_j = rho[j]
+
+                                                # Scale distance for SPH kernels
+                                                r_scaled = ti.Vector([r[0] * sim_scale, r[1] * sim_scale, r[2] * sim_scale])
+                                                r_len_scaled = r_len * sim_scale
+
+                                                # Pressure force
+                                                if not (particle_type == 2 and j_type == 2):
+                                                    pressure_term = (pressure_i + pressure[j]) / (2.0 * rho_j + 0.0001)
+                                                    grad_scaled = spiky_gradient(r_scaled, r_len_scaled)
+                                                    grad_world = ti.Vector([grad_scaled[0] * sim_scale, grad_scaled[1] * sim_scale, grad_scaled[2] * sim_scale])
+                                                    force += -mass * pressure_term * grad_world
+
+                                                # Viscosity force
+                                                v_diff = ti.Vector([vel[j][0] - v_i[0], vel[j][1] - v_i[1], vel[j][2] - v_i[2]])
+                                                visc_lap_scaled = viscosity_laplacian(r_len_scaled)
+                                                visc_lap_world = visc_lap_scaled * sim_scale * sim_scale
+                                                force += mu * mass * v_diff * visc_lap_world / (rho_j + 0.0001)
+
+                                                # Surface tension
+                                                if surf_coeff > 0.0:
+                                                    surf_kernel = ti.max(0.0, h2 - r_sq)
+                                                    surf_kernel = surf_kernel * surf_kernel * surf_kernel
+                                                    force += -1.7e-9 * surf_coeff * surf_kernel * r / (r_len + 0.0001) / mass
 
                 acc[i] = ti.Vector([force[0], force[1], force[2], 0.0])
 
@@ -632,11 +797,20 @@ class TaichiSolver:
         self._sort_particles = sort_particles
         self._build_neighbor_list = build_neighbor_list
         self._compute_density = compute_density
+        self._compute_density_direct = compute_density_direct
+        self._compute_density_and_cache_neighbors = compute_density_and_cache_neighbors
         self._compute_pressure = compute_pressure
         self._compute_forces = compute_forces
+        self._compute_forces_direct = compute_forces_direct
         self._integrate_position = integrate_position
         self._integrate_velocity = integrate_velocity
         self._integrate_euler = integrate_euler
+
+        # Neighbor search mode:
+        # "fused"  - compute density + cache neighbors in one pass, forces use cached (DEFAULT - fastest)
+        # "list"   - build neighbor list first, then density/forces use it
+        # "direct" - on-the-fly for both density and forces (2x neighbor search)
+        self._neighbor_mode = "fused"
         self._apply_floor_constraint = apply_floor_constraint
         self._store_acceleration = store_acceleration
 
@@ -1054,19 +1228,30 @@ class TaichiSolver:
 
         start_time = time.perf_counter() if self._timing_enabled else 0
 
-        # Neighbor search
+        # Grid-based spatial hashing (always needed)
         self._count_particles_in_grid()
         self._compute_grid_offsets()
         self._sort_particles()
-        self._build_neighbor_list()
+
+        # Build neighbor list only in "list" mode
+        if self._neighbor_mode == "list":
+            self._build_neighbor_list()
 
         if self._timing_enabled:
             ti.sync()
             self._record_timing("neighbor_search", start_time)
             start_time = time.perf_counter()
 
-        # Density and pressure
-        self._compute_density()
+        # Density and pressure computation
+        if self._neighbor_mode == "fused":
+            # FUSED: compute density AND cache neighbors in one pass
+            self._compute_density_and_cache_neighbors()
+        elif self._neighbor_mode == "list":
+            # Use pre-built neighbor list
+            self._compute_density()
+        else:  # "direct"
+            # On-the-fly, no caching
+            self._compute_density_direct()
         self._compute_pressure()
 
         if self._timing_enabled:
@@ -1075,7 +1260,12 @@ class TaichiSolver:
             start_time = time.perf_counter()
 
         # Forces (pressure, viscosity, boundary, gravity)
-        self._compute_forces()
+        if self._neighbor_mode == "direct":
+            # On-the-fly (searches neighbors again)
+            self._compute_forces_direct()
+        else:
+            # Use cached neighbors (from fused or list mode)
+            self._compute_forces()
 
         # Elastic/muscle forces
         if self.has_elastic:
