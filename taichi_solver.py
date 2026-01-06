@@ -185,6 +185,18 @@ class TaichiSolver:
         self.neighbor_count = ti.field(dtype=ti.i32, shape=n)
         self.neighbors = ti.field(dtype=ti.i32, shape=(n, self.max_neighbors))
 
+        # CSR compact neighbor storage (reduces memory from 43MB to ~3MB)
+        # avg_neighbors ~= 3.2, allocate n * 16 for headroom (still 4x smaller!)
+        csr_capacity = n * 16
+        self.neighbors_csr = ti.field(dtype=ti.i32, shape=csr_capacity)
+        self.neighbor_offsets = ti.field(dtype=ti.i32, shape=n + 1)
+        self._csr_capacity = csr_capacity
+
+        # Prefix sum buffers for neighbor offsets (reuse same block size as grid)
+        n_neighbor_blocks = (n + self._prefix_block_size - 1) // self._prefix_block_size
+        self._neighbor_block_sums = ti.field(dtype=ti.i32, shape=n_neighbor_blocks)
+        self._neighbor_block_offsets = ti.field(dtype=ti.i32, shape=n_neighbor_blocks)
+
         # Elastic connections (allocated on demand)
         self.elastic_connections = None
         self.elastic_rest_lengths = None
@@ -498,7 +510,7 @@ class TaichiSolver:
 
         @ti.kernel
         def compute_density_and_cache_neighbors():
-            """FUSED: Compute density AND cache neighbors in one pass.
+            """FUSED: Compute density, pressure AND cache neighbors in one pass.
 
             This combines neighbor search with density computation,
             storing neighbors for later use by force computation.
@@ -542,6 +554,10 @@ class TaichiSolver:
                 # Minimum clamp
                 rho[i] = ti.max(rho[i], 0.01)
 
+                # FUSED: Compute pressure inline (Tait equation)
+                p = delta * (rho[i] / rho0 - 1.0)
+                pressure[i] = ti.max(p, 0.0)
+
         @ti.kernel
         def compute_pressure():
             for i in pos:
@@ -549,6 +565,194 @@ class TaichiSolver:
                 p = delta * (rho[i] / rho0 - 1.0)
                 # Clamp to non-negative
                 pressure[i] = ti.max(p, 0.0)
+
+        # =====================================================================
+        # CSR Compact Neighbor Storage Kernels
+        # Two-pass approach: count → prefix sum → fill
+        # Reduces memory from 43MB (n × 64 × 4) to ~3MB (n × avg × 4)
+        # =====================================================================
+        neighbors_csr = self.neighbors_csr
+        neighbor_offsets = self.neighbor_offsets
+        csr_capacity = self._csr_capacity
+        neighbor_block_sums = self._neighbor_block_sums
+        neighbor_block_offsets = self._neighbor_block_offsets
+        n_particles = self.n_particles
+        prefix_block_size = self._prefix_block_size
+
+        @ti.kernel
+        def count_neighbors_and_density():
+            """CSR Pass 1: Count neighbors + compute density + pressure.
+
+            Does NOT store neighbors yet - just counts them for prefix sum.
+            """
+            for i in pos:
+                # Self-contribution
+                rho[i] = mass * poly6_coeff * h2_scaled * h2_scaled * h2_scaled
+                neighbor_count[i] = 0
+
+                cell = get_cell(pos[i])
+                for di in range(-1, 2):
+                    for dj in range(-1, 2):
+                        for dk in range(-1, 2):
+                            ni = cell[0] + di
+                            nj = cell[1] + dj
+                            nk = cell[2] + dk
+                            if 0 <= ni < grid_n and 0 <= nj < grid_n and 0 <= nk < grid_n:
+                                cell_count = grid_count[ni, nj, nk]
+                                if cell_count > 0:
+                                    start = grid_offset[ni, nj, nk]
+                                    for idx in range(start, start + cell_count):
+                                        j = particle_ids[idx]
+                                        if i != j:
+                                            r = pos[i] - pos[j]
+                                            r_sq = r[0]*r[0] + r[1]*r[1] + r[2]*r[2]
+                                            if r_sq < h2:
+                                                r_sq_scaled = r_sq * sim_scale * sim_scale
+                                                rho[i] += mass * poly6_kernel(r_sq_scaled)
+                                                neighbor_count[i] += 1
+
+                rho[i] = ti.max(rho[i], 0.01)
+                # Compute pressure inline
+                p = delta * (rho[i] / rho0 - 1.0)
+                pressure[i] = ti.max(p, 0.0)
+
+        @ti.kernel
+        def neighbor_prefix_phase1():
+            """Phase 1: Compute local prefix sums within blocks + block totals."""
+            ti.loop_config(serialize=True)
+            for block_id in range((n_particles + prefix_block_size - 1) // prefix_block_size):
+                block_start = block_id * prefix_block_size
+                block_end = ti.min(block_start + prefix_block_size, n_particles)
+
+                running_sum = 0
+                for i in range(block_start, block_end):
+                    old_count = neighbor_count[i]
+                    neighbor_offsets[i] = running_sum
+                    running_sum += old_count
+
+                neighbor_block_sums[block_id] = running_sum
+
+        @ti.kernel
+        def neighbor_prefix_phase2():
+            """Phase 2: Compute prefix sum of block totals (sequential)."""
+            ti.loop_config(serialize=True)
+            n_blocks = (n_particles + prefix_block_size - 1) // prefix_block_size
+            running_sum = 0
+            for block_id in range(n_blocks):
+                neighbor_block_offsets[block_id] = running_sum
+                running_sum += neighbor_block_sums[block_id]
+            # Store total count in last position
+            neighbor_offsets[n_particles] = running_sum
+
+        @ti.kernel
+        def neighbor_prefix_phase3():
+            """Phase 3: Add block offsets to all elements (parallel)."""
+            for i in range(n_particles):
+                block_id = i // prefix_block_size
+                neighbor_offsets[i] += neighbor_block_offsets[block_id]
+
+        @ti.kernel
+        def fill_neighbors_csr():
+            """CSR Pass 2: Fill CSR storage using computed offsets.
+
+            Searches neighbors again (fast) and stores to packed array.
+            """
+            for i in pos:
+                write_idx = neighbor_offsets[i]
+                local_count = 0
+
+                cell = get_cell(pos[i])
+                for di in range(-1, 2):
+                    for dj in range(-1, 2):
+                        for dk in range(-1, 2):
+                            ni = cell[0] + di
+                            nj = cell[1] + dj
+                            nk = cell[2] + dk
+                            if 0 <= ni < grid_n and 0 <= nj < grid_n and 0 <= nk < grid_n:
+                                cell_count = grid_count[ni, nj, nk]
+                                if cell_count > 0:
+                                    start = grid_offset[ni, nj, nk]
+                                    for idx in range(start, start + cell_count):
+                                        j = particle_ids[idx]
+                                        if i != j:
+                                            r = pos[i] - pos[j]
+                                            r_sq = r[0]*r[0] + r[1]*r[1] + r[2]*r[2]
+                                            if r_sq < h2:
+                                                if write_idx + local_count < csr_capacity:
+                                                    neighbors_csr[write_idx + local_count] = j
+                                                    local_count += 1
+
+        @ti.kernel
+        def compute_forces_csr():
+            """Compute forces using CSR neighbor lookup.
+
+            Uses packed neighbor storage instead of fixed-size 2D array.
+            """
+            for i in pos:
+                particle_type = int(pos[i][3])
+                if particle_type == 3:  # BOUNDARY
+                    acc[i] = ti.Vector([0.0, 0.0, 0.0, 0.0])
+                    continue
+
+                # All forces in world coordinates (gravity included from start)
+                force = ti.Vector([gravity[0], gravity[1], gravity[2]])
+                pressure_i = pressure[i]
+                v_i = ti.Vector([vel[i][0], vel[i][1], vel[i][2]])
+
+                # Get CSR range for this particle's neighbors
+                start_idx = neighbor_offsets[i]
+                end_idx = neighbor_offsets[i + 1]
+
+                # Iterate through neighbors using CSR
+                for k in range(start_idx, end_idx):
+                    j = neighbors_csr[k]
+                    j_type = int(pos[j][3])
+
+                    r = ti.Vector([pos[i][0] - pos[j][0],
+                                   pos[i][1] - pos[j][1],
+                                   pos[i][2] - pos[j][2]])
+                    r_sq = r[0]*r[0] + r[1]*r[1] + r[2]*r[2]
+
+                    if r_sq > h2 or r_sq < 1e-12:
+                        continue
+
+                    r_len = ti.sqrt(r_sq)
+                    if r_len < 0.0001:
+                        continue
+
+                    # Boundary handling (Ihmsen et al. 2010)
+                    if j_type == 3:  # BOUNDARY
+                        n_b = ti.Vector([vel[j][0], vel[j][1], vel[j][2]])
+                        n_len = ti.sqrt(n_b[0]*n_b[0] + n_b[1]*n_b[1] + n_b[2]*n_b[2])
+                        if n_len > 0.0001:
+                            n_b = n_b / n_len
+                            w = ti.max(0.0, (r0 - r_len) / r0)
+                            repulsion = 2000.0 * w * n_b
+                            force += repulsion
+                        continue
+
+                    rho_j = rho[j]
+
+                    # Scale distance for SPH kernels (world -> scaled coords)
+                    r_scaled = ti.Vector([r[0] * sim_scale, r[1] * sim_scale, r[2] * sim_scale])
+                    r_len_scaled = r_len * sim_scale
+
+                    # Pressure force
+                    if not (particle_type == 2 and j_type == 2):
+                        pressure_term = (pressure_i + pressure[j]) / (2.0 * rho_j + 0.0001)
+                        grad_scaled = spiky_gradient(r_scaled, r_len_scaled)
+                        grad_world = ti.Vector([grad_scaled[0] * sim_scale,
+                                               grad_scaled[1] * sim_scale,
+                                               grad_scaled[2] * sim_scale])
+                        force += -mass * pressure_term * grad_world
+
+                    # Viscosity force
+                    v_diff = ti.Vector([vel[j][0] - v_i[0], vel[j][1] - v_i[1], vel[j][2] - v_i[2]])
+                    visc_lap_scaled = viscosity_laplacian(r_len_scaled)
+                    visc_lap_world = visc_lap_scaled * sim_scale * sim_scale
+                    force += mu * mass * v_diff * visc_lap_world / (rho_j + 0.0001)
+
+                acc[i] = ti.Vector([force[0], force[1], force[2], 0.0])
 
         # =====================================================================
         # Force Computation Kernels
@@ -806,10 +1010,19 @@ class TaichiSolver:
         self._integrate_velocity = integrate_velocity
         self._integrate_euler = integrate_euler
 
+        # CSR compact neighbor storage kernels
+        self._count_neighbors_and_density = count_neighbors_and_density
+        self._neighbor_prefix_phase1 = neighbor_prefix_phase1
+        self._neighbor_prefix_phase2 = neighbor_prefix_phase2
+        self._neighbor_prefix_phase3 = neighbor_prefix_phase3
+        self._fill_neighbors_csr = fill_neighbors_csr
+        self._compute_forces_csr = compute_forces_csr
+
         # Neighbor search mode:
         # "fused"  - compute density + cache neighbors in one pass, forces use cached (DEFAULT - fastest)
         # "list"   - build neighbor list first, then density/forces use it
         # "direct" - on-the-fly for both density and forces (2x neighbor search)
+        # "csr"    - compact storage: count → prefix sum → fill → forces (lowest memory)
         self._neighbor_mode = "fused"
         self._apply_floor_constraint = apply_floor_constraint
         self._store_acceleration = store_acceleration
@@ -1244,15 +1457,25 @@ class TaichiSolver:
 
         # Density and pressure computation
         if self._neighbor_mode == "fused":
-            # FUSED: compute density AND cache neighbors in one pass
+            # FUSED: compute density, pressure AND cache neighbors in one pass
             self._compute_density_and_cache_neighbors()
+        elif self._neighbor_mode == "csr":
+            # CSR Pass 1: count neighbors + density + pressure (no storage)
+            self._count_neighbors_and_density()
+            # Compute neighbor offsets using hierarchical prefix sum
+            self._neighbor_prefix_phase1()
+            self._neighbor_prefix_phase2()
+            self._neighbor_prefix_phase3()
+            # CSR Pass 2: fill CSR storage
+            self._fill_neighbors_csr()
         elif self._neighbor_mode == "list":
             # Use pre-built neighbor list
             self._compute_density()
+            self._compute_pressure()
         else:  # "direct"
             # On-the-fly, no caching
             self._compute_density_direct()
-        self._compute_pressure()
+            self._compute_pressure()
 
         if self._timing_enabled:
             ti.sync()
@@ -1263,6 +1486,9 @@ class TaichiSolver:
         if self._neighbor_mode == "direct":
             # On-the-fly (searches neighbors again)
             self._compute_forces_direct()
+        elif self._neighbor_mode == "csr":
+            # Use CSR compact neighbor storage
+            self._compute_forces_csr()
         else:
             # Use cached neighbors (from fused or list mode)
             self._compute_forces()
@@ -1308,6 +1534,56 @@ class TaichiSolver:
         else:
             self._integrate_euler()
             self._apply_floor_constraint()
+
+    # =========================================================================
+    # Configuration
+    # =========================================================================
+    def set_neighbor_mode(self, mode):
+        """Set neighbor search mode.
+
+        Args:
+            mode: One of:
+                "fused"  - Compute density + cache neighbors in one pass (DEFAULT, fastest)
+                "csr"    - CSR compact storage (lowest memory: ~3MB vs 43MB)
+                "list"   - Build neighbor list first, then density/forces use it
+                "direct" - On-the-fly for both (2x neighbor search, no memory)
+        """
+        valid_modes = {"fused", "csr", "list", "direct"}
+        if mode not in valid_modes:
+            raise ValueError(f"Invalid mode '{mode}'. Must be one of {valid_modes}")
+        self._neighbor_mode = mode
+
+    def get_memory_stats(self):
+        """Return memory usage statistics for neighbor storage.
+
+        Returns:
+            dict with:
+                - mode: current neighbor mode
+                - fixed_array_mb: memory used by fixed-size 2D array
+                - csr_capacity_mb: memory allocated for CSR storage
+                - csr_used_mb: actual CSR memory used (if in CSR mode)
+        """
+        n = self.n_particles
+        fixed_mb = n * self.max_neighbors * 4 / (1024 * 1024)
+        csr_capacity_mb = self._csr_capacity * 4 / (1024 * 1024)
+
+        stats = {
+            "mode": self._neighbor_mode,
+            "n_particles": n,
+            "max_neighbors": self.max_neighbors,
+            "fixed_array_mb": fixed_mb,
+            "csr_capacity_mb": csr_capacity_mb,
+        }
+
+        if self._neighbor_mode == "csr":
+            ti.sync()
+            # Read from Taichi field - use to_numpy() for reliable access
+            total_neighbors = int(self.neighbor_offsets.to_numpy()[n])
+            stats["csr_used_mb"] = total_neighbors * 4 / (1024 * 1024)
+            stats["total_neighbors"] = total_neighbors
+            stats["avg_neighbors"] = total_neighbors / n if n > 0 else 0
+
+        return stats
 
     # =========================================================================
     # State Access (for C++ integration)
