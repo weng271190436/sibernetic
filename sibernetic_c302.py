@@ -518,6 +518,7 @@ def run(a=None, **kwargs):
 
     reportj["generation_time"] = "%s s" % (sim_start - gen_start)
     reportj["run_time"] = "%s s" % (sim_end - sim_start)
+    reportj["run_time_hr"] = "%s hr" % ((sim_end - sim_start) / 3600.0)
     reportj["device"] = "%s" % (a.device)
     reportj["configuration"] = "%s" % (a.configuration)
     reportj["run_command"] = command
