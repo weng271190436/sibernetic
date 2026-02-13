@@ -17,10 +17,10 @@ from enum import Enum
 
 last_meshes = {}
 
-replay_speed = 0.05  # seconds between frames
+replay_speed = 0.02  # seconds between frames
 replaying = False
 
-all_points = []
+all_3D_points = []
 all_point_types = []
 
 plotter = None
@@ -31,6 +31,10 @@ show_boundary = False
 max_time = None
 
 verbose = False
+
+report_data = None
+
+downsample = 1  # only load every nth time point of 3d positions
 
 
 class State(Enum):
@@ -110,7 +114,7 @@ class ReplayController:
                 closest = min(self.times, key=lambda x: abs(x - time_value))
                 closest_index = self.times.index(closest)
                 print(
-                    f" > Finding closest time to {time_value}, got index: {closest_index}"
+                    f" > Finding closest time to {time_value}, got index: {closest_index} of {len(self.times)} times {self.times[0]}-{self.times[-1]}"
                 )
                 closest_time = self.times[closest_index]
 
@@ -183,7 +187,7 @@ def add_sibernetic_model(
     include_boundary=False,
 ):
     global \
-        all_points, \
+        all_3D_points, \
         all_point_types, \
         last_meshes, \
         plotter, \
@@ -191,7 +195,8 @@ def add_sibernetic_model(
         slider, \
         show_boundary, \
         max_time, \
-        replay_controller
+        replay_controller, \
+        report_data
 
     offset3d_ = offset3d
     plotter = pl
@@ -210,6 +215,8 @@ def add_sibernetic_model(
     report_data = None
     count_point_types = {}
 
+    loaded_time_points = []
+
     if report_file is not None:
         sim_dir = os.path.dirname(os.path.abspath(report_file))
         report_data = json.load(open(report_file, "r"))
@@ -225,7 +232,7 @@ def add_sibernetic_model(
         sibernetic_time_points = np.linspace(
             0, duration, int((duration / dt) / log_step)
         )
-        replay_controller = ReplayController(times=sibernetic_time_points)
+        """replay_controller = ReplayController(times=sibernetic_time_points)"""
 
         print(
             "Simulation dt: %s ms, duration: %s ms, times simulated (%i): %s; sibernetic logged times (%i): %s"
@@ -262,7 +269,10 @@ def add_sibernetic_model(
             # plt.imshow(musc_dat, interpolation="none", aspect="auto", cmap="YlOrRd")
 
             f_musc, ax_musc = plt.subplots(tight_layout=True)
-            im = ax_musc.imshow(musc_dat, interpolation="none", aspect="auto", cmap="YlOrRd")
+            im = ax_musc.imshow(
+                musc_dat, interpolation="none", aspect="auto", cmap="YlOrRd"
+            )
+            f_musc.canvas.manager.set_window_title("Muscle Activation Heatmap")
 
             f_musc.colorbar(im)
 
@@ -294,6 +304,7 @@ def add_sibernetic_model(
                 vmax=190,
             )
             f_curv.colorbar(im)
+            f_curv.canvas.manager.set_window_title("Body Curvature")
 
             ax_curv.set_xlabel("Time (ms)")
             _ = ax_curv.set_ylabel("Body curv.")
@@ -311,6 +322,8 @@ def add_sibernetic_model(
             )
 
     first_pass_complete = False
+
+    sampled = 1e6  # force first sample to be included
 
     for line in open(position_file):
         ws = line.split()
@@ -348,17 +361,43 @@ def add_sibernetic_model(
 
             if pcount == numOfBoundaryP + numOfElasticP + numOfLiquidP:
                 first_pass_complete = True
+                sampled += 1
                 print(
                     "End of one batch of %i total points (%i types), at line %i, time point: %i%s"
-                    % (pcount, len(points), line_count, time_count, '/%i'%len(sibernetic_time_points))
+                    % (
+                        pcount,
+                        len(points),
+                        line_count,
+                        time_count,
+                        "",
+                    )
                 )
-                all_points.append(points)
-                all_point_types.append(types)
+
+                if sampled < downsample:
+                    print(
+                        "  -- Skipping sample %i due to downsampling factor %i"
+                        % (sampled, downsample)
+                    )
+                else:
+                    print(
+                        "  -- Including sample %i, downsampling factor %i"
+                        % (sampled, downsample)
+                    )
+                    all_3D_points.append(points)
+                    all_point_types.append(types)
+
+                    sampled = 0
+                    if dt is not None:
+                        time_calculated = time_count * logStep * dt
+                        loaded_time_points.append(time_calculated)
+                        print("Time calculated as: %s" % time_calculated)
+                    else:
+                        loaded_time_points.append(time_count)
 
                 points = {}
                 types = []
-                pcount = 0
                 numOfBoundaryP = 0
+                pcount = 0
 
                 time_count += 1
 
@@ -375,11 +414,14 @@ def add_sibernetic_model(
         )
     )
 
-    print("Num of time points found: %i" % len(all_points))
+    print(
+        "Num of time points loaded: %i (total: %i)" % (len(all_3D_points), time_count)
+    )
+    print("Loaded time points: %s" % loaded_time_points)
 
     if replay_controller is None:
-        time_points = np.arange(len(all_points))
-        replay_controller = ReplayController(times=time_points)
+        # time_points = np.arange(len(all_3D_points))
+        replay_controller = ReplayController(times=loaded_time_points)
 
     print("Count of point types found: %s" % dict(sorted(count_point_types.items())))
 
@@ -388,7 +430,7 @@ def add_sibernetic_model(
     slider_text = "Time point"
 
     if max_time is None:
-        max_time = len(all_points) - 1
+        max_time = len(all_3D_points) - 1
     else:
         slider_text = "Time (ms)"
 
@@ -403,7 +445,22 @@ def add_sibernetic_model(
     txt_offset = 8
     txt_voffset = 12
 
-    b1 = 10
+    b0 = 10
+    pl.add_checkbox_button_widget(
+        info_checkbox_pressed,
+        value=False,
+        position=(b0, button_height),
+        color_on="lightgrey",
+        color_off="lightgrey",
+    )
+    pl.add_text(
+        "  i",
+        position=(b0 + txt_offset, button_height + txt_voffset),
+        font_size=12,
+        color="black",
+    )
+
+    b1 = b0 + button_separation
     pl.add_checkbox_button_widget(
         back_checkbox_pressed,
         value=False,
@@ -473,6 +530,42 @@ def slider_updated(value):
     replay_controller.set_to_time(value)
 
 
+def info_checkbox_pressed(value):
+    global replay_controller
+    print(f" > Info checkbox pressed, value: {value}")
+    if value:
+        print(" > Showing sim info:")
+
+        fig, ax = plt.subplots(figsize=(8, 6))
+
+        fig.suptitle("Sibernetic Replay Info")
+        info_lines = [
+            f"Total time points loaded: {len(all_3D_points)}",
+            f"Total points per time point: {len(all_point_types[0])}",
+        ]
+        if report_data is not None:
+            for key, val in report_data.items():
+                info_lines.append(f"{key}:  {val}")
+
+        # Remove the axes
+        ax.axis("off")
+
+        # Add text to the center of the figure
+        ax.text(
+            0.5,
+            0.5,
+            "\n".join(info_lines),
+            fontsize=8,
+            ha="center",
+            va="center",
+            transform=ax.transAxes,
+            bbox=dict(facecolor="white", alpha=0.8),
+        )
+
+        # Display the window
+        plt.show()
+
+
 def fwd_checkbox_pressed(value):
     global replay_controller
     print(f" > Fwd checkbox pressed, value: {value}")
@@ -488,7 +581,7 @@ def play_checkbox_pressed(value):
 def ff_checkbox_pressed(value):
     global replay_controller
     print(f" > FF checkbox pressed, value: {value}")
-    replay_controller.play(value, 10)
+    replay_controller.play(value, 3)
 
 
 def back_checkbox_pressed(value):
@@ -497,78 +590,21 @@ def back_checkbox_pressed(value):
     replay_controller.step_backward()
 
 
-"""
-def play_animation(play_button_active):
-    global \
-        plotter, \
-        last_meshes, \
-        all_points, \
-        all_point_types, \
-        replaying, \
-        slider, \
-        replay_controller
-
-    print(
-        f"Animation button pressed. Button active {play_button_active}; replaying: {replaying}, slider value: {slider.GetSliderRepresentation().GetValue()}"
-    )
-    print(replay_controller.get_state())
-
-    if not play_button_active:
-        if not replaying:
-            print("Animation already stopped - restarting")
-            slider.GetSliderRepresentation().SetValue(0)
-            curr_time = slider.GetSliderRepresentation().GetValue()
-            replaying = True
-            plotter.update()
-            plotter.render()
-        else:
-            curr_time = slider.GetSliderRepresentation().GetValue()
-            replaying = False
-            print("Animation stopped at %s." % curr_time)
-            return
-    else:
-        replaying = True
-        print("Animation started.")
-
-    if last_meshes is None:
-        print("No meshes to animate. Please load a model first.")
-        return
-
-    for i in range(len(all_points)):
-        if not replaying:
-            break
-        curr_time = slider.GetSliderRepresentation().GetValue()
-
-        print(
-            " --- Animating step %i/%i (curr_time: %s) of %i, %s"
-            % (i, len(all_points), curr_time, len(all_points), play_button_active)
-        )
-        next_time = curr_time + 1
-        slider.GetSliderRepresentation().SetValue(next_time)
-
-        create_mesh(next_time)
-        plotter.update()
-        plotter.render()
-        time.sleep(replay_speed)
-
-    replaying = False"""
-
-
 def create_mesh(time_index):
-    global all_points, last_meshes, plotter, offset3d_, show_boundary
+    global all_3D_points, last_meshes, plotter, offset3d_, show_boundary
 
-    if time_index >= len(all_points):
+    if time_index >= len(all_3D_points):
         print(
-            "Index %i out of bounds for all_points with length %i"
-            % (time_index, len(all_points))
+            "Index %i out of bounds for all_3D_points with length %i"
+            % (time_index, len(all_3D_points))
         )
         return
 
     print(
         "   -- Creating new mesh at time point index: %s/%s"
-        % (time_index, len(all_points))
+        % (time_index, len(all_3D_points))
     )
-    curr_points_dict = all_points[time_index]
+    curr_points_dict = all_3D_points[time_index]
 
     print("      Plotting %i point types" % (len(curr_points_dict)))
 
