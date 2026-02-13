@@ -42,6 +42,9 @@ CPP_DEPS = $(OBJECTS:.o=.d)
 # PYTHONLIBDIR = /opt/local/Library/Frameworks/Python.framework/Versions/2.7/lib/python2.7/
 # PYTHONFRAMEWORKDIR = /Library/Frameworks/
 
+# NumPy include directory for fast array access (auto-detect if not set)
+NUMPYHEADERDIR ?= $(shell python3 -c "import numpy; print(numpy.get_include())" 2>/dev/null)
+
 # All Target
 all: $(TARGET)
 
@@ -60,7 +63,7 @@ $(BINARYDIR)/%.o: $(SRCDIR)/%.cpp
 	@echo 'Invoking: clang C++ Compiler'
 #### use this to compile against homebrew installed python
 #### change version number as necessary (2.7.n)
-	g++ -std=c++14 -O3 -Wall $(TORCH_FLAGS) -c -I$(PYTHONHEADERDIR) -I$(INCDIR) $(OPENCL_FLAG) -fmessage-length=0 -MMD -MP -MF"$(@:%.o=%.d)" -MT"$(@:%.o=%.d)" -o "$@" "$<"
+	g++ -std=c++14 -O3 -Wall $(TORCH_FLAGS) -c -I$(PYTHONHEADERDIR) -I$(NUMPYHEADERDIR) -I$(INCDIR) $(OPENCL_FLAG) -fmessage-length=0 -MMD -MP -MF"$(@:%.o=%.d)" -MT"$(@:%.o=%.d)" -o "$@" "$<"
 	@echo 'Finished building: $<'
 	@echo ' '
 

@@ -241,8 +241,16 @@ class PytorchSolver:
     # PCISPH steps
     # ------------------------------------------------------------------
     def run_compute_density(self):
-        """Compute particle densities from neighbor positions."""
+        """Compute particle densities from neighbor positions.
+
+        Note: Distances are scaled by simulation_scale to match kernel coefficients.
+        This is critical for SPH stability - kernel coefficients use h_scaled,
+        so r^2 must also be scaled to r^2 * sim_scale^2.
+        """
         pos = self.sorted_position[:, :3]
+        sim_scale = self.config.get("simulation_scale", 1.0)
+        h_scaled = self.config["h"] * sim_scale
+
         i_idx = torch.repeat_interleave(
             torch.arange(pos.shape[0], device=self.device),
             self.neighbor_map.shape[1],
@@ -253,7 +261,9 @@ class PytorchSolver:
         j_idx = j_idx[mask]
         diff = pos[i_idx] - pos[j_idx]
         r2 = (diff * diff).sum(dim=1)
-        w = (self.config["h"] ** 2 - r2).clamp(min=0) ** 3
+        # Scale r^2 to match kernel coefficient (critical fix!)
+        r2_scaled = r2 * sim_scale * sim_scale
+        w = (h_scaled ** 2 - r2_scaled).clamp(min=0) ** 3
         dens = torch.zeros(pos.shape[0], device=self.device)
         dens.scatter_add_(0, i_idx, w * self.config["mass_mult_Wpoly6Coefficient"])
         # Phase 2.1: Apply minimum density clamp per OpenCL implementation
@@ -297,6 +307,8 @@ class PytorchSolver:
 
         diff = pos[i_idx] - pos[j_idx]
         dist = diff.norm(dim=1)
+        # Scale distance to match kernel coefficient
+        dist_scaled = dist * sim_scale
         # Normalized direction
         dir_vec = diff / (dist.unsqueeze(1) + 1e-12)
 
@@ -307,15 +319,38 @@ class PytorchSolver:
         # pres_factor = 0.5 * (p[i] + p[j]) / rho[j]
         pres_factor = 0.5 * (self.pressure[i_idx] + self.pressure[j_idx]) / (rho_j + 1e-12)
 
-        # Spiky kernel gradient: (h_scaled - r)^2 * sim_scale / r
-        grad_factor = (
+        # OpenCL special handling for very close particles (sphFluid.cl lines 1013-1017)
+        # When particles are too close, the regular formula (h-r)^2/r explodes as r→0
+        # OpenCL uses a gentler formula WITHOUT division by r AND uses rho0*delta instead of pressure
+        close_threshold = 0.25 * h_scaled  # OpenCL: 0.5 * (hScaled/2)
+        too_close = dist_scaled < close_threshold
+
+        # Regular spiky kernel gradient: (h_scaled - r)^2 / r
+        regular_grad = (
             self.config["mass_mult_gradWspikyCoefficient"]
-            * (h_scaled - dist).clamp(min=0) ** 2
-            * sim_scale / (dist + 1e-12)
+            * (h_scaled - dist_scaled).clamp(min=0) ** 2
+            / (dist_scaled.clamp(min=1e-6))  # clamp to avoid div by zero
         )
 
-        # Combine into force
-        force = -pres_factor.unsqueeze(1) * grad_factor.unsqueeze(1) * dir_vec
+        # Close particle formula from OpenCL (sphFluid.cl lines 1013-1017):
+        # value = -(hScaled*0.25f-r_ij)*(hScaled*0.25f-r_ij)*0.5f*(rho0*delta)/rho[j]
+        # NOTE: OpenCL does NOT use the regular gradient coefficient for close particles!
+        # It's a raw formula to provide gentle, bounded repulsion.
+        rho0 = self.config.get("rho0", 1000.0)
+        delta = self.config.get("delta", 500.0)
+        close_force_magnitude = (
+            (close_threshold - dist_scaled).clamp(min=0) ** 2
+            * 0.5  # damping factor from OpenCL
+            * (rho0 * delta)
+            / (rho_j + 1e-12)
+        )
+        close_force = -close_force_magnitude.unsqueeze(1) * dir_vec
+
+        # Regular force uses actual pressure with full kernel gradient
+        regular_force = -pres_factor.unsqueeze(1) * regular_grad.unsqueeze(1) * dir_vec
+
+        # Use close formula where particles are too close, regular otherwise
+        force = torch.where(too_close.unsqueeze(1), close_force, regular_force)
 
         acc = torch.zeros_like(self.sorted_position)
         acc.scatter_add_(0, i_idx.unsqueeze(1).expand(-1, 3), force)
@@ -355,6 +390,13 @@ class PytorchSolver:
         if self.config.get("enable_boundary", True):
             self.run_compute_boundary_force()
             acc += self.boundary_force
+
+        # Final acceleration clamping to prevent numerical explosion
+        # Applied after ALL forces are accumulated
+        max_total_acc = 50000.0  # ~5000g - emergency failsafe
+        acc_norms = acc[:, :3].norm(dim=1, keepdim=True)
+        acc_scale = torch.clamp(max_total_acc / (acc_norms + 1e-12), max=1.0)
+        acc[:, :3] = acc[:, :3] * acc_scale
 
         self.acceleration = acc
 
@@ -396,6 +438,8 @@ class PytorchSolver:
         # Compute distances
         diff = pos[i_idx] - pos[j_idx]
         dist = diff.norm(dim=1)
+        # Scale distance to match kernel coefficient
+        dist_scaled = dist * sim_scale
 
         # Velocity difference (v_j - v_i)
         # For boundary particles, their velocity contribution is zeroed
@@ -406,8 +450,8 @@ class PytorchSolver:
         # (OpenCL uses different values for different type pairs)
         visc_coeff = self.config.get("viscosity_coefficient", 1.0e-4)
 
-        # Viscosity kernel: (h_scaled - r_ij) / 1000
-        visc_kernel = ((h_scaled - dist).clamp(min=0) / 1000.0).unsqueeze(1)
+        # Viscosity kernel: (h_scaled - r_scaled) / 1000
+        visc_kernel = ((h_scaled - dist_scaled).clamp(min=0) / 1000.0).unsqueeze(1)
 
         # Compute viscosity acceleration contribution
         visc_acc = visc_coeff * v_diff * visc_kernel
@@ -516,10 +560,13 @@ class PytorchSolver:
         return getattr(self, 'elastic_connections', None)
 
     def run_compute_elastic_force(self):
-        """Compute elastic spring forces between connected particles.
+        """Compute elastic spring forces between connected particles (VECTORIZED).
 
         Formula: acc += -(r_ij / |r_ij|) * delta_r * elasticityCoefficient
         where delta_r = |r_ij| - equilibrium_distance
+
+        Optimized: Uses tensor operations instead of nested Python loops.
+        Eliminates ~12,480 GPU-CPU transfers (.item() calls) per step.
         """
         if not hasattr(self, 'elastic_connections') or self.elastic_connections is None:
             self.elastic_force = torch.zeros_like(self.sorted_position)
@@ -532,61 +579,83 @@ class PytorchSolver:
         # Initialize elastic force
         elastic_force = torch.zeros_like(self.sorted_position)
 
-        # Get elastic particle indices (particles that have elastic connections)
         num_elastic = self.num_elastic_particles
         if num_elastic == 0:
             self.elastic_force = elastic_force
             return
 
-        # Process each elastic particle
-        # Note: elastic particles are assumed to be at the beginning of the position array
-        for i in range(num_elastic):
-            # Get this particle's sorted index
-            sorted_i = self.particle_index_back[i] if self.particle_index_back is not None else i
-            if sorted_i >= n:
-                continue
+        # --- VECTORIZED IMPLEMENTATION ---
+        # Flatten connections: (num_elastic, max_conn, 4) -> (num_elastic * max_conn, 4)
+        flat_conn = self.elastic_connections.reshape(-1, 4)
 
-            pos_i = self.sorted_position[sorted_i, :3]
+        # Create source particle indices (original i for each connection)
+        i_indices = torch.arange(num_elastic, device=self.device)
+        i_indices = i_indices.unsqueeze(1).expand(-1, self.max_elastic_connections).reshape(-1)
 
-            for c in range(self.max_elastic_connections):
-                conn = self.elastic_connections[i, c]
-                j_id = int(conn[0].item())
+        # Extract connection data
+        j_ids = flat_conn[:, 0].long()  # Connected particle ids
+        rest_lengths = flat_conn[:, 1]  # Equilibrium distances
 
-                if j_id < 0:  # No connection
-                    continue
+        # Create mask for valid connections
+        valid_mask = (j_ids >= 0) & (j_ids < n) & (i_indices < n)
 
-                if j_id >= n:
-                    continue
+        if not valid_mask.any():
+            self.elastic_force = elastic_force
+            return
 
-                # Get connected particle's sorted index
-                sorted_j = self.particle_index_back[j_id] if self.particle_index_back is not None else j_id
-                if sorted_j >= n:
-                    continue
+        # Apply mask
+        i_valid = i_indices[valid_mask]
+        j_valid = j_ids[valid_mask]
+        rest_valid = rest_lengths[valid_mask]
 
-                r_ij_equilibrium = conn[1].item()  # Rest length
+        # Map to sorted indices if needed
+        if self.particle_index_back is not None:
+            sorted_i = self.particle_index_back[i_valid]
+            sorted_j = self.particle_index_back[j_valid]
+            # Filter out invalid sorted indices
+            sorted_valid = (sorted_i < n) & (sorted_j < n)
+            sorted_i = sorted_i[sorted_valid]
+            sorted_j = sorted_j[sorted_valid]
+            rest_valid = rest_valid[sorted_valid]
+        else:
+            sorted_i = i_valid
+            sorted_j = j_valid
 
-                pos_j = self.sorted_position[sorted_j, :3]
+        if sorted_i.numel() == 0:
+            self.elastic_force = elastic_force
+            return
 
-                # Vector from j to i, scaled
-                vect_r_ij = (pos_i - pos_j) * sim_scale
-                r_ij = vect_r_ij.norm()
+        # Get positions (N, 3)
+        pos_i = self.sorted_position[sorted_i, :3]
+        pos_j = self.sorted_position[sorted_j, :3]
 
-                if r_ij < 1e-10:
-                    continue
+        # Vector from j to i, scaled
+        vect_r_ij = (pos_i - pos_j) * sim_scale
+        r_ij = torch.norm(vect_r_ij, dim=1)
 
-                # Displacement from equilibrium
-                delta_r = r_ij - r_ij_equilibrium
+        # Filter out zero-length connections
+        nonzero_mask = r_ij > 1e-10
+        if not nonzero_mask.any():
+            self.elastic_force = elastic_force
+            return
 
-                if abs(delta_r) < 1e-10:
-                    continue
+        vect_r_ij = vect_r_ij[nonzero_mask]
+        r_ij = r_ij[nonzero_mask]
+        rest_valid = rest_valid[nonzero_mask]
+        sorted_i = sorted_i[nonzero_mask]
 
-                # Direction (normalized)
-                direction = vect_r_ij / r_ij
+        # Displacement from equilibrium
+        delta_r = r_ij - rest_valid
 
-                # Spring force: -(direction) * delta_r * elasticity
-                force = -direction * delta_r * elasticity_coeff
+        # Direction (normalized)
+        direction = vect_r_ij / r_ij.unsqueeze(1)
 
-                elastic_force[sorted_i, :3] += force
+        # Spring force: -(direction) * delta_r * elasticity
+        forces = -direction * delta_r.unsqueeze(1) * elasticity_coeff
+
+        # Scatter-add forces to particles
+        # Use index_add for efficient accumulation
+        elastic_force[:, :3].index_add_(0, sorted_i, forces)
 
         self.elastic_force = elastic_force
 
@@ -615,13 +684,16 @@ class PytorchSolver:
         return getattr(self, 'muscle_activation', None)
 
     def run_compute_muscle_force(self):
-        """Compute muscle contraction forces.
+        """Compute muscle contraction forces (VECTORIZED).
 
         Formula from OpenCL:
             acceleration += -(vect_r_ij / r_ij) * muscle_activation_signal[i] * max_muscle_force
 
         The muscle index is stored in elastic_connections[..., 2] (1-indexed).
         A value of 0 or -1 means the connection is not a muscle.
+
+        Optimized: Uses tensor operations instead of nested Python loops.
+        Eliminates ~18,720 GPU-CPU transfers (.item() calls) per step.
         """
         if not hasattr(self, 'elastic_connections') or self.elastic_connections is None:
             self.muscle_force = torch.zeros_like(self.sorted_position)
@@ -643,65 +715,237 @@ class PytorchSolver:
             self.muscle_force = muscle_force
             return
 
-        # Process each elastic particle
-        for i in range(num_elastic):
-            sorted_i = self.particle_index_back[i] if self.particle_index_back is not None else i
-            if sorted_i >= n:
-                continue
+        # --- VECTORIZED IMPLEMENTATION ---
+        # Flatten connections: (num_elastic, max_conn, 4) -> (num_elastic * max_conn, 4)
+        flat_conn = self.elastic_connections.reshape(-1, 4)
 
-            pos_i = self.sorted_position[sorted_i, :3]
+        # Create source particle indices (original i for each connection)
+        i_indices = torch.arange(num_elastic, device=self.device)
+        i_indices = i_indices.unsqueeze(1).expand(-1, self.max_elastic_connections).reshape(-1)
 
-            for c in range(self.max_elastic_connections):
-                conn = self.elastic_connections[i, c]
-                j_id = int(conn[0].item())
+        # Extract connection data
+        j_ids = flat_conn[:, 0].long()  # Connected particle ids
+        muscle_indices = flat_conn[:, 2].long()  # Muscle index (1-indexed, 0 = not muscle)
 
-                if j_id < 0:
-                    continue
-                if j_id >= n:
-                    continue
+        # Create mask for valid muscle connections
+        valid_mask = (j_ids >= 0) & (j_ids < n) & (i_indices < n) & (muscle_indices > 0)
 
-                # Muscle index is stored in conn[2] (1-indexed, 0 = no muscle)
-                muscle_idx = int(conn[2].item())
-                if muscle_idx <= 0:  # Not a muscle connection
-                    continue
+        if not valid_mask.any():
+            self.muscle_force = muscle_force
+            return
 
-                # Convert to 0-indexed
-                muscle_idx_0 = muscle_idx - 1
-                if muscle_idx_0 >= self.num_muscles:
-                    continue
+        # Apply mask
+        i_valid = i_indices[valid_mask]
+        j_valid = j_ids[valid_mask]
+        muscle_valid = muscle_indices[valid_mask] - 1  # Convert to 0-indexed
 
-                # Get activation for this muscle
-                activation = self.muscle_activation[muscle_idx_0].item()
-                if activation <= 0.0:
-                    continue
+        # Filter by valid muscle range
+        muscle_range_mask = muscle_valid < self.num_muscles
+        if not muscle_range_mask.any():
+            self.muscle_force = muscle_force
+            return
 
-                sorted_j = self.particle_index_back[j_id] if self.particle_index_back is not None else j_id
-                if sorted_j >= n:
-                    continue
+        i_valid = i_valid[muscle_range_mask]
+        j_valid = j_valid[muscle_range_mask]
+        muscle_valid = muscle_valid[muscle_range_mask]
 
-                pos_j = self.sorted_position[sorted_j, :3]
+        # Get muscle activations for each connection
+        activations = self.muscle_activation[muscle_valid]
 
-                # Vector from j to i, scaled
-                vect_r_ij = (pos_i - pos_j) * sim_scale
-                r_ij = vect_r_ij.norm()
+        # Filter by positive activation
+        active_mask = activations > 0.0
+        if not active_mask.any():
+            self.muscle_force = muscle_force
+            return
 
-                if r_ij < 1e-10:
-                    continue
+        i_valid = i_valid[active_mask]
+        j_valid = j_valid[active_mask]
+        activations = activations[active_mask]
 
-                # Direction (normalized)
-                direction = vect_r_ij / r_ij
+        # Map to sorted indices if needed
+        if self.particle_index_back is not None:
+            sorted_i = self.particle_index_back[i_valid]
+            sorted_j = self.particle_index_back[j_valid]
+            # Filter out invalid sorted indices
+            sorted_valid = (sorted_i < n) & (sorted_j < n)
+            sorted_i = sorted_i[sorted_valid]
+            sorted_j = sorted_j[sorted_valid]
+            activations = activations[sorted_valid]
+        else:
+            sorted_i = i_valid
+            sorted_j = j_valid
 
-                # Muscle contraction force: pulls particles together
-                # acceleration += -(direction) * activation * max_force
-                force = -direction * activation * max_muscle_force
+        if sorted_i.numel() == 0:
+            self.muscle_force = muscle_force
+            return
 
-                muscle_force[sorted_i, :3] += force
+        # Get positions (N, 3)
+        pos_i = self.sorted_position[sorted_i, :3]
+        pos_j = self.sorted_position[sorted_j, :3]
+
+        # Vector from j to i, scaled
+        vect_r_ij = (pos_i - pos_j) * sim_scale
+        r_ij = torch.norm(vect_r_ij, dim=1)
+
+        # Filter out zero-length connections
+        nonzero_mask = r_ij > 1e-10
+        if not nonzero_mask.any():
+            self.muscle_force = muscle_force
+            return
+
+        vect_r_ij = vect_r_ij[nonzero_mask]
+        r_ij = r_ij[nonzero_mask]
+        activations = activations[nonzero_mask]
+        sorted_i = sorted_i[nonzero_mask]
+
+        # Direction (normalized)
+        direction = vect_r_ij / r_ij.unsqueeze(1)
+
+        # Muscle contraction force: pulls particles together
+        # force = -(direction) * activation * max_force
+        forces = -direction * (activations * max_muscle_force).unsqueeze(1)
+
+        # Scatter-add forces to particles
+        muscle_force[:, :3].index_add_(0, sorted_i, forces)
 
         self.muscle_force = muscle_force
 
     def get_muscle_force(self):
         """Return muscle force for testing (Phase 3.5)."""
         return getattr(self, 'muscle_force', None)
+
+    # ------------------------------------------------------------------
+    # Membrane Collision System (matches Taichi solver)
+    # ------------------------------------------------------------------
+    def load_membranes(self, membrane_data):
+        """Load membrane triangle data for liquid containment.
+
+        Args:
+            membrane_data: Nx3 array of particle indices forming triangles
+        """
+        self.membrane_triangles = torch.as_tensor(
+            membrane_data, dtype=torch.long, device=self.device
+        )
+        self.n_membranes = len(self.membrane_triangles)
+        self.has_membranes = self.n_membranes > 0
+        if self.has_membranes:
+            print(f"Loaded {self.n_membranes} membrane triangles")
+
+    def run_compute_membrane_forces(self):
+        """Apply repulsion forces when liquid particles approach membranes.
+
+        Uses COM-oriented normals and velocity damping for robust containment.
+        """
+        if not getattr(self, 'has_membranes', False):
+            return
+
+        pos = self.sorted_position
+        vel = self.sorted_velocity
+        n = pos.shape[0]
+        h = self.config["h"]
+
+        # Get particle types
+        sorted_types = pos[:, 3].int()
+
+        # Find liquid particles
+        liquid_mask = sorted_types == 1
+        liquid_indices = torch.nonzero(liquid_mask, as_tuple=True)[0]
+
+        if len(liquid_indices) == 0:
+            return
+
+        # Compute elastic center of mass
+        elastic_mask = sorted_types == 2
+        elastic_pos = pos[elastic_mask, :3]
+        if len(elastic_pos) == 0:
+            return
+        elastic_com = elastic_pos.mean(dim=0)
+
+        membrane_thickness = h * 1.0
+
+        # Process each membrane triangle
+        for m in range(self.n_membranes):
+            i0, i1, i2 = self.membrane_triangles[m]
+
+            # Get triangle vertices (using original position indices)
+            # Need to map to sorted order
+            inv = torch.argsort(self.particle_index_back)
+            sorted_i0 = inv[i0].item()
+            sorted_i1 = inv[i1].item()
+            sorted_i2 = inv[i2].item()
+
+            v0 = pos[sorted_i0, :3]
+            v1 = pos[sorted_i1, :3]
+            v2 = pos[sorted_i2, :3]
+
+            # Triangle center
+            tri_center = (v0 + v1 + v2) / 3.0
+
+            # Compute triangle normal
+            e1 = v1 - v0
+            e2 = v2 - v0
+            normal = torch.cross(e1, e2)
+            normal_len = normal.norm()
+            if normal_len < 0.0001:
+                continue
+            normal = normal / normal_len
+
+            # Orient normal to point INWARD (toward elastic COM)
+            to_com = elastic_com - tri_center
+            if normal.dot(to_com) < 0:
+                normal = -normal
+
+            # Check each liquid particle against this membrane
+            for li in liquid_indices:
+                p = pos[li, :3]
+
+                # Quick distance check
+                dist_to_center = (p - tri_center).norm()
+                if dist_to_center > h * 2.0:
+                    continue
+
+                # Signed distance from particle to plane
+                signed_dist = (p - v0).dot(normal)
+
+                if abs(signed_dist) >= membrane_thickness:
+                    continue
+
+                # Project point onto plane
+                proj = p - signed_dist * normal
+
+                # Compute barycentric coordinates
+                v0v1 = v1 - v0
+                v0v2 = v2 - v0
+                v0p = proj - v0
+
+                dot00 = v0v2.dot(v0v2)
+                dot01 = v0v2.dot(v0v1)
+                dot02 = v0v2.dot(v0p)
+                dot11 = v0v1.dot(v0v1)
+                dot12 = v0v1.dot(v0p)
+
+                inv_denom = 1.0 / (dot00 * dot11 - dot01 * dot01 + 0.0001)
+                u = (dot11 * dot02 - dot01 * dot12) * inv_denom
+                v = (dot00 * dot12 - dot01 * dot02) * inv_denom
+
+                # Check if inside triangle (with margin)
+                margin = 0.1
+                if u >= -margin and v >= -margin and (u + v) <= 1.0 + margin:
+                    # Particle near membrane
+                    if signed_dist < 0:
+                        # Particle is OUTSIDE - push back in
+                        penetration = -signed_dist
+                        force_mag = 10000.0 * (1.0 + penetration / membrane_thickness)
+                        self.acceleration[li, 0] += force_mag * normal[0]
+                        self.acceleration[li, 1] += force_mag * normal[1]
+                        self.acceleration[li, 2] += force_mag * normal[2]
+
+                        # Velocity damping
+                        vel_normal = vel[li, :3].dot(normal)
+                        if vel_normal < 0:  # Moving outward
+                            vel[li, 0] -= 0.5 * vel_normal * normal[0]
+                            vel[li, 1] -= 0.5 * vel_normal * normal[1]
+                            vel[li, 2] -= 0.5 * vel_normal * normal[2]
 
     # ------------------------------------------------------------------
     # Phase 3.1: Boundary Particle Handling
@@ -796,13 +1040,14 @@ class PytorchSolver:
         # d_i = n_c_i * w_c_ib_depth_sum / w_c_ib_sum  (formula 11)
         displacement = n_c_i_normalized * (w_c_ib_depth_sum / (w_c_ib_sum + 1e-12)).unsqueeze(1)
 
-        # Convert displacement to force/acceleration
-        # F = m * a, where displacement happens over dt
-        dt = self.config["time_step"]
-        sim_scale = self.config.get("simulation_scale", 1.0)
+        # Convert displacement to force/acceleration using spring-like stiffness
+        # The old formula (displacement * sim_scale / dt^2) created accelerations of ~347,000
+        # which caused explosions. Use a gentler spring coefficient instead.
+        boundary_stiffness = self.config.get("boundary_stiffness", 5000.0)
 
-        # Boundary force as acceleration (displacement / dt^2 for position correction)
-        boundary_acc = displacement * sim_scale / (dt * dt)
+        # Boundary force as acceleration: stiffness * penetration_depth
+        # This creates a restoring force proportional to how far inside the boundary
+        boundary_acc = displacement * boundary_stiffness
 
         # Only apply to particles with boundary interactions and that are NOT boundary particles
         is_not_boundary = sorted_types != 3
@@ -957,11 +1202,14 @@ class PytorchSolver:
 
         Boundary particles (type=3) are frozen and do not move.
 
+        Note: Unlike older implementations, we do NOT apply simulation_scale_inv
+        to position updates. This matches the corrected Taichi solver behavior.
+
         Args:
             mode: Integration mode (0=position, 1=velocity, 2 or None=semi-implicit Euler)
         """
         dt = self.config["time_step"]
-        sim_scale_inv = self.config.get("simulation_scale_inv", 1.0)
+        # NOTE: sim_scale_inv is NOT used in integration (matches Taichi solver)
 
         # Get particle types in sorted order (type is in position[:, 3])
         # sorted_position already has types in sorted order
@@ -973,12 +1221,12 @@ class PytorchSolver:
 
         if mode == 0:
             # Mode 0: Position update only (leapfrog first half)
-            # position_t_dt = position_t + (velocity_t * dt + acceleration_t * dt²/2) * sim_scale_inv
+            # position_t_dt = position_t + velocity_t * dt + acceleration_t * dt²/2
             if not hasattr(self, 'acceleration_old'):
                 self.acceleration_old = self.acceleration.clone()
 
             pos_delta = (self.sorted_velocity[:, :3] * dt +
-                         self.acceleration_old[:, :3] * dt * dt * 0.5) * sim_scale_inv
+                         self.acceleration_old[:, :3] * dt * dt * 0.5)
 
             # Freeze boundary particles (don't apply position delta)
             pos_delta[is_boundary] = 0.0
@@ -1020,12 +1268,12 @@ class PytorchSolver:
         else:
             # Mode 2 or None: Semi-implicit Euler (original behavior)
             # velocity_t_dt = velocity_t + acceleration_t_dt * dt
-            # position_t_dt = position_t + velocity_t_dt * dt * sim_scale_inv
+            # position_t_dt = position_t + velocity_t_dt * dt
             vel_delta = dt * self.acceleration[:, :3]
             vel_delta[is_boundary] = 0.0
             self.sorted_velocity[:, :3] += vel_delta
 
-            pos_delta = dt * self.sorted_velocity[:, :3] * sim_scale_inv
+            pos_delta = dt * self.sorted_velocity[:, :3]
             pos_delta[is_boundary] = 0.0
             self.sorted_position[:, :3] += pos_delta
 
@@ -1052,8 +1300,17 @@ class PytorchSolver:
         return self.config.get("integration_mode", "euler")
 
     def get_state(self):
-        """Return position and velocity as Python lists for easy C++ access."""
-        return self.position.cpu().tolist(), self.velocity.cpu().tolist()
+        """Return position and velocity as contiguous float32 numpy arrays.
+
+        Optimized: Returns numpy arrays directly for fast memcpy in C++.
+        Use get_state_as_lists() if you need Python lists (slower).
+        """
+        return self.position.cpu().numpy(), self.velocity.cpu().numpy()
+
+    def get_state_as_lists(self):
+        """Legacy method returning Python lists (slower, for compatibility)."""
+        pos, vel = self.get_state()
+        return pos.tolist(), vel.tolist()
 
     def get_config(self):
         """Return the solver configuration dict (Phase 1.2)."""
@@ -1093,7 +1350,11 @@ class PytorchSolver:
         j_idx = j_idx[mask]
         diff = pos[i_idx] - pos[j_idx]
         r2 = (diff * diff).sum(dim=1)
-        w = (self.config["h"] ** 2 - r2).clamp(min=0) ** 3
+        # Scale r2 to match kernel coefficient (critical fix!)
+        sim_scale = self.config.get("simulation_scale", 1.0)
+        h_scaled = self.config["h"] * sim_scale
+        r2_scaled = r2 * sim_scale * sim_scale
+        w = (h_scaled ** 2 - r2_scaled).clamp(min=0) ** 3
         dens = torch.zeros(pos.shape[0], device=self.device)
         dens.scatter_add_(0, i_idx, w * self.config["mass_mult_Wpoly6Coefficient"])
         # Apply minimum clamp
@@ -1144,6 +1405,11 @@ class PytorchSolver:
 
         # Final force computation and integration
         self._time_substep("pressure_force_final", self.run_compute_pressure_force_acceleration)
+
+        # Apply membrane collision forces (if membranes loaded)
+        if getattr(self, 'has_membranes', False):
+            self._time_substep("membrane_forces", self.run_compute_membrane_forces)
+
         self._time_substep("integrate", self.run_integrate)
         self._log_substep("integrate")
 

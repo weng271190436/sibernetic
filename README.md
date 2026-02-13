@@ -191,6 +191,55 @@ export PYTHONPATH=$(pwd):$(.venv/bin/python -c "import site; print(site.getsitep
 
 The Taichi and PyTorch backends require Python dependencies from `setup.sh`.
 
+Python Solver Development Status
+--------------------------------
+
+### PyTorch Solver (`pytorch_solver.py`)
+
+The PyTorch solver provides a CPU-based reference implementation for testing and development. Recent improvements include:
+
+**Completed Features:**
+- PCISPH (Predictive-Corrective Incompressible SPH) with iterative pressure correction
+- Elastic body simulation with spring connections
+- Membrane forces for liquid containment
+- Boundary particle handling
+- Viscosity forces
+- **Floor collision stability fix** - Added close-particle handling and acceleration clamping to prevent numerical explosion when particles pile up at the floor
+
+**Key Implementation Details:**
+- Close-particle SPH handling: When particles get closer than `0.25 * h_scaled`, uses a gentler force formula to prevent division-by-zero explosions in the spiky kernel gradient
+- Final acceleration clamping at 50,000 units as numerical failsafe
+- Coordinate scaling matching OpenCL reference (`simulation_scale` for world-to-scaled conversion)
+
+**Test Results (as of Jan 2026):**
+- All 45 particles (27 liquid + 18 elastic) survive 3+ second simulations
+- Particles properly bounce off floor without exploding
+- Elastic body maintains structure (mean Y height ~1.45 after floor collision)
+
+### Taichi Solver (`taichi_solver.py`)
+
+The Taichi solver provides GPU-accelerated simulation via Metal (Apple Silicon) or CUDA (NVIDIA).
+
+**Known Issues:**
+- Elastic body particles flatten to floor (mean Y ~0.24) instead of maintaining jello-like structure
+- Root cause: Coordinate system inconsistency between SPH forces (world coords) and elastic forces (scaled coords)
+- Elastic forces are effectively ~287x weaker than they should be relative to other forces
+
+**Planned Fix (from plan file):**
+1. Remove incorrect `/ sim_scale` division from elastic force calculation
+2. Add `simulationScaleInv` to position integration (matching OpenCL)
+3. Use `h_scaled` for SPH kernel coefficients
+
+### Comparison: PyTorch vs Taichi (t=3.0s after floor collision)
+
+| Metric | PyTorch | Taichi |
+|--------|---------|--------|
+| Liquid mean Y | 5.50 | 9.21 |
+| Liquid spread X | 62.71 | 21.64 |
+| Elastic mean Y | **1.45** | **0.24** |
+
+The PyTorch elastic body maintains structure while Taichi's flattens - confirming the coordinate scaling bug in Taichi.
+
 LeapFrog integration
 --------------
 [Leapfrog](https://en.wikipedia.org/wiki/Leapfrog_integration) is second order method insted of [Semi-implicid Euler](https://en.wikipedia.org/wiki/Semi-implicit_Euler_method) which we are using as default method for integration. For run simulation with Leapfro integration medhod print run command

@@ -35,7 +35,12 @@
 #include <iostream>
 #include <stdexcept>
 #include <iomanip>
+#include <cstring>  // for memcpy
 #include <Python.h>
+
+// NumPy C API for fast array access
+#define NPY_NO_DEPRECATED_API NPY_1_7_API_VERSION
+#include <numpy/arrayobject.h>
 
 #include "owPhysicsFluidSimulator.h"
 #include "owSignalSimulator.h"
@@ -244,13 +249,44 @@ void owPhysicsFluidSimulator::initTaichiSolver(bool isReset) {
   val = PyUnicode_FromString(config->getTaichiDevice().c_str());
   PyDict_SetItemString(cfg, "device", val); Py_DECREF(val);
 
-  // Create solver instance
-  PyObject *args = PyTuple_Pack(3, pos_list, vel_list, cfg);
+  // Simulation scale (CRITICAL for elastic force calculations!)
+  val = PyFloat_FromDouble(config->getConst("simulationScale"));
+  PyDict_SetItemString(cfg, "simulation_scale", val); Py_DECREF(val);
+  val = PyFloat_FromDouble(config->getConst("simulationScaleInv"));
+  PyDict_SetItemString(cfg, "simulation_scale_inv", val); Py_DECREF(val);
+
+  // Elastic parameters
+  val = PyLong_FromUnsignedLong(config->numOfElasticP);
+  PyDict_SetItemString(cfg, "num_elastic_particles", val); Py_DECREF(val);
+  val = PyFloat_FromDouble(config->getConst("elasticityCoefficient"));
+  PyDict_SetItemString(cfg, "elasticity_coefficient", val); Py_DECREF(val);
+
+  // Build elastic connections list (if we have elastic particles)
+  PyObject *elastic_list = Py_None;
+  Py_INCREF(Py_None);
+  if (config->numOfElasticP > 0 && elasticConnectionsData_cpp != nullptr) {
+    Py_DECREF(elastic_list);
+    // Each elastic particle has MAX_NEIGHBOR_COUNT connections
+    // Each connection is 4 floats: [particle_id, rest_length, muscle_id, unused]
+    int num_connections = config->numOfElasticP * MAX_NEIGHBOR_COUNT;
+    elastic_list = PyList_New(num_connections);
+    for (int i = 0; i < num_connections; ++i) {
+      PyObject *conn = PyList_New(4);
+      for (int j = 0; j < 4; ++j) {
+        PyList_SetItem(conn, j, PyFloat_FromDouble(elasticConnectionsData_cpp[i * 4 + j]));
+      }
+      PyList_SetItem(elastic_list, i, conn);
+    }
+  }
+
+  // Create solver instance with elastic connections
+  PyObject *args = PyTuple_Pack(4, pos_list, vel_list, cfg, elastic_list);
   taichiSolver = PyObject_CallObject(pClass, args);
   Py_DECREF(args);
   Py_DECREF(pos_list);
   Py_DECREF(vel_list);
   Py_DECREF(cfg);
+  Py_DECREF(elastic_list);
   Py_DECREF(pClass);
 
   if (!taichiSolver) {
@@ -316,12 +352,14 @@ owPhysicsFluidSimulator::owPhysicsFluidSimulator(owHelper *helper, int argc,
 
     if (useTorchBackend) {
       Py_Initialize();
+      _import_array();  // Initialize NumPy C API for fast array access (no return)
       initTorchSolver(false);  // Phase 1.4: Use helper (not a reset)
 #ifndef OW_NO_OPENCL
       ocl_solver = nullptr;
 #endif
     } else if (useTaichiBackend) {
       Py_Initialize();
+      _import_array();  // Initialize NumPy C API for fast array access (no return)
       initTaichiSolver(false);  // Initialize Taichi GPU solver
 #ifndef OW_NO_OPENCL
       ocl_solver = nullptr;
@@ -626,16 +664,28 @@ double owPhysicsFluidSimulator::simulationStep(const bool load_to) {
     callMethod("run_compute_pressure");
     callMethod("run_compute_pressure_force_acceleration");
     callMethod("run_integrate");
+    // Get state as numpy arrays (optimized - no Python list conversion)
     PyObject *state = PyObject_CallMethod(torchSolver, "get_state", nullptr);
     if (state && PyTuple_Check(state)) {
-      PyObject *pos = PyTuple_GetItem(state, 0);
-      PyObject *vel = PyTuple_GetItem(state, 1);
-      for (Py_ssize_t i = 0; i < PyList_Size(pos); ++i) {
-        PyObject *row_p = PyList_GetItem(pos, i);
-        PyObject *row_v = PyList_GetItem(vel, i);
-        for (int j = 0; j < 4; ++j) {
-          position_cpp[i * 4 + j] = (float)PyFloat_AsDouble(PyList_GetItem(row_p, j));
-          velocity_cpp[i * 4 + j] = (float)PyFloat_AsDouble(PyList_GetItem(row_v, j));
+      PyArrayObject *pos_arr = (PyArrayObject*)PyTuple_GetItem(state, 0);
+      PyArrayObject *vel_arr = (PyArrayObject*)PyTuple_GetItem(state, 1);
+
+      // Fast path: direct memcpy if arrays are contiguous float32
+      if (PyArray_Check(pos_arr) && PyArray_Check(vel_arr) &&
+          PyArray_IS_C_CONTIGUOUS(pos_arr) && PyArray_IS_C_CONTIGUOUS(vel_arr) &&
+          PyArray_TYPE(pos_arr) == NPY_FLOAT32 && PyArray_TYPE(vel_arr) == NPY_FLOAT32) {
+        float *pos_data = (float*)PyArray_DATA(pos_arr);
+        float *vel_data = (float*)PyArray_DATA(vel_arr);
+        size_t bytes = config->getParticleCount() * 4 * sizeof(float);
+        std::memcpy(position_cpp, pos_data, bytes);
+        std::memcpy(velocity_cpp, vel_data, bytes);
+      } else {
+        // Fallback: slow path for non-contiguous or non-float32 arrays
+        for (Py_ssize_t i = 0; i < PyArray_DIM(pos_arr, 0); ++i) {
+          for (int j = 0; j < 4; ++j) {
+            position_cpp[i * 4 + j] = *(float*)PyArray_GETPTR2(pos_arr, i, j);
+            velocity_cpp[i * 4 + j] = *(float*)PyArray_GETPTR2(vel_arr, i, j);
+          }
         }
       }
     }
@@ -670,17 +720,28 @@ double owPhysicsFluidSimulator::simulationStep(const bool load_to) {
     // Run full simulation step on GPU
     callMethod("run_step");
 
-    // Get updated state back to CPU
+    // Get updated state back to CPU (optimized - no Python list conversion)
     PyObject *state = PyObject_CallMethod(taichiSolver, "get_state", nullptr);
     if (state && PyTuple_Check(state)) {
-      PyObject *pos = PyTuple_GetItem(state, 0);
-      PyObject *vel = PyTuple_GetItem(state, 1);
-      for (Py_ssize_t i = 0; i < PyList_Size(pos); ++i) {
-        PyObject *row_p = PyList_GetItem(pos, i);
-        PyObject *row_v = PyList_GetItem(vel, i);
-        for (int j = 0; j < 4; ++j) {
-          position_cpp[i * 4 + j] = (float)PyFloat_AsDouble(PyList_GetItem(row_p, j));
-          velocity_cpp[i * 4 + j] = (float)PyFloat_AsDouble(PyList_GetItem(row_v, j));
+      PyArrayObject *pos_arr = (PyArrayObject*)PyTuple_GetItem(state, 0);
+      PyArrayObject *vel_arr = (PyArrayObject*)PyTuple_GetItem(state, 1);
+
+      // Fast path: direct memcpy if arrays are contiguous float32
+      if (PyArray_Check(pos_arr) && PyArray_Check(vel_arr) &&
+          PyArray_IS_C_CONTIGUOUS(pos_arr) && PyArray_IS_C_CONTIGUOUS(vel_arr) &&
+          PyArray_TYPE(pos_arr) == NPY_FLOAT32 && PyArray_TYPE(vel_arr) == NPY_FLOAT32) {
+        float *pos_data = (float*)PyArray_DATA(pos_arr);
+        float *vel_data = (float*)PyArray_DATA(vel_arr);
+        size_t bytes = config->getParticleCount() * 4 * sizeof(float);
+        std::memcpy(position_cpp, pos_data, bytes);
+        std::memcpy(velocity_cpp, vel_data, bytes);
+      } else {
+        // Fallback: slow path for non-contiguous or non-float32 arrays
+        for (Py_ssize_t i = 0; i < PyArray_DIM(pos_arr, 0); ++i) {
+          for (int j = 0; j < 4; ++j) {
+            position_cpp[i * 4 + j] = *(float*)PyArray_GETPTR2(pos_arr, i, j);
+            velocity_cpp[i * 4 + j] = *(float*)PyArray_GETPTR2(vel_arr, i, j);
+          }
         }
       }
     }

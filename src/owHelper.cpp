@@ -638,8 +638,13 @@ bool owHelper::loadConfigurationFromFile(float *&position, float *&connections,
                                config->numOfBoundaryP);
       position = new float[4 * config->getParticleCount()];
     }
-    while (positionFile.good() && (int)i < config->getParticleCount()) {
-      if (static_cast<int>(p_type) != BOUNDARY_PARTICLE || iteration == 0) {
+    // Total particles in position array (all types including boundary)
+    int totalSlots = config->numOfElasticP + config->numOfLiquidP + config->numOfBoundaryP;
+    while (positionFile.good() && (int)i < totalSlots) {
+      // On iteration 0: read all particles (file contains all types)
+      // On iteration > 0: file only contains non-boundary particles,
+      // so skip boundary slots (keep their position from frame 0)
+      if (iteration == 0 || static_cast<int>(position[i * 4 + 3]) != BOUNDARY_PARTICLE) {
         positionFile >> x >> y >> z >> p_type;
         position[i * 4 + 0] = x;
         position[i * 4 + 1] = y;

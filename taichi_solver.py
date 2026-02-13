@@ -22,6 +22,8 @@ import taichi as ti
 import numpy as np
 import time
 import math
+import os
+import sys
 
 
 class TaichiSolver:
@@ -1023,7 +1025,10 @@ class TaichiSolver:
         # "list"   - build neighbor list first, then density/forces use it
         # "direct" - on-the-fly for both density and forces (2x neighbor search)
         # "csr"    - compact storage: count → prefix sum → fill → forces (lowest memory)
-        self._neighbor_mode = "fused"
+        # Can be overridden via SIBERNETIC_NEIGHBOR_MODE environment variable
+        env_mode = os.environ.get("SIBERNETIC_NEIGHBOR_MODE", "fused")
+        self._neighbor_mode = env_mode if env_mode in ("fused", "list", "direct", "csr") else "fused"
+        print(f"[TaichiSolver] Neighbor mode: {self._neighbor_mode}", file=sys.stderr, flush=True)
         self._apply_floor_constraint = apply_floor_constraint
         self._store_acceleration = store_acceleration
 
@@ -1179,7 +1184,7 @@ class TaichiSolver:
         print(f"  simulation_scale: {self.simulation_scale}")
         print(f"  elasticity_coefficient: {elasticity_coeff:.3e}")
         if len(valid_rest) > 0:
-            print(f"  rest_lengths: min={valid_rest.min():.4f}, max={valid_rest.max():.4f}, mean={valid_rest.mean():.4f}")
+            print(f"  rest_lengths (scaled): min={valid_rest.min():.2e}, max={valid_rest.max():.2e}, mean={valid_rest.mean():.2e}")
 
     def _build_elastic_kernel(self):
         """Build kernel for elastic/muscle forces.
