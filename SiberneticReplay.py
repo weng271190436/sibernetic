@@ -262,7 +262,9 @@ def add_sibernetic_model(
             # plt.imshow(musc_dat, interpolation="none", aspect="auto", cmap="YlOrRd")
 
             f_musc, ax_musc = plt.subplots(tight_layout=True)
-            im = ax_musc.imshow(musc_dat, interpolation="none", aspect="auto", cmap="YlOrRd")
+            im = ax_musc.imshow(
+                musc_dat, interpolation="none", aspect="auto", cmap="YlOrRd"
+            )
 
             f_musc.colorbar(im)
 
@@ -350,7 +352,13 @@ def add_sibernetic_model(
                 first_pass_complete = True
                 print(
                     "End of one batch of %i total points (%i types), at line %i, time point: %i%s"
-                    % (pcount, len(points), line_count, time_count, '/%i'%len(sibernetic_time_points))
+                    % (
+                        pcount,
+                        len(points),
+                        line_count,
+                        time_count,
+                        "/%i" % len(sibernetic_time_points),
+                    )
                 )
                 all_points.append(points)
                 all_point_types.append(types)
