@@ -22,7 +22,7 @@ jobs:
         git config --global core.autocrlf false
         git config --global core.eol lf
         
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
 
     - name: Install AMD OpenCL libraries needed for Sibernetic
       run: |
@@ -87,21 +87,24 @@ jobs:
 
     - name: Run tests
       run: |
-        pip install c302
-        pip install neuron
+        pip install -r requirements.txt
+      
+        pip install OSBModelValidation # For the OMV tests
         pip list
         which nrniv
         export NEURON_HOME=/home/runner/.local
-        ./run_all_tests.sh 
+        ./run_all_tests.sh -all
 
     - name: Generated file info
       run: |
         
         ls -alt  simulations/*
-        more simulations/C1_*/report.json
+        more simulations/test_*/report.json
+
 
     - name: Final version info
       run: |
         
         python -V
+        omv list -V 
         pip list
