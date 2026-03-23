@@ -98,7 +98,7 @@ jobs:
     - name: Generated file info
       run: |
         
-        ls -alt  simulations/*
+        ls -alth simulations/*
         more simulations/test_*/report.json
 
 
