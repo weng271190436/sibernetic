@@ -106,5 +106,5 @@ jobs:
       run: |
         
         python -V
-        omv all -V 
+        omv list -V 
         pip list

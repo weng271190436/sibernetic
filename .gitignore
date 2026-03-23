@@ -71,3 +71,5 @@ simulations
 .idea/*
 /*.mod
 /report.txt
+/cube.sh
+/install_drivers.sh
