@@ -45,6 +45,7 @@ bool load_to = false;
 bool skip_display_particles = false;
 bool skip_display_membranes = false;
 bool skip_display_connections = false;
+bool quiet_mode = false;
 std::string version = "0.0.8";
 
 int usage() {
@@ -95,6 +96,7 @@ int usage() {
       << "                               and sibernetic_neuron bridge\n\n"
       << "    -c302                      Run worm model with c302 "
          "(Note: use `python sibernetic_c302.py` for all options)\n\n"
+      << "    -q                         Quiet mode: run with less output to console per time step\n\n"
       << "    -help, -h, -?, --help      Print this information\n\n"
       << "Full documentation at: <https://github.com/openworm/sibernetic>\n"
       << "Please report any bugs/issues "
@@ -145,6 +147,9 @@ int main(int argc, char **argv) {
       }
       if (std::string("-test").compare(argv[i]) == 0) { // run tests
         run_tests = true;
+      }
+      if (std::string("-q").compare(argv[i]) == 0) { // run in quiet mode
+        quiet_mode = true;
       }
     }
     if (run_tests) {

@@ -121,7 +121,7 @@ class owPhysicsFluidSimulator
 	 *  @return membraneData_cpp
 	 */
 	float *getMuscleActivationSignal() const { return muscle_activation_signal_cpp; }
-	double simulationStep(const bool load_to = false);
+	double simulationStep(const bool load_to = false, const bool quiet_mode = false);
 	/** Getter for config
 	 *  @return config
 	 */
