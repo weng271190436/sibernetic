@@ -379,7 +379,8 @@ kernel void findNeighbors(
     device int* cellEnd [[buffer(2)]],
     device int* neighborMap [[buffer(3)]],
     device int* neighborCount [[buffer(4)]],
-    constant SimulationParams& params [[buffer(5)]],
+    device uint2* particleIndex [[buffer(5)]],  // Maps sorted index -> original particle id
+    constant SimulationParams& params [[buffer(6)]],
     uint id [[thread_position_in_grid]]
 ) {
     if (id >= params.particleCount) return;
@@ -405,14 +406,19 @@ kernel void findNeighbors(
                 int start = cellStart[cellIdx];
                 int end = cellEnd[cellIdx];
                 
-                for (int j = start; j < end && count < MAX_NEIGHBOR_COUNT; j++) {
-                    if ((uint)j == id) continue;
+                if (start == -1) continue;
+                
+                for (int sortedIdx = start; sortedIdx < end && count < MAX_NEIGHBOR_COUNT; sortedIdx++) {
+                    // Get original particle ID from sorted index
+                    uint origId = particleIndex[sortedIdx].y;
                     
-                    float3 pos_j = position[j].xyz;
+                    if (origId == id) continue;  // Skip self
+                    
+                    float3 pos_j = position[origId].xyz;
                     float r = length(pos_i - pos_j);
                     
-                    if (r < params.h) {
-                        neighborMap[id * MAX_NEIGHBOR_COUNT + count] = j;
+                    if (r < params.h && r > 0.0001f) {
+                        neighborMap[id * MAX_NEIGHBOR_COUNT + count] = (int)origId;
                         count++;
                     }
                 }

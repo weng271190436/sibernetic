@@ -447,11 +447,11 @@ unsigned int owMetalSolver::_runFindNeighbors(owConfigProperty* config) {
     
     encoder->setComputePipelineState(findNeighborsPipeline);
     encoder->setBuffer(positionBuffer, 0, 0);
-    encoder->setBuffer(particleIndexBuffer, 0, 1);
-    encoder->setBuffer(cellStartBuffer, 0, 2);
-    encoder->setBuffer(cellEndBuffer, 0, 3);
-    encoder->setBuffer(neighborMapBuffer, 0, 4);
-    encoder->setBuffer(neighborCountBuffer, 0, 5);
+    encoder->setBuffer(cellStartBuffer, 0, 1);
+    encoder->setBuffer(cellEndBuffer, 0, 2);
+    encoder->setBuffer(neighborMapBuffer, 0, 3);
+    encoder->setBuffer(neighborCountBuffer, 0, 4);
+    encoder->setBuffer(particleIndexBuffer, 0, 5);
     encoder->setBuffer(paramsBuffer, 0, 6);
     
     NS::UInteger threadGroupSize = findNeighborsPipeline->maxTotalThreadsPerThreadgroup();
