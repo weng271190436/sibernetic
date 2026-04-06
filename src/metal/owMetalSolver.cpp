@@ -229,7 +229,7 @@ void owMetalSolver::createBuffers(
     params.mass = config->getConst("mass");
     params.simulationScale = config->getConst("simulationScale");
     params.timeStep = config->getTimeStep();
-    params.viscosity = config->getConst("mu");
+    params.viscosity = config->getConst("viscosity");
     params.surfaceTension = 0.0f;
     params.gravity = config->getConst("gravity");
     params.particleCount = particleCount;

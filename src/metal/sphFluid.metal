@@ -451,3 +451,106 @@ kernel void pcisph_computeElasticForces(
     
     acceleration[id] += float4(elasticForce / params.mass, 0.0f);
 }
+
+// ============================================================================
+// Kernel: Predict Density (PCISPH)
+// ============================================================================
+
+kernel void pcisph_predictDensity(
+    device float4* positionPredicted [[buffer(0)]],
+    device float2* rhoInv [[buffer(1)]],
+    device int* neighborMap [[buffer(2)]],
+    device int* neighborCount [[buffer(3)]],
+    constant SimulationParams& params [[buffer(4)]],
+    uint id [[thread_position_in_grid]]
+) {
+    if (id >= params.particleCount) return;
+    
+    float3 pos_i = positionPredicted[id].xyz;
+    float rho = 0.0f;
+    
+    int count = neighborCount[id];
+    for (int n = 0; n < count; n++) {
+        int j = neighborMap[id * MAX_NEIGHBOR_COUNT + n];
+        if (j == NO_PARTICLE_ID) continue;
+        
+        float3 pos_j = positionPredicted[j].xyz;
+        float r = length(pos_i - pos_j);
+        
+        if (r < params.h) {
+            float q = 1.0f - r / params.h;
+            rho += params.mass * (315.0f / (64.0f * M_PI_F * pow(params.h, 3.0f))) * pow(q, 3.0f);
+        }
+    }
+    
+    // Add self contribution
+    rho += params.mass * (315.0f / (64.0f * M_PI_F * pow(params.h, 3.0f)));
+    
+    rhoInv[id].x = rho;
+    rhoInv[id].y = (rho > 1e-8f) ? 1.0f / rho : 0.0f;
+}
+
+// ============================================================================
+// Kernel: Clear Membrane Buffers
+// ============================================================================
+
+kernel void clearMembraneBuffers(
+    device float* membraneForces [[buffer(0)]],
+    constant SimulationParams& params [[buffer(1)]],
+    uint id [[thread_position_in_grid]]
+) {
+    if (id >= params.particleCount) return;
+    membraneForces[id * 4 + 0] = 0.0f;
+    membraneForces[id * 4 + 1] = 0.0f;
+    membraneForces[id * 4 + 2] = 0.0f;
+    membraneForces[id * 4 + 3] = 0.0f;
+}
+
+// ============================================================================
+// Kernel: Compute Interaction With Membranes
+// ============================================================================
+
+kernel void computeInteractionWithMembranes(
+    device float4* position [[buffer(0)]],
+    device int* membraneData [[buffer(1)]],  // Triangles: i, j, k indices
+    device float* membraneForces [[buffer(2)]],
+    constant SimulationParams& params [[buffer(3)]],
+    constant int& numMembranes [[buffer(4)]],
+    uint id [[thread_position_in_grid]]
+) {
+    // For each membrane triangle, compute forces
+    // This is a simplified placeholder
+    if ((int)id >= numMembranes) return;
+    
+    int i = membraneData[id * 3 + 0];
+    int j = membraneData[id * 3 + 1];
+    int k = membraneData[id * 3 + 2];
+    
+    if (i < 0 || j < 0 || k < 0) return;
+    
+    // TODO: Compute actual membrane forces
+    // This involves computing normals, area preservation, etc.
+}
+
+// ============================================================================
+// Kernel: Finalize Membrane Interaction
+// ============================================================================
+
+kernel void computeInteractionWithMembranes_finalize(
+    device float4* position [[buffer(0)]],
+    device float4* velocity [[buffer(1)]],
+    device float* membraneForces [[buffer(2)]],
+    constant SimulationParams& params [[buffer(3)]],
+    uint id [[thread_position_in_grid]]
+) {
+    if (id >= params.particleCount) return;
+    
+    // Apply accumulated membrane forces to velocity
+    float3 force = float3(
+        membraneForces[id * 4 + 0],
+        membraneForces[id * 4 + 1],
+        membraneForces[id * 4 + 2]
+    );
+    
+    velocity[id].xyz += force * params.timeStep / params.mass;
+}
