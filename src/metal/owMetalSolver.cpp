@@ -254,6 +254,12 @@ void owMetalSolver::createBuffers(
     
     positionBuffer = device->newBuffer(position_cpp, particleCount * float4Size, MTL::ResourceStorageModeShared);
     velocityBuffer = device->newBuffer(velocity_cpp, particleCount * float4Size, MTL::ResourceStorageModeShared);
+    
+    // Debug: verify position data was copied
+    float* posCheck = (float*)positionBuffer->contents();
+    std::cout << "First particle position: (" << posCheck[0] << ", " << posCheck[1] << ", " << posCheck[2] << ")" << std::endl;
+    std::cout << "Particle 1000 position: (" << posCheck[4000] << ", " << posCheck[4001] << ", " << posCheck[4002] << ")" << std::endl;
+    
     accelerationBuffer = device->newBuffer(particleCount * float4Size, MTL::ResourceStorageModeShared);
     positionPredictedBuffer = device->newBuffer(particleCount * float4Size, MTL::ResourceStorageModeShared);
     velocityPredictedBuffer = device->newBuffer(particleCount * float4Size, MTL::ResourceStorageModeShared);
