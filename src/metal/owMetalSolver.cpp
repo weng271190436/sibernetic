@@ -716,6 +716,17 @@ unsigned int owMetalSolver::_run_pcisph_integrate(int iterationCount, int mode, 
     commandBuffer->commit();
     commandBuffer->waitUntilCompleted();
     
+    // Debug: check results after integrate
+    static int integrateDebug = 0;
+    if (integrateDebug < 3) {
+        float* vel = (float*)velocityBuffer->contents();
+        float* pos = (float*)positionBuffer->contents();
+        std::cout << "[Metal DEBUG] After integrate:" << std::endl;
+        std::cout << "  Particle 1000 vel: (" << vel[4000] << ", " << vel[4001] << ", " << vel[4002] << ")" << std::endl;
+        std::cout << "  Particle 1000 pos: (" << pos[4000] << ", " << pos[4001] << ", " << pos[4002] << ")" << std::endl;
+        integrateDebug++;
+    }
+    
     return 0;
 }
 
