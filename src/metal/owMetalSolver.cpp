@@ -254,12 +254,6 @@ void owMetalSolver::createBuffers(
     
     positionBuffer = device->newBuffer(position_cpp, particleCount * float4Size, MTL::ResourceStorageModeShared);
     velocityBuffer = device->newBuffer(velocity_cpp, particleCount * float4Size, MTL::ResourceStorageModeShared);
-    
-    // Debug: verify position data was copied
-    float* posCheck = (float*)positionBuffer->contents();
-    std::cout << "First particle position: (" << posCheck[0] << ", " << posCheck[1] << ", " << posCheck[2] << ")" << std::endl;
-    std::cout << "Particle 1000 position: (" << posCheck[4000] << ", " << posCheck[4001] << ", " << posCheck[4002] << ")" << std::endl;
-    
     accelerationBuffer = device->newBuffer(particleCount * float4Size, MTL::ResourceStorageModeShared);
     positionPredictedBuffer = device->newBuffer(particleCount * float4Size, MTL::ResourceStorageModeShared);
     velocityPredictedBuffer = device->newBuffer(particleCount * float4Size, MTL::ResourceStorageModeShared);
@@ -690,14 +684,6 @@ void owMetalSolver::updateMuscleActivityData(float* data, owConfigProperty* conf
 
 void owMetalSolver::read_position_buffer(float* position, owConfigProperty* config) {
     std::memcpy(position, positionBuffer->contents(), particleCount * 4 * sizeof(float));
-    
-    // Debug: check if positions are still valid after simulation
-    static int debugCount = 0;
-    if (debugCount < 5) {
-        std::cout << "[Metal readback] Particle 0: (" << position[0] << ", " << position[1] << ", " << position[2] << ")" << std::endl;
-        std::cout << "[Metal readback] Particle 1000: (" << position[4000] << ", " << position[4001] << ", " << position[4002] << ")" << std::endl;
-        debugCount++;
-    }
 }
 
 void owMetalSolver::read_velocity_buffer(float* velocity, owConfigProperty* config) {
