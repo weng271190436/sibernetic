@@ -473,6 +473,16 @@ unsigned int owMetalSolver::_runFindNeighbors(owConfigProperty* config) {
 unsigned int owMetalSolver::_run_pcisph_computeDensity(owConfigProperty* config) {
     if (!computeDensityPipeline) return 1;
     
+    // Debug: check neighbor data before density computation
+    static int debugDensity = 0;
+    if (debugDensity < 1) {
+        int* ncount = (int*)neighborCountBuffer->contents();
+        int* nmap = (int*)neighborMapBuffer->contents();
+        std::cout << "[Metal DEBUG] In computeDensity - particle 1000 neighbors: " << ncount[1000] << std::endl;
+        std::cout << "  First 3 neighbor IDs: " << nmap[1000*32] << ", " << nmap[1000*32+1] << ", " << nmap[1000*32+2] << std::endl;
+        debugDensity++;
+    }
+    
     MTL::CommandBuffer* commandBuffer = commandQueue->commandBuffer();
     MTL::ComputeCommandEncoder* encoder = commandBuffer->computeCommandEncoder();
     
