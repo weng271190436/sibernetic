@@ -286,6 +286,7 @@ void owMetalSolver::createBuffers(
     paramsBuffer = device->newBuffer(&params, sizeof(SimulationParams), MTL::ResourceStorageModeShared);
     
     std::cout << "Created Metal buffers for " << particleCount << " particles" << std::endl;
+    std::cout << "[Metal DEBUG] params.h = " << params.h << ", params.mass = " << params.mass << ", params.rho0 = " << params.rho0 << std::endl;
 }
 
 // ============================================================================
