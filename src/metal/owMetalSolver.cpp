@@ -573,7 +573,7 @@ unsigned int owMetalSolver::_run_pcisph_computeElasticForces(owConfigProperty* c
     MTL::ComputeCommandEncoder* encoder = commandBuffer->computeCommandEncoder();
     
     float elasticity = config->getConst("elasticityCoefficient");
-    float maxMuscleForce = config->getConst("maxMuscleForce");
+    float maxMuscleForce = config->getConst("max_muscle_force");
     unsigned int numOfElasticP = config->numOfElasticP;
     unsigned int muscleCount = config->MUSCLE_COUNT;
     
