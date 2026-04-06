@@ -161,13 +161,18 @@ kernel void pcisph_computeDensity(
     float3 pos_i = position[id].xyz;
     float hScaled = params.hScaled;
     float simScale = params.simulationScale;
-    float h2 = hScaled * hScaled;
     
-    // Compute poly6 contributions
-    float densitySum = 0.0f;
+    // Numerically stable: use normalized distances q = r/h
+    // Wpoly6(r, h) = 315/(64*pi*h^3) * (1 - (r/h)^2)^3  (for r < h)
+    // density = mass * sum(Wpoly6) = mass * 315/(64*pi*h^3) * sum((1-q^2)^3)
     
-    // Self contribution: (h² - 0²)³ = h⁶
-    densitySum += h2 * h2 * h2;
+    float h3 = hScaled * hScaled * hScaled;
+    float coeff = 315.0f / (64.0f * M_PI_F * h3) * params.mass;
+    
+    float density = 0.0f;
+    
+    // Self contribution: q = 0, (1 - 0)^3 = 1
+    density += 1.0f;
     
     // Neighbor contributions
     int count = neighborCount[id];
@@ -176,22 +181,20 @@ kernel void pcisph_computeDensity(
         if (neighborIdx == NO_PARTICLE_ID || neighborIdx < 0) continue;
         
         float3 pos_j = position[neighborIdx].xyz;
-        float r = length(pos_i - pos_j) * simScale;  // Scale to simulation coords
+        float r = length(pos_i - pos_j) * simScale;
         
         if (r < hScaled) {
-            float r2 = r * r;
-            float diff = h2 - r2;
-            densitySum += diff * diff * diff;
+            float q = r / hScaled;      // normalized distance [0, 1)
+            float q2 = q * q;
+            float term = 1.0f - q2;     // (1 - q²)
+            density += term * term * term;  // (1 - q²)³
         }
     }
     
-    // Apply poly6 coefficient: 315 / (64 * pi * h^9) * mass
-    float h9 = h2 * h2 * h2 * h2 * hScaled;
-    float coeff = 315.0f / (64.0f * M_PI_F * h9) * params.mass;
-    float density = densitySum * coeff;
+    density *= coeff;
     
-    // Clamp to minimum density
-    if (density < params.mass) density = params.mass;
+    // Clamp to rest density minimum
+    if (density < 1.0f) density = 1.0f;
     
     rhoInv[id].x = density;
     rhoInv[id].y = 1.0f / density;
