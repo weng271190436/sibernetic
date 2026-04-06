@@ -663,12 +663,33 @@ unsigned int owMetalSolver::_run_pcisph_integrate(int iterationCount, int mode, 
         float* acc = (float*)accelerationBuffer->contents();
         float* vel = (float*)velocityBuffer->contents();
         float* rho = (float*)rhoBuffer->contents();
+        float* pos = (float*)positionBuffer->contents();
         int* ncount = (int*)neighborCountBuffer->contents();
+        int* nmap = (int*)neighborMapBuffer->contents();
         std::cout << "[Metal DEBUG] Before integrate:" << std::endl;
         std::cout << "  Particle 1000 acc: (" << acc[4000] << ", " << acc[4001] << ", " << acc[4002] << ")" << std::endl;
         std::cout << "  Particle 1000 vel: (" << vel[4000] << ", " << vel[4001] << ", " << vel[4002] << ")" << std::endl;
+        std::cout << "  Particle 1000 pos: (" << pos[4000] << ", " << pos[4001] << ", " << pos[4002] << ")" << std::endl;
         std::cout << "  Particle 1000 rho: " << rho[2000] << " (1/rho: " << rho[2001] << ")" << std::endl;
         std::cout << "  Particle 1000 neighbors: " << ncount[1000] << std::endl;
+        
+        // Print first few neighbor IDs
+        std::cout << "  Neighbor IDs: ";
+        for (int n = 0; n < 5 && n < ncount[1000]; n++) {
+            int nid = nmap[1000 * 32 + n];  // MAX_NEIGHBOR_COUNT = 32
+            std::cout << nid;
+            if (nid != -1) {
+                float dx = pos[4000] - pos[nid*4];
+                float dy = pos[4001] - pos[nid*4+1];
+                float dz = pos[4002] - pos[nid*4+2];
+                float dist = sqrt(dx*dx + dy*dy + dz*dz);
+                std::cout << "(d=" << dist << ") ";
+            } else {
+                std::cout << " ";
+            }
+        }
+        std::cout << std::endl;
+        
         debugCount++;
     }
     
