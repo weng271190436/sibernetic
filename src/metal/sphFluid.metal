@@ -481,8 +481,12 @@ kernel void pcisph_computeElasticForces(
     uint id = index;
     
     float3 pos_i = position[id].xyz;
+    float3 vel_i = velocity[id].xyz;
     float3 elasticForce = float3(0.0f);
     float ptype_i = position[id].w;
+    
+    // Damping coefficient for velocity-based damping
+    const float dampingCoeff = 0.1f;
     
     // Loop through all elastic connections for this particle
     for (int nc = 0; nc < MAX_NEIGHBOR_COUNT; nc++) {
@@ -494,6 +498,7 @@ kernel void pcisph_computeElasticForces(
         if (partnerId == NO_PARTICLE_ID) break;  // End of connections
         
         float3 pos_j = position[partnerId].xyz;
+        float3 vel_j = velocity[partnerId].xyz;
         float3 r_vec = (pos_i - pos_j) * params.simulationScale;  // Scale to sim coords
         float r_ij = length(r_vec);
         
@@ -507,6 +512,11 @@ kernel void pcisph_computeElasticForces(
             // Check if both particles are worm body (type ~2.1-2.2)
             if (ptype_i > 2.05f && ptype_i < 2.25f && ptype_j > 2.05f && ptype_j < 2.25f) {
                 elasticForce -= dir * delta_r * elasticity;
+                
+                // Add velocity damping to reduce oscillations
+                float3 rel_vel = (vel_i - vel_j) * params.simulationScale;
+                float vel_along_spring = dot(rel_vel, dir);
+                elasticForce -= dir * vel_along_spring * dampingCoeff * elasticity;
             } else {
                 // Agar particles get reduced elasticity
                 elasticForce -= dir * delta_r * elasticity * 0.25f;
