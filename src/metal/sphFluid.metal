@@ -37,7 +37,8 @@ constant int radius_segments = 30;
 // ============================================================================
 
 struct SimulationParams {
-    float h;                    // Smoothing radius
+    float h;                    // Smoothing radius (world scale for grid)
+    float hScaled;              // h * simulationScale (for SPH kernels)
     float mass;                 // Particle mass
     float simulationScale;      // Scale factor
     float timeStep;             // dt
@@ -159,9 +160,11 @@ kernel void pcisph_computeDensity(
     
     float3 pos_i = position[id].xyz;
     float density = 0.0f;
+    float hScaled = params.hScaled;
+    float simScale = params.simulationScale;
     
     // Self contribution
-    density = params.mass * Wpoly6(0.0f, params.h);
+    density = params.mass * Wpoly6(0.0f, hScaled);
     
     // Neighbor contributions
     int count = neighborCount[id];
@@ -171,9 +174,9 @@ kernel void pcisph_computeDensity(
         
         float3 pos_j = position[neighborIdx].xyz;
         float3 r_vec = pos_i - pos_j;
-        float r = length(r_vec);
+        float r = length(r_vec) * simScale;  // Scale distance to simulation coordinates
         
-        density += params.mass * Wpoly6(r, params.h);
+        density += params.mass * Wpoly6(r, hScaled);
     }
     
     rhoInv[id].x = density;

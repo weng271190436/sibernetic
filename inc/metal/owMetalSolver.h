@@ -28,6 +28,7 @@ namespace MTL {
 // Simulation parameters - simple packed layout matching Metal
 struct SimulationParams {
     float h;
+    float hScaled;  // h * simulationScale (for SPH kernels)
     float mass;
     float simulationScale;
     float timeStep;
