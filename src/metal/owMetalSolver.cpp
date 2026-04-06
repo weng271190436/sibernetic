@@ -231,7 +231,7 @@ void owMetalSolver::createBuffers(
     params.timeStep = config->getTimeStep();
     params.viscosity = config->getConst("viscosity");
     params.surfaceTension = 0.0f;
-    params.gravity = config->getConst("gravity");
+    params.gravity = config->getConst("gravity_y");  // Y is down
     params.particleCount = particleCount;
     params.gridCellCount = gridCellCount;
     params.gridMin[0] = config->xmin;
