@@ -550,6 +550,12 @@ unsigned int owMetalSolver::_run_pcisph_computeForcesAndInitPressure(owConfigPro
 }
 
 unsigned int owMetalSolver::_run_pcisph_computeElasticForces(owConfigProperty* config) {
+    static int debugElastic = 0;
+    if (debugElastic < 1) {
+        std::cout << "[Metal DEBUG] computeElasticForces: numOfElasticP = " << config->numOfElasticP << std::endl;
+        debugElastic++;
+    }
+    
     if (!computeElasticForcesPipeline || config->numOfElasticP == 0) return 0;
     
     MTL::CommandBuffer* commandBuffer = commandQueue->commandBuffer();
