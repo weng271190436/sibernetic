@@ -38,7 +38,7 @@
 
 #include "owPhysicsConstant.h"
 #include "owHelper.h"
-#include "owOpenCLSolver.h"
+#include "owSolver.h"
 
 /** owPhysicsFluidSimulator class contains
  *  realization of algorithms.
@@ -61,45 +61,45 @@ class owPhysicsFluidSimulator
 	/** Getter for velocity_cpp buffer
 	 *
 	 *  When run this method information about new value of velocity
-	 *  getting from OpenCL memory
-	 *  it use owOpenCLSolver::read_velocity_buffer(...) method
+	 *  getting from device memory
+	 *  it use owISolver::read_velocity_buffer(...) method
 	 *
 	 *  @return velocity_cpp
 	 */
 	float *getVelocity_cpp()
 	{
-		ocl_solver->read_velocity_buffer(velocity_cpp, config);
+		solver->read_velocity_buffer(velocity_cpp, config);
 		return velocity_cpp;
 	};
 	/** Getter for density_cpp buffer
 	 *
 	 *  When run this method information about new values of density
-	 *  getting from OpenCL memory
-	 *  it use owOpenCLSolver::read_density_buffer(...) method
+	 *  getting from device memory
+	 *  it use owISolver::read_density_buffer(...) method
 	 *
 	 *  @return density_cpp
 	 */
 	float *getDensity_cpp()
 	{
-		ocl_solver->read_density_buffer(density_cpp, config);
+		solver->read_density_buffer(density_cpp, config);
 		return density_cpp;
 	};
 	/** Getter for particleIndex_cpp buffer
 	 *
 	 *  When run this method information about new values of particleIndex
-	 *  getting from OpenCL memory
-	 *  it use owOpenCLSolver::read_particleIndex_buffer(...) method
+	 *  getting from device memory
+	 *  it use owISolver::read_particleIndex_buffer(...) method
 	 *
 	 *  @return particleIndex_cpp
 	 */
 	unsigned int *getParticleIndex_cpp()
 	{
-		ocl_solver->read_particleIndex_buffer(particleIndex_cpp, config);
+		solver->read_particleIndex_buffer(particleIndex_cpp, config);
 		return particleIndex_cpp;
 	};
 	/** Getter for elasticConnectionsData_cpp buffer
 	 *
-	 *  Method doesn't need to request data from OpenCL device's memory
+	 *  Method doesn't need to request data from device memory
 	 *  information about elastic connection defines once when
 	 *  initialization of configuration.
 	 *
@@ -108,7 +108,7 @@ class owPhysicsFluidSimulator
 	float *getElasticConnectionsData_cpp() const { return elasticConnectionsData_cpp; };
 	/** Getter for membraneData_cpp buffer
 	 *
-	 *  Method doesn't need to request data from OpenCL device's memory
+	 *  Method doesn't need to request data from device memory
 	 *  information about elastic connection defines once when
 	 *  initialization of configuration.
 	 *
@@ -135,11 +135,11 @@ class owPhysicsFluidSimulator
 
   private:
     struct timeval simulation_start;
-	owOpenCLSolver *ocl_solver;
+	owISolver *solver;  // Abstract solver interface (OpenCL or Metal)
 	float *position_cpp;			   // everywhere in the code %variableName%_cpp means that we create
 	float *velocity_cpp;			   // and initialize in 'ordinary' memory some data, which will be
 	float *pressure_cpp;			   // and initialize in 'ordinary' memory some data, which will be
-	float *elasticConnectionsData_cpp; // copied later to OpenCL buffer %variableName%
+	float *elasticConnectionsData_cpp; // copied later to device buffer %variableName%
 	int *membraneData_cpp;
 	int *particleMembranesList_cpp;
 	//Muscle contraction data buffer

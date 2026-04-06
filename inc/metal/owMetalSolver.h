@@ -14,6 +14,7 @@
 
 #include <vector>
 #include <string>
+#include "owSolver.h"
 
 // Forward declarations (Metal types)
 namespace MTL {
@@ -48,29 +49,61 @@ struct SimulationParams {
 
 class owConfigProperty;
 
-class owMetalSolver {
+// Metal solver - implements owISolver interface
+class owMetalSolver : public owISolver {
 public:
     owMetalSolver(
         const float* position_cpp,
         const float* velocity_cpp,
         owConfigProperty* config,
-        const float* elasticConnectionsData_cpp,
-        const int* membraneData_cpp,
-        const int* particleMembranesList_cpp
+        const float* elasticConnectionsData_cpp = nullptr,
+        const int* membraneData_cpp = nullptr,
+        const int* particleMembranesList_cpp = nullptr
     );
     
-    ~owMetalSolver();
+    ~owMetalSolver() override;
     
-    // Main simulation step
-    void step();
+    // owISolver interface implementation
+    void reset(
+        const float* position,
+        const float* velocity,
+        owConfigProperty* config,
+        const float* elasticConnections = nullptr,
+        const int* membraneData = nullptr,
+        const int* particleMembranesList = nullptr
+    ) override;
     
-    // Copy data back to CPU
-    void readPosition(float* position_cpp);
-    void readVelocity(float* velocity_cpp);
-    void readDensity(float* density_cpp);
+    // Neighbor search kernels
+    unsigned int _runClearBuffers(owConfigProperty* config) override;
+    unsigned int _runHashParticles(owConfigProperty* config) override;
+    void _runSort(owConfigProperty* config) override;
+    unsigned int _runSortPostPass(owConfigProperty* config) override;
+    unsigned int _runIndexx(owConfigProperty* config) override;
+    void _runIndexPostPass(owConfigProperty* config) override;
+    unsigned int _runFindNeighbors(owConfigProperty* config) override;
     
-    // Update muscle activations
-    void updateMuscleActivation(const float* activations, int count);
+    // PCISPH physics kernels
+    unsigned int _run_pcisph_computeDensity(owConfigProperty* config) override;
+    unsigned int _run_pcisph_computeForcesAndInitPressure(owConfigProperty* config) override;
+    unsigned int _run_pcisph_computeElasticForces(owConfigProperty* config) override;
+    unsigned int _run_pcisph_predictPositions(owConfigProperty* config) override;
+    unsigned int _run_pcisph_predictDensity(owConfigProperty* config) override;
+    unsigned int _run_pcisph_correctPressure(owConfigProperty* config) override;
+    unsigned int _run_pcisph_computePressureForceAcceleration(owConfigProperty* config) override;
+    unsigned int _run_pcisph_integrate(int iterationCount, int mode, owConfigProperty* config) override;
+    
+    // Membrane kernels
+    unsigned int _run_clearMembraneBuffers(owConfigProperty* config) override;
+    unsigned int _run_computeInteractionWithMembranes(owConfigProperty* config) override;
+    unsigned int _run_computeInteractionWithMembranes_finalize(owConfigProperty* config) override;
+    
+    // Data transfer
+    void updateMuscleActivityData(float* data, owConfigProperty* config) override;
+    void read_position_buffer(float* position, owConfigProperty* config) override;
+    void read_velocity_buffer(float* velocity, owConfigProperty* config) override;
+    void read_density_buffer(float* density, owConfigProperty* config) override;
+    void read_particleIndex_buffer(unsigned int* particleIndex, owConfigProperty* config) override;
+    void read_pressure_buffer(float* pressure, owConfigProperty* config) override;
     
     // Getters
     unsigned int getParticleCount() const { return particleCount; }
@@ -87,14 +120,8 @@ private:
         const float* elasticConnectionsData_cpp
     );
     
-    // Simulation substeps
-    void dispatchHashParticles();
-    void dispatchBuildGrid();
-    void dispatchFindNeighbors();
-    void dispatchComputeDensity();
-    void dispatchComputeForces();
-    void dispatchPCISPHLoop();
-    void dispatchIntegrate();
+    // Helper for dispatching compute
+    void dispatchKernel(MTL::ComputePipelineState* pipeline, unsigned int count);
     
     // Metal objects
     MTL::Device* device;
@@ -104,14 +131,19 @@ private:
     // Compute pipeline states (one per kernel)
     MTL::ComputePipelineState* clearBuffersPipeline;
     MTL::ComputePipelineState* hashParticlesPipeline;
+    MTL::ComputePipelineState* sortPipeline;
     MTL::ComputePipelineState* findNeighborsPipeline;
     MTL::ComputePipelineState* computeDensityPipeline;
     MTL::ComputePipelineState* computeForcesPipeline;
     MTL::ComputePipelineState* predictPositionsPipeline;
+    MTL::ComputePipelineState* predictDensityPipeline;
     MTL::ComputePipelineState* correctPressurePipeline;
     MTL::ComputePipelineState* computePressureForcePipeline;
     MTL::ComputePipelineState* computeElasticForcesPipeline;
     MTL::ComputePipelineState* integratePipeline;
+    MTL::ComputePipelineState* clearMembraneBuffersPipeline;
+    MTL::ComputePipelineState* computeMembranesPipeline;
+    MTL::ComputePipelineState* computeMembranesFinalizePipeline;
     
     // Buffers
     MTL::Buffer* positionBuffer;
@@ -120,13 +152,17 @@ private:
     MTL::Buffer* positionPredictedBuffer;
     MTL::Buffer* velocityPredictedBuffer;
     MTL::Buffer* pressureBuffer;
-    MTL::Buffer* rhoInvBuffer;
+    MTL::Buffer* rhoBuffer;
     MTL::Buffer* neighborMapBuffer;
     MTL::Buffer* neighborCountBuffer;
     MTL::Buffer* cellStartBuffer;
     MTL::Buffer* cellEndBuffer;
+    MTL::Buffer* particleIndexBuffer;
     MTL::Buffer* particleTypeBuffer;
     MTL::Buffer* elasticConnectionsBuffer;
+    MTL::Buffer* membraneDataBuffer;
+    MTL::Buffer* particleMembranesListBuffer;
+    MTL::Buffer* muscleActivationBuffer;
     MTL::Buffer* paramsBuffer;
     
     // Configuration
@@ -135,6 +171,7 @@ private:
     unsigned int gridCellCount;
     
     static constexpr int MAX_NEIGHBOR_COUNT = 32;
+    static constexpr int MAX_MEMBRANES_INCLUDING_SAME_PARTICLE = 7;
 };
 
 #endif // __APPLE__
