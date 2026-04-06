@@ -43,6 +43,7 @@ extern bool load_to;
 extern bool skip_display_particles;
 extern bool skip_display_membranes;
 extern bool skip_display_connections;
+extern int render_skip_frames;  // Render every N frames (0 = every frame)
 extern bool quiet_mode;
 
 int old_x = 0, old_y = 0; // Used for mouse event
@@ -143,6 +144,11 @@ void read_muscles_activity_signals_from_log_file(
 /** Main displaying function
  */
 void display(void) {
+  // Render skip counter
+  static int render_counter = 0;
+  bool do_render = (render_skip_frames == 0) || (render_counter == 0);
+  render_counter = (render_counter + 1) % (render_skip_frames + 1);
+  
   // Update Scene if not paused
   int i, j, k;
   //int err_coord_cnt = 0;
@@ -199,6 +205,12 @@ void display(void) {
       }
     }
     helper->refreshTime();
+  }
+
+  // Skip rendering if using render_skip
+  if (!do_render) {
+    glutPostRedisplay();  // Schedule next frame
+    return;
   }
 
   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);

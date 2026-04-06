@@ -45,6 +45,7 @@ bool load_to = false;
 bool skip_display_particles = false;
 bool skip_display_membranes = false;
 bool skip_display_connections = false;
+int render_skip_frames = 0;  // Render every N frames (0 = every frame)
 bool quiet_mode = false;
 std::string version = "0.0.8";
 
@@ -144,6 +145,10 @@ int main(int argc, char **argv) {
       }
       if (std::string("-skip_display_connections").compare(argv[i]) == 0) {
         skip_display_connections = true;
+      }
+      if (std::string("-render_skip").compare(argv[i]) == 0 && i + 1 < argc) {
+        render_skip_frames = std::atoi(argv[++i]);
+        std::cout << "Render skip: " << render_skip_frames << " frames" << std::endl;
       }
       if (std::string("-test").compare(argv[i]) == 0) { // run tests
         run_tests = true;
