@@ -553,6 +553,17 @@ unsigned int owMetalSolver::_run_pcisph_computeElasticForces(owConfigProperty* c
     static int debugElastic = 0;
     if (debugElastic < 1) {
         std::cout << "[Metal DEBUG] computeElasticForces: numOfElasticP = " << config->numOfElasticP << std::endl;
+        
+        // Check elastic connections data
+        if (elasticConnectionsBuffer) {
+            float* edata = (float*)elasticConnectionsBuffer->contents();
+            std::cout << "[Metal DEBUG] First elastic particle connections:" << std::endl;
+            for (int i = 0; i < 3; i++) {
+                int idx = i * 32 * 4;  // MAX_NEIGHBOR_COUNT * float4
+                std::cout << "  Particle " << i << " conn[0]: partnerId=" << edata[idx] 
+                          << " restLen=" << edata[idx+1] << " muscleId=" << edata[idx+2] << std::endl;
+            }
+        }
         debugElastic++;
     }
     
@@ -561,14 +572,22 @@ unsigned int owMetalSolver::_run_pcisph_computeElasticForces(owConfigProperty* c
     MTL::CommandBuffer* commandBuffer = commandQueue->commandBuffer();
     MTL::ComputeCommandEncoder* encoder = commandBuffer->computeCommandEncoder();
     
+    float elasticity = config->getConst("elasticityCoefficient");
+    float maxMuscleForce = config->getConst("maxMuscleForce");
+    unsigned int numOfElasticP = config->numOfElasticP;
+    unsigned int muscleCount = config->MUSCLE_COUNT;
+    
     encoder->setComputePipelineState(computeElasticForcesPipeline);
     encoder->setBuffer(positionBuffer, 0, 0);
     encoder->setBuffer(velocityBuffer, 0, 1);
     encoder->setBuffer(accelerationBuffer, 0, 2);
     encoder->setBuffer(elasticConnectionsBuffer, 0, 3);
     encoder->setBuffer(muscleActivationBuffer, 0, 4);
-    encoder->setBuffer(particleTypeBuffer, 0, 5);
-    encoder->setBuffer(paramsBuffer, 0, 6);
+    encoder->setBuffer(paramsBuffer, 0, 5);
+    encoder->setBytes(&elasticity, sizeof(float), 6);
+    encoder->setBytes(&maxMuscleForce, sizeof(float), 7);
+    encoder->setBytes(&numOfElasticP, sizeof(unsigned int), 8);
+    encoder->setBytes(&muscleCount, sizeof(unsigned int), 9);
     
     NS::UInteger threadGroupSize = computeElasticForcesPipeline->maxTotalThreadsPerThreadgroup();
     if (threadGroupSize > config->numOfElasticP) threadGroupSize = config->numOfElasticP;

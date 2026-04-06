@@ -466,36 +466,63 @@ kernel void pcisph_computeElasticForces(
     device float4* position [[buffer(0)]],
     device float4* velocity [[buffer(1)]],
     device float4* acceleration [[buffer(2)]],
-    device float4* elasticConnections [[buffer(3)]],  // x,y,z = partner particle ids, w = rest length
-    device int* particleType [[buffer(4)]],
+    device float4* elasticConnections [[buffer(3)]],  // MAX_NEIGHBOR_COUNT float4s per elastic particle
+    device float* muscleActivation [[buffer(4)]],     // Muscle activation signals
     constant SimulationParams& params [[buffer(5)]],
     constant float& elasticity [[buffer(6)]],
-    uint id [[thread_position_in_grid]]
+    constant float& maxMuscleForce [[buffer(7)]],
+    constant uint& numOfElasticP [[buffer(8)]],
+    constant uint& muscleCount [[buffer(9)]],
+    uint index [[thread_position_in_grid]]  // Index among elastic particles only
 ) {
-    if (id >= params.particleCount) return;
+    if (index >= numOfElasticP) return;
     
-    if (particleType[id] != ELASTIC_PARTICLE) return;
+    // For elastic particles, index IS the particle ID (elastic particles are first in the array)
+    uint id = index;
     
     float3 pos_i = position[id].xyz;
     float3 elasticForce = float3(0.0f);
+    float ptype_i = position[id].w;
     
-    float4 conn = elasticConnections[id];
-    int partnerId = int(conn.x);
-    float restLength = conn.w;
-    
-    if (partnerId != NO_PARTICLE_ID && restLength > 0.0f) {
-        float3 pos_j = position[partnerId].xyz;
-        float3 r_vec = pos_j - pos_i;
-        float dist = length(r_vec);
+    // Loop through all elastic connections for this particle
+    for (int nc = 0; nc < MAX_NEIGHBOR_COUNT; nc++) {
+        float4 conn = elasticConnections[index * MAX_NEIGHBOR_COUNT + nc];
+        int partnerId = int(conn.x);
+        float restLength = conn.y;  // Note: y is rest length in OpenCL format
+        int muscleId = int(conn.z);
         
-        if (dist > 1e-8f) {
-            float stretch = dist - restLength;
-            float3 springForce = elasticity * stretch * normalize(r_vec);
-            elasticForce += springForce;
+        if (partnerId == NO_PARTICLE_ID) break;  // End of connections
+        
+        float3 pos_j = position[partnerId].xyz;
+        float3 r_vec = (pos_i - pos_j) * params.simulationScale;  // Scale to sim coords
+        float r_ij = length(r_vec);
+        
+        if (r_ij > 1e-8f) {
+            float delta_r = r_ij - restLength;
+            float3 dir = r_vec / r_ij;
+            
+            // Elastic spring force
+            float ptype_j = position[partnerId].w;
+            
+            // Check if both particles are worm body (type ~2.1-2.2)
+            if (ptype_i > 2.05f && ptype_i < 2.25f && ptype_j > 2.05f && ptype_j < 2.25f) {
+                elasticForce -= dir * delta_r * elasticity;
+            } else {
+                // Agar particles get reduced elasticity
+                elasticForce -= dir * delta_r * elasticity * 0.25f;
+            }
+            
+            // Muscle force (if this connection is a muscle)
+            if (muscleId > 0 && muscleId <= (int)muscleCount) {
+                float activation = muscleActivation[muscleId - 1];
+                if (activation > 0.0f) {
+                    elasticForce -= dir * activation * maxMuscleForce;
+                }
+            }
         }
     }
     
-    acceleration[id] += float4(elasticForce / params.mass, 0.0f);
+    acceleration[id] += float4(elasticForce, 0.0f);
 }
 
 // ============================================================================
