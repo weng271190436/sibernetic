@@ -159,26 +159,41 @@ kernel void pcisph_computeDensity(
     if (id >= params.particleCount) return;
     
     float3 pos_i = position[id].xyz;
-    float density = 0.0f;
     float hScaled = params.hScaled;
     float simScale = params.simulationScale;
     
-    // Self contribution
-    density = params.mass * Wpoly6(0.0f, hScaled);
+    // Use simplified poly6 without coefficient first
+    float h2 = hScaled * hScaled;
+    float density = 0.0f;
+    
+    // Self contribution (r = 0)
+    density += h2 * h2 * h2;  // (h² - 0²)³ = h⁶
     
     // Neighbor contributions
     int count = neighborCount[id];
     for (int j = 0; j < count && j < MAX_NEIGHBOR_COUNT; j++) {
         int neighborIdx = neighborMap[id * MAX_NEIGHBOR_COUNT + j];
-        if (neighborIdx == NO_PARTICLE_ID) continue;
+        if (neighborIdx == NO_PARTICLE_ID || neighborIdx < 0) continue;
         
         float3 pos_j = position[neighborIdx].xyz;
         float3 r_vec = pos_i - pos_j;
-        float r = length(r_vec) * simScale;  // Scale distance to simulation coordinates
+        float r = length(r_vec) * simScale;  // Scale to simulation coords
         
-        density += params.mass * Wpoly6(r, hScaled);
+        if (r < hScaled) {
+            float r2 = r * r;
+            float diff = h2 - r2;
+            density += diff * diff * diff;
+        }
     }
     
+    // Apply coefficient: 315 / (64 * pi * h^9) * mass
+    float h9 = h2 * h2 * h2 * h2 * hScaled;
+    float coeff = 315.0f / (64.0f * M_PI_F * h9) * params.mass;
+    density *= coeff;
+    
+    rhoInv[id].x = density;
+    rhoInv[id].y = (density > 1e-15f) ? 1.0f / density : 0.0f;
+}
     rhoInv[id].x = density;
     rhoInv[id].y = 1.0f / max(density, 1e-8f);
 }
