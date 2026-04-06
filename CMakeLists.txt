@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(Sibernetic VERSION 0.9.8 LANGUAGES CXX)
+project(Sibernetic VERSION 0.9.8 LANGUAGES CXX OBJCXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -8,6 +8,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # Options
 option(SIBERNETIC_USE_GRAPHICS "Enable OpenGL graphics" ON)
 option(SIBERNETIC_USE_PYTHON "Enable Python integration" ON)
+option(SIBERNETIC_USE_METAL "Use Metal instead of OpenCL (Apple only)" OFF)
 option(SIBERNETIC_BUILD_TESTS "Build tests" OFF)
 
 # Output directories
@@ -34,13 +35,14 @@ elseif(UNIX)
     message(STATUS "Building for Linux")
     set(SIBERNETIC_PLATFORM "LINUX")
     add_definitions(-D__linux__)
+    # Metal not available on Linux
+    set(SIBERNETIC_USE_METAL OFF)
 endif()
 
-# Source files
+# Source files (common)
 set(SIBERNETIC_SOURCES
     src/main.cpp
     src/owHelper.cpp
-    src/owOpenCLSolver.cpp
     src/owPhysicsFluidSimulator.cpp
     src/owWorldSimulation.cpp
     src/owNeuronSimulator.cpp
@@ -50,18 +52,47 @@ set(SIBERNETIC_SOURCES
     src/test/owPhysicTest.cpp
 )
 
+# Add solver based on backend choice
+if(SIBERNETIC_USE_METAL AND APPLE)
+    message(STATUS "Using Metal compute backend")
+    list(APPEND SIBERNETIC_SOURCES src/metal/owMetalSolver.cpp)
+    add_definitions(-DUSE_METAL)
+else()
+    message(STATUS "Using OpenCL compute backend")
+    list(APPEND SIBERNETIC_SOURCES src/owOpenCLSolver.cpp)
+endif()
+
 # Include directories
 include_directories(${CMAKE_SOURCE_DIR}/inc)
 
-# Find OpenCL
-if(APPLE)
-    # macOS: OpenCL is a framework
-    find_library(OPENCL_LIBRARY OpenCL REQUIRED)
-    set(OPENCL_INCLUDE_DIR "")
-    message(STATUS "Found OpenCL framework: ${OPENCL_LIBRARY}")
+# Metal setup (Apple only)
+if(SIBERNETIC_USE_METAL AND APPLE)
+    # Find metal-cpp headers
+    if(EXISTS "${CMAKE_SOURCE_DIR}/metal-cpp")
+        include_directories("${CMAKE_SOURCE_DIR}/metal-cpp")
+    elseif(EXISTS "/usr/local/include/metal-cpp")
+        include_directories("/usr/local/include/metal-cpp")
+    elseif(EXISTS "${HOMEBREW_PREFIX}/include/metal-cpp")
+        include_directories("${HOMEBREW_PREFIX}/include/metal-cpp")
+    else()
+        message(FATAL_ERROR "metal-cpp headers not found. Download from https://developer.apple.com/metal/cpp/ and place in ${CMAKE_SOURCE_DIR}/metal-cpp/")
+    endif()
+    
+    find_library(METAL_LIBRARY Metal REQUIRED)
+    find_library(FOUNDATION_LIBRARY Foundation REQUIRED)
+    set(COMPUTE_LIBRARY ${METAL_LIBRARY} ${FOUNDATION_LIBRARY})
+    message(STATUS "Found Metal framework: ${METAL_LIBRARY}")
 else()
-    find_package(OpenCL REQUIRED)
-    set(OPENCL_LIBRARY OpenCL::OpenCL)
+    # Find OpenCL
+    if(APPLE)
+        find_library(OPENCL_LIBRARY OpenCL REQUIRED)
+        set(OPENCL_INCLUDE_DIR "")
+        message(STATUS "Found OpenCL framework: ${OPENCL_LIBRARY}")
+    else()
+        find_package(OpenCL REQUIRED)
+        set(OPENCL_LIBRARY OpenCL::OpenCL)
+    endif()
+    set(COMPUTE_LIBRARY ${OPENCL_LIBRARY})
 endif()
 
 # Find Python 3
@@ -93,9 +124,7 @@ endif()
 add_executable(Sibernetic ${SIBERNETIC_SOURCES})
 
 # Link libraries
-target_link_libraries(Sibernetic PRIVATE
-    ${OPENCL_LIBRARY}
-)
+target_link_libraries(Sibernetic PRIVATE ${COMPUTE_LIBRARY})
 
 if(SIBERNETIC_USE_PYTHON)
     target_include_directories(Sibernetic PRIVATE ${Python3_INCLUDE_DIRS})
@@ -111,19 +140,34 @@ endif()
 
 # macOS-specific settings
 if(APPLE)
-    # Link against system frameworks
     target_link_libraries(Sibernetic PRIVATE
         "-framework Cocoa"
         "-framework IOKit"
         "-framework CoreFoundation"
     )
     
-    # Set RPATH for finding libraries
     set_target_properties(Sibernetic PROPERTIES
         MACOSX_RPATH ON
         BUILD_WITH_INSTALL_RPATH ON
         INSTALL_RPATH "@executable_path/../lib"
     )
+    
+    # Compile Metal shaders if using Metal
+    if(SIBERNETIC_USE_METAL)
+        # Compile .metal to .metallib
+        add_custom_command(
+            OUTPUT ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/sphFluid.metallib
+            COMMAND xcrun -sdk macosx metal -c ${CMAKE_SOURCE_DIR}/src/metal/sphFluid.metal -o ${CMAKE_BINARY_DIR}/sphFluid.air
+            COMMAND xcrun -sdk macosx metallib ${CMAKE_BINARY_DIR}/sphFluid.air -o ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/sphFluid.metallib
+            DEPENDS ${CMAKE_SOURCE_DIR}/src/metal/sphFluid.metal
+            COMMENT "Compiling Metal shaders"
+        )
+        add_custom_target(MetalShaders ALL DEPENDS ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/sphFluid.metallib)
+        add_dependencies(Sibernetic MetalShaders)
+        
+        # Also copy source for runtime compilation fallback
+        file(COPY ${CMAKE_SOURCE_DIR}/src/metal DESTINATION ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/../src/)
+    endif()
 endif()
 
 # Linux-specific settings  
@@ -131,12 +175,14 @@ if(UNIX AND NOT APPLE)
     target_link_libraries(Sibernetic PRIVATE rt)
 endif()
 
-# Copy OpenCL kernels to build directory
-file(GLOB CL_KERNELS "src/*.cl")
-foreach(kernel ${CL_KERNELS})
-    get_filename_component(kernel_name ${kernel} NAME)
-    configure_file(${kernel} ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/${kernel_name} COPYONLY)
-endforeach()
+# Copy OpenCL kernels to build directory (for OpenCL backend)
+if(NOT SIBERNETIC_USE_METAL)
+    file(GLOB CL_KERNELS "src/*.cl")
+    foreach(kernel ${CL_KERNELS})
+        get_filename_component(kernel_name ${kernel} NAME)
+        configure_file(${kernel} ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/${kernel_name} COPYONLY)
+    endforeach()
+endif()
 
 # Copy configuration files
 file(COPY ${CMAKE_SOURCE_DIR}/configuration DESTINATION ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/..)
@@ -146,15 +192,20 @@ file(COPY ${CMAKE_SOURCE_DIR}/main_sim.py DESTINATION ${CMAKE_RUNTIME_OUTPUT_DIR
 
 # Installation
 install(TARGETS Sibernetic RUNTIME DESTINATION bin)
-install(FILES ${CL_KERNELS} DESTINATION share/sibernetic/kernels)
 install(DIRECTORY configuration/ DESTINATION share/sibernetic/configuration)
 
 # Print configuration summary
 message(STATUS "")
 message(STATUS "=== Sibernetic Configuration ===")
-message(STATUS "Platform: ${SIBERNETIC_PLATFORM}")
-message(STATUS "Graphics: ${SIBERNETIC_USE_GRAPHICS}")
-message(STATUS "Python:   ${SIBERNETIC_USE_PYTHON}")
-message(STATUS "C++ Standard: ${CMAKE_CXX_STANDARD}")
-message(STATUS "Build type: ${CMAKE_BUILD_TYPE}")
+message(STATUS "Platform:       ${SIBERNETIC_PLATFORM}")
+message(STATUS "Compute:        ${SIBERNETIC_USE_METAL}")
+if(SIBERNETIC_USE_METAL)
+    message(STATUS "                Metal (GPU)")
+else()
+    message(STATUS "                OpenCL")
+endif()
+message(STATUS "Graphics:       ${SIBERNETIC_USE_GRAPHICS}")
+message(STATUS "Python:         ${SIBERNETIC_USE_PYTHON}")
+message(STATUS "C++ Standard:   ${CMAKE_CXX_STANDARD}")
+message(STATUS "Build type:     ${CMAKE_BUILD_TYPE}")
 message(STATUS "================================")
