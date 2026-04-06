@@ -267,7 +267,13 @@ void owMetalSolver::createBuffers(
     cellEndBuffer = device->newBuffer(gridCellCount * sizeof(int), MTL::ResourceStorageModeShared);
     
     particleIndexBuffer = device->newBuffer(particleCount * sizeof(unsigned int) * 2, MTL::ResourceStorageModeShared);
-    particleTypeBuffer = device->newBuffer(particleCount * sizeof(int), MTL::ResourceStorageModeShared);
+    
+    // Initialize particleTypeBuffer from position.w (4th float component)
+    std::vector<int> particleTypes(particleCount);
+    for (unsigned int i = 0; i < particleCount; i++) {
+        particleTypes[i] = (int)position_cpp[i * 4 + 3];  // w component = particle type
+    }
+    particleTypeBuffer = device->newBuffer(particleTypes.data(), particleCount * sizeof(int), MTL::ResourceStorageModeShared);
     
     if (elasticConnectionsData_cpp && config->numOfElasticP > 0) {
         elasticConnectionsBuffer = device->newBuffer(elasticConnectionsData_cpp, 
