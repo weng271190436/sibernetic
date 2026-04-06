@@ -57,7 +57,7 @@ def parallel_waves(n=muscle_row_count, #24 for our first test?
     Array of two travelling waves, second one starts
     half way through the array
     """
-    j = n/2
+    j = n // 2
     max_muscle_force_coeff = 1.0
 
     # "<" = first 6 seconds crawling, then swimming
@@ -82,25 +82,25 @@ def parallel_waves(n=muscle_row_count, #24 for our first test?
     if n % 2 != 0:
         raise NotImplementedError("Currently only supports even number of muscles!")
 
-    wave_1 = (map(math.sin, (row_positions - velocity*step) ))
-    wave_2 = (map(math.sin, (row_positions - velocity*step + (math.pi)) ))
+    wave_1 = list(map(math.sin, (row_positions - velocity*step) ))
+    wave_2 = list(map(math.sin, (row_positions - velocity*step + (math.pi)) ))
 
     normalize_sine = lambda x : abs(x*(x>0))#(x + 1)/2
-    wave_1 = map(normalize_sine, wave_1)
-    wave_2 = map(normalize_sine, wave_2)
+    wave_1 = list(map(normalize_sine, wave_1))
+    wave_2 = list(map(normalize_sine, wave_2))
 
     ###### sinusoidal signal correction ##################################
     #normalize_sine = lambda x : x*x
-    #wave_1 = map(normalize_sine, wave_1)
-    #wave_2 = map(normalize_sine, wave_2)
+    #wave_1 = list(map(normalize_sine, wave_1))
+    #wave_2 = list(map(normalize_sine, wave_2))
 
-    wave_1 = map(lambda x,y: max_muscle_force_coeff*x*y, wave_1, wave_m)
-    wave_2 = map(lambda x,y: max_muscle_force_coeff*x*y, wave_2, wave_m)
+    wave_1 = list(map(lambda x,y: max_muscle_force_coeff*x*y, wave_1, wave_m))
+    wave_2 = list(map(lambda x,y: max_muscle_force_coeff*x*y, wave_2, wave_m))
     ###### smooth start###################################################
-    if (step<(10000/4)):
-        normalize_sine = lambda x : x*step/(10000/4)
-        wave_1 = map(normalize_sine, wave_1)
-        wave_2 = map(normalize_sine, wave_2)
+    if (step<(10000//4)):
+        normalize_sine = lambda x : x*step/(10000//4)
+        wave_1 = list(map(normalize_sine, wave_1))
+        wave_2 = list(map(normalize_sine, wave_2))
     ######################################################################
 
     double_wave_1 = []
@@ -301,7 +301,7 @@ if __name__ == '__main__':
     times = []
 
     num_steps = int(max_time/time_per_step)
-    steps_between_plots = int(num_steps/num_plots)
+    steps_between_plots = max(1, int(num_steps/num_plots))
 
     show_all = True
 

@@ -206,7 +206,7 @@ if __name__ == '__main__':
         activation[m3].append(l[row_int+muscle_row_count*3])
         times.append(t)
         if step==0 or step%steps_between_plots == 0:
-            print "At step %s (%s s)"%(step, t)
+            print("At step %s (%s s)"%(step, t))
             figV = plt.figure()
             figV.suptitle("Muscle activation waves at step %s (%s s)"%(step, t))
             plV = figV.add_subplot(111, autoscale_on=True)
