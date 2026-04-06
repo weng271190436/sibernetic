@@ -25,7 +25,7 @@ namespace MTL {
     class Library;
 }
 
-// Simulation parameters (must match Metal shader struct)
+// Simulation parameters - simple packed layout matching Metal
 struct SimulationParams {
     float h;
     float mass;
@@ -37,9 +37,9 @@ struct SimulationParams {
     
     unsigned int particleCount;
     unsigned int gridCellCount;
-    float gridMin[3];
-    float gridMax[3];
-    int gridResolution[3];
+    float gridMinX, gridMinY, gridMinZ;
+    float gridMaxX, gridMaxY, gridMaxZ;
+    int gridResX, gridResY, gridResZ;
     float cellSize;
     
     float rho0;

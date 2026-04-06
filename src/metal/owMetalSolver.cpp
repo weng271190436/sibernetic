@@ -234,15 +234,15 @@ void owMetalSolver::createBuffers(
     params.gravity = config->getConst("gravity_y");  // Y is down
     params.particleCount = particleCount;
     params.gridCellCount = gridCellCount;
-    params.gridMin[0] = config->xmin;
-    params.gridMin[1] = config->ymin;
-    params.gridMin[2] = config->zmin;
-    params.gridMax[0] = config->xmax;
-    params.gridMax[1] = config->ymax;
-    params.gridMax[2] = config->zmax;
-    params.gridResolution[0] = config->gridCellsX;
-    params.gridResolution[1] = config->gridCellsY;
-    params.gridResolution[2] = config->gridCellsZ;
+    params.gridMinX = config->xmin;
+    params.gridMinY = config->ymin;
+    params.gridMinZ = config->zmin;
+    params.gridMaxX = config->xmax;
+    params.gridMaxY = config->ymax;
+    params.gridMaxZ = config->zmax;
+    params.gridResX = config->gridCellsX;
+    params.gridResY = config->gridCellsY;
+    params.gridResZ = config->gridCellsZ;
     params.cellSize = config->getConst("h");
     params.rho0 = config->getConst("rho0");
     params.delta = config->getDelta();
@@ -643,9 +643,8 @@ unsigned int owMetalSolver::_run_pcisph_integrate(int iterationCount, int mode, 
     encoder->setBuffer(positionBuffer, 0, 0);
     encoder->setBuffer(velocityBuffer, 0, 1);
     encoder->setBuffer(accelerationBuffer, 0, 2);
-    encoder->setBuffer(particleTypeBuffer, 0, 3);
-    encoder->setBuffer(paramsBuffer, 0, 4);
-    encoder->setBytes(&mode, sizeof(int), 5);
+    encoder->setBuffer(paramsBuffer, 0, 3);
+    encoder->setBytes(&mode, sizeof(int), 4);
     
     NS::UInteger threadGroupSize = integratePipeline->maxTotalThreadsPerThreadgroup();
     if (threadGroupSize > particleCount) threadGroupSize = particleCount;

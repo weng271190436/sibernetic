@@ -47,9 +47,9 @@ struct SimulationParams {
     
     uint particleCount;         // Total particles
     uint gridCellCount;         // Grid cells
-    float3 gridMin;             // Grid bounds min
-    float3 gridMax;             // Grid bounds max
-    int3 gridResolution;        // Grid resolution (cells per axis)
+    float gridMinX, gridMinY, gridMinZ;  // Grid bounds min
+    float gridMaxX, gridMaxY, gridMaxZ;  // Grid bounds max
+    int gridResX, gridResY, gridResZ;    // Grid resolution
     float cellSize;             // Size of each grid cell
     
     // PCISPH parameters
@@ -96,6 +96,19 @@ inline int getCellIndex(float3 pos, float3 gridMin, float cellSize, int3 gridRes
     return cell.x + cell.y * gridRes.x + cell.z * gridRes.x * gridRes.y;
 }
 
+// Helper to get grid min as float3
+inline float3 getGridMin(constant SimulationParams& p) {
+    return float3(p.gridMinX, p.gridMinY, p.gridMinZ);
+}
+
+inline float3 getGridMax(constant SimulationParams& p) {
+    return float3(p.gridMaxX, p.gridMaxY, p.gridMaxZ);
+}
+
+inline int3 getGridRes(constant SimulationParams& p) {
+    return int3(p.gridResX, p.gridResY, p.gridResZ);
+}
+
 // ============================================================================
 // Kernel: Clear Buffers
 // ============================================================================
@@ -123,7 +136,7 @@ kernel void hashParticles(
     if (id >= params.particleCount) return;
     
     float3 pos = position[id].xyz;
-    int cellIndex = getCellIndex(pos, params.gridMin, params.cellSize, params.gridResolution);
+    int cellIndex = getCellIndex(pos, getGridMin(params), params.cellSize, getGridRes(params));
     
     // Store cell index in position.w
     position[id].w = as_type<float>(cellIndex);
@@ -332,13 +345,14 @@ kernel void pcisph_integrate(
     device float4* position [[buffer(0)]],
     device float4* velocity [[buffer(1)]],
     device float4* acceleration [[buffer(2)]],
-    device int* particleType [[buffer(3)]],
-    constant SimulationParams& params [[buffer(4)]],
+    constant SimulationParams& params [[buffer(3)]],
+    constant int& mode [[buffer(4)]],
     uint id [[thread_position_in_grid]]
 ) {
     if (id >= params.particleCount) return;
     
-    if (particleType[id] == BOUNDARY_PARTICLE) {
+    int particleType = (int)position[id].w;
+    if (particleType == BOUNDARY_PARTICLE) {
         return;
     }
     
@@ -346,10 +360,12 @@ kernel void pcisph_integrate(
     float3 vel = velocity[id].xyz + acc * params.timeStep;
     float3 pos = position[id].xyz + vel * params.timeStep;
     
-    // Simple boundary clamping (proper boundary handling would use boundary particles)
-    pos = clamp(pos, params.gridMin + 0.01f, params.gridMax - 0.01f);
+    // Simple boundary clamping
+    float3 minBound = float3(getGridMin(params)[0], getGridMin(params)[1], getGridMin(params)[2]) + 0.01f;
+    float3 maxBound = float3(getGridMax(params)[0], getGridMax(params)[1], getGridMax(params)[2]) - 0.01f;
+    pos = clamp(pos, minBound, maxBound);
     
-    position[id] = float4(pos, position[id].w);
+    position[id] = float4(pos, position[id].w);  // Preserve particle type
     velocity[id] = float4(vel, 0.0f);
 }
 
@@ -372,7 +388,7 @@ kernel void findNeighbors(
     int count = 0;
     
     // Get cell coordinates
-    int3 cell_i = int3((pos_i - params.gridMin) / params.cellSize);
+    int3 cell_i = int3((pos_i - getGridMin(params)) / params.cellSize);
     
     // Search neighboring cells (3x3x3)
     for (int dx = -1; dx <= 1; dx++) {
@@ -381,10 +397,10 @@ kernel void findNeighbors(
                 int3 cell_j = cell_i + int3(dx, dy, dz);
                 
                 // Bounds check
-                if (any(cell_j < 0) || any(cell_j >= params.gridResolution)) continue;
+                if (any(cell_j < 0) || any(cell_j >= getGridRes(params))) continue;
                 
-                int cellIdx = cell_j.x + cell_j.y * params.gridResolution.x 
-                            + cell_j.z * params.gridResolution.x * params.gridResolution.y;
+                int cellIdx = cell_j.x + cell_j.y * getGridRes(params).x 
+                            + cell_j.z * getGridRes(params).x * getGridRes(params).y;
                 
                 int start = cellStart[cellIdx];
                 int end = cellEnd[cellIdx];
