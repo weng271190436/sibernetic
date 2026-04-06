@@ -471,7 +471,10 @@ unsigned int owMetalSolver::_runFindNeighbors(owConfigProperty* config) {
 }
 
 unsigned int owMetalSolver::_run_pcisph_computeDensity(owConfigProperty* config) {
-    if (!computeDensityPipeline) return 1;
+    if (!computeDensityPipeline) {
+        std::cout << "[Metal ERROR] computeDensityPipeline is NULL!" << std::endl;
+        return 1;
+    }
     
     // Debug: check neighbor data before density computation
     static int debugDensity = 0;
@@ -497,11 +500,21 @@ unsigned int owMetalSolver::_run_pcisph_computeDensity(owConfigProperty* config)
     NS::UInteger threadGroupSize = computeDensityPipeline->maxTotalThreadsPerThreadgroup();
     if (threadGroupSize > particleCount) threadGroupSize = particleCount;
     
+    std::cout << "[Metal DEBUG] Dispatching computeDensity with " << particleCount << " threads" << std::endl;
+    
     encoder->dispatchThreads(MTL::Size(particleCount, 1, 1), MTL::Size(threadGroupSize, 1, 1));
     encoder->endEncoding();
     
     commandBuffer->commit();
     commandBuffer->waitUntilCompleted();
+    
+    // Check result immediately
+    static int checkOnce = 0;
+    if (checkOnce < 1) {
+        float* rho = (float*)rhoBuffer->contents();
+        std::cout << "[Metal DEBUG] After computeDensity - particle 1000 rho: " << rho[2000] << std::endl;
+        checkOnce++;
+    }
     
     return 0;
 }
