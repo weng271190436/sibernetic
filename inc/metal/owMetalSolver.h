@@ -31,6 +31,7 @@ struct SimulationParams {
     float hScaled;  // h * simulationScale (for SPH kernels)
     float mass;
     float simulationScale;
+    float simulationScaleInv;  // 1 / simulationScale (for position updates)
     float timeStep;
     float viscosity;
     float surfaceTension;

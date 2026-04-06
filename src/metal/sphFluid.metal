@@ -41,6 +41,7 @@ struct SimulationParams {
     float hScaled;              // h * simulationScale (for SPH kernels)
     float mass;                 // Particle mass
     float simulationScale;      // Scale factor
+    float simulationScaleInv;   // 1 / simulationScale (for position updates)
     float timeStep;             // dt
     float viscosity;            // Viscosity coefficient
     float surfaceTension;       // Surface tension coefficient
@@ -378,7 +379,10 @@ kernel void pcisph_integrate(
     
     float3 acc = acceleration[id].xyz;
     float3 vel = velocity[id].xyz + acc * params.timeStep;
-    float3 pos = position[id].xyz + vel * params.timeStep;
+    
+    // Position update: velocity is in scaled coords, position is in world coords
+    // Need to multiply by simulationScaleInv to convert
+    float3 pos = position[id].xyz + vel * params.timeStep * params.simulationScaleInv;
     
     // Simple boundary clamping
     float3 minBound = float3(getGridMin(params)[0], getGridMin(params)[1], getGridMin(params)[2]) + 0.01f;
