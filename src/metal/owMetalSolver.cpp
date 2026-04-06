@@ -691,6 +691,14 @@ void owMetalSolver::updateMuscleActivityData(float* data, owConfigProperty* conf
 
 void owMetalSolver::read_position_buffer(float* position, owConfigProperty* config) {
     std::memcpy(position, positionBuffer->contents(), particleCount * 4 * sizeof(float));
+    
+    // Debug: check if positions are still valid after simulation
+    static int debugCount = 0;
+    if (debugCount < 5) {
+        std::cout << "[Metal readback] Particle 0: (" << position[0] << ", " << position[1] << ", " << position[2] << ")" << std::endl;
+        std::cout << "[Metal readback] Particle 1000: (" << position[4000] << ", " << position[4001] << ", " << position[4002] << ")" << std::endl;
+        debugCount++;
+    }
 }
 
 void owMetalSolver::read_velocity_buffer(float* velocity, owConfigProperty* config) {
