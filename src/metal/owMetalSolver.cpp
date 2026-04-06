@@ -602,27 +602,8 @@ unsigned int owMetalSolver::_run_pcisph_predictPositions(owConfigProperty* confi
 }
 
 unsigned int owMetalSolver::_run_pcisph_predictDensity(owConfigProperty* config) {
-    if (!predictDensityPipeline) return 1;
-    
-    MTL::CommandBuffer* commandBuffer = commandQueue->commandBuffer();
-    MTL::ComputeCommandEncoder* encoder = commandBuffer->computeCommandEncoder();
-    
-    encoder->setComputePipelineState(predictDensityPipeline);
-    encoder->setBuffer(positionPredictedBuffer, 0, 0);
-    encoder->setBuffer(rhoBuffer, 0, 1);
-    encoder->setBuffer(neighborMapBuffer, 0, 2);
-    encoder->setBuffer(neighborCountBuffer, 0, 3);
-    encoder->setBuffer(paramsBuffer, 0, 4);
-    
-    NS::UInteger threadGroupSize = predictDensityPipeline->maxTotalThreadsPerThreadgroup();
-    if (threadGroupSize > particleCount) threadGroupSize = particleCount;
-    
-    encoder->dispatchThreads(MTL::Size(particleCount, 1, 1), MTL::Size(threadGroupSize, 1, 1));
-    encoder->endEncoding();
-    
-    commandBuffer->commit();
-    commandBuffer->waitUntilCompleted();
-    
+    // TODO: Properly implement with separate storage for predicted density
+    // For now, skip to avoid overwriting computed density
     return 0;
 }
 
