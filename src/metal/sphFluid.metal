@@ -194,9 +194,6 @@ kernel void pcisph_computeDensity(
     rhoInv[id].x = density;
     rhoInv[id].y = (density > 1e-15f) ? 1.0f / density : 0.0f;
 }
-    rhoInv[id].x = density;
-    rhoInv[id].y = 1.0f / max(density, 1e-8f);
-}
 
 // ============================================================================
 // Kernel: Compute Forces and Init Pressure
