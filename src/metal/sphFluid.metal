@@ -128,9 +128,8 @@ kernel void clearBuffers(
 
 kernel void hashParticles(
     device float4* position [[buffer(0)]],
-    device int* cellStart [[buffer(1)]],
-    device int* cellEnd [[buffer(2)]],
-    constant SimulationParams& params [[buffer(3)]],
+    device uint2* particleIndex [[buffer(1)]],  // x = cellId, y = particleId
+    constant SimulationParams& params [[buffer(2)]],
     uint id [[thread_position_in_grid]]
 ) {
     if (id >= params.particleCount) return;
@@ -138,8 +137,9 @@ kernel void hashParticles(
     float3 pos = position[id].xyz;
     int cellIndex = getCellIndex(pos, getGridMin(params), params.cellSize, getGridRes(params));
     
-    // Store cell index in position.w
-    position[id].w = as_type<float>(cellIndex);
+    // Store in particleIndex buffer (NOT position.w which has particle type)
+    particleIndex[id].x = (uint)cellIndex;
+    particleIndex[id].y = id;
 }
 
 // ============================================================================

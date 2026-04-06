@@ -411,6 +411,22 @@ unsigned int owMetalSolver::_runSortPostPass(owConfigProperty* config) {
         }
     }
     
+    // Debug: check cell occupancy
+    static int debugOnce = 0;
+    if (debugOnce++ < 1) {
+        int nonEmptyCells = 0;
+        int maxOccupancy = 0;
+        for (unsigned int c = 0; c < gridCellCount; c++) {
+            if (cellStart[c] != -1) {
+                nonEmptyCells++;
+                int occ = cellEnd[c] - cellStart[c];
+                if (occ > maxOccupancy) maxOccupancy = occ;
+            }
+        }
+        std::cout << "[Metal DEBUG] Non-empty cells: " << nonEmptyCells << " / " << gridCellCount << std::endl;
+        std::cout << "[Metal DEBUG] Max cell occupancy: " << maxOccupancy << std::endl;
+    }
+    
     return 0;
 }
 
