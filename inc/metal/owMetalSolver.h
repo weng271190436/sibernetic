@@ -170,8 +170,8 @@ private:
     unsigned int particleCount;
     unsigned int gridCellCount;
     
-    static constexpr int MAX_NEIGHBOR_COUNT = 32;
-    static constexpr int MAX_MEMBRANES_INCLUDING_SAME_PARTICLE = 7;
+    static constexpr int METAL_MAX_NEIGHBORS = 32;
+    static constexpr int METAL_MAX_MEMBRANES_PER_PARTICLE = 7;
 };
 
 #endif // __APPLE__
