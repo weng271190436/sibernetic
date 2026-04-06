@@ -53,6 +53,13 @@ build
 /debug
 /Release
 
+# Python virtual environment
+venv/
+.venv/
+
+# Build/cache artifacts
+.cache/
+
 x86_64
 /*.dat
 src/*.dat
