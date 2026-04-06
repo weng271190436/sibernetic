@@ -37,6 +37,13 @@ echo ""
 echo "Installing dependencies..."
 brew install cmake python@3.11 glew freeglut || true
 
+# Ensure Metal toolchain is installed
+echo "Checking Metal toolchain..."
+if ! xcrun -sdk macosx metal --version &>/dev/null; then
+    echo "Installing Metal toolchain (may require password)..."
+    xcodebuild -downloadComponent MetalToolchain
+fi
+
 # Find Python
 PYTHON_BIN=""
 if [ -f "$HOMEBREW_PREFIX/opt/python@3.11/bin/python3.11" ]; then
