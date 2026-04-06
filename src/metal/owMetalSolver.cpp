@@ -475,10 +475,11 @@ unsigned int owMetalSolver::_run_pcisph_computeDensity(owConfigProperty* config)
     
     encoder->setComputePipelineState(computeDensityPipeline);
     encoder->setBuffer(positionBuffer, 0, 0);
-    encoder->setBuffer(rhoBuffer, 0, 1);
-    encoder->setBuffer(neighborMapBuffer, 0, 2);
-    encoder->setBuffer(neighborCountBuffer, 0, 3);
-    encoder->setBuffer(paramsBuffer, 0, 4);
+    encoder->setBuffer(velocityBuffer, 0, 1);  // Not used but expected by shader
+    encoder->setBuffer(rhoBuffer, 0, 2);
+    encoder->setBuffer(neighborMapBuffer, 0, 3);
+    encoder->setBuffer(neighborCountBuffer, 0, 4);
+    encoder->setBuffer(paramsBuffer, 0, 5);
     
     NS::UInteger threadGroupSize = computeDensityPipeline->maxTotalThreadsPerThreadgroup();
     if (threadGroupSize > particleCount) threadGroupSize = particleCount;
