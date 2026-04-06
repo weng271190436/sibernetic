@@ -212,8 +212,8 @@ kernel void pcisph_computeForcesAndInitPressure(
     
     float3 force = float3(0.0f);
     
-    // Gravity
-    force.y -= params.gravity * params.mass;
+    // Gravity (params.gravity is already negative for downward)
+    force.y += params.gravity * params.mass;
     
     // Viscosity force
     int count = neighborCount[id];
