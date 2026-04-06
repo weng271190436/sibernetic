@@ -652,15 +652,17 @@ unsigned int owMetalSolver::_run_pcisph_computePressureForceAcceleration(owConfi
 unsigned int owMetalSolver::_run_pcisph_integrate(int iterationCount, int mode, owConfigProperty* config) {
     if (!integratePipeline) return 1;
     
-    // Debug: check acceleration and neighbor count values before integrate
+    // Debug: check acceleration, velocity, density, and neighbor count values before integrate
     static int debugCount = 0;
     if (debugCount < 3) {
         float* acc = (float*)accelerationBuffer->contents();
         float* vel = (float*)velocityBuffer->contents();
+        float* rho = (float*)rhoBuffer->contents();
         int* ncount = (int*)neighborCountBuffer->contents();
         std::cout << "[Metal DEBUG] Before integrate:" << std::endl;
         std::cout << "  Particle 1000 acc: (" << acc[4000] << ", " << acc[4001] << ", " << acc[4002] << ")" << std::endl;
         std::cout << "  Particle 1000 vel: (" << vel[4000] << ", " << vel[4001] << ", " << vel[4002] << ")" << std::endl;
+        std::cout << "  Particle 1000 rho: " << rho[2000] << " (1/rho: " << rho[2001] << ")" << std::endl;
         std::cout << "  Particle 1000 neighbors: " << ncount[1000] << std::endl;
         debugCount++;
     }
