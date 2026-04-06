@@ -187,16 +187,16 @@ void owMetalSolver::createBuffers(
     const float* elasticConnectionsData_cpp
 ) {
     particleCount = config->getParticleCount();
-    gridCellCount = config->getGridCellCount();
+    gridCellCount = config->gridCellCount;
     
-    // Setup simulation parameters
-    params.h = config->h;
-    params.mass = config->mass;
-    params.simulationScale = config->simulationScale;
-    params.timeStep = config->timeStep;
-    params.viscosity = config->viscosity;
-    params.surfaceTension = config->surfaceTension;
-    params.gravity = config->gravity;
+    // Setup simulation parameters using getConst() for physics constants
+    params.h = config->getConst("h");
+    params.mass = config->getConst("mass");
+    params.simulationScale = config->getConst("simulationScale");
+    params.timeStep = config->getTimeStep();
+    params.viscosity = config->getConst("mu");
+    params.surfaceTension = 0.0f;  // Surface tension coefficient (optional)
+    params.gravity = config->getConst("gravity");
     params.particleCount = particleCount;
     params.gridCellCount = gridCellCount;
     params.gridMin[0] = config->xmin;
@@ -208,9 +208,9 @@ void owMetalSolver::createBuffers(
     params.gridResolution[0] = config->gridCellsX;
     params.gridResolution[1] = config->gridCellsY;
     params.gridResolution[2] = config->gridCellsZ;
-    params.cellSize = config->h;  // Cell size typically equals smoothing radius
-    params.rho0 = config->rho0;
-    params.delta = config->delta;
+    params.cellSize = config->getConst("h");
+    params.rho0 = config->getConst("rho0");
+    params.delta = config->getDelta();
     params.pcisphIterations = 3;
     
     // Create buffers

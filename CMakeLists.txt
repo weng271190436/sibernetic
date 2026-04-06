@@ -140,6 +140,9 @@ endif()
 
 # macOS-specific settings
 if(APPLE)
+    # Silence OpenGL/GLUT deprecation warnings
+    add_definitions(-DGL_SILENCE_DEPRECATION)
+    
     target_link_libraries(Sibernetic PRIVATE
         "-framework Cocoa"
         "-framework IOKit"
