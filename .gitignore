@@ -73,10 +73,13 @@ simulations
 /test2.sh
 /wcon/*.png
 /run_fw*.sh
-.vscode/*
-.settings/*
-.idea/*
+.vscode/
+.settings/
+.idea/
 /*.mod
 /report.txt
 /cube.sh
 /install_drivers.sh
+
+# Metal C++ headers (downloaded at build time)
+metal-cpp/
