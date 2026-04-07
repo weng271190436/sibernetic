@@ -198,7 +198,7 @@ void owMetalSolver::createPipelineStates() {
     
     clearBuffersPipeline = createPipeline("clearBuffers");
     hashParticlesPipeline = createPipeline("hashParticles");
-    sortPipeline = device->newComputePipelineState(library->newFunction(NS::String::string("bitonicSortStep", NS::UTF8StringEncoding)), &error);
+    sortPipeline = nullptr; // DISABLED: device->newComputePipelineState(library->newFunction(NS::String::string("bitonicSortStep", NS::UTF8StringEncoding)), &error);
     findNeighborsPipeline = createPipeline("findNeighbors");
     computeDensityPipeline = createPipeline("pcisph_computeDensity");
     computeForcesPipeline = createPipeline("pcisph_computeForcesAndInitPressure");
