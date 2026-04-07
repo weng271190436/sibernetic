@@ -45,6 +45,7 @@ set(SIBERNETIC_SOURCES
     src/owHelper.cpp
     src/owPhysicsFluidSimulator.cpp
     src/owWorldSimulation.cpp
+    src/owFastRenderer.cpp
     src/owNeuronSimulator.cpp
     src/owSignalSimulator.cpp
     src/owConfigProperty.cpp

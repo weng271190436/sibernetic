@@ -37,6 +37,7 @@
 #include <stdio.h>
 
 #include "owWorldSimulation.h"
+#include "owFastRenderer.h"
 
 extern bool load_from_file;
 extern bool load_to;
@@ -67,6 +68,10 @@ int *md_cpp; // pointer to membraneData_cpp
 owPhysicsFluidSimulator *fluid_simulation;
 owHelper *helper;
 owConfigProperty *localConfig;
+
+// Fast renderer using VBOs
+owFastRenderer* fastRenderer = nullptr;
+bool useFastRenderer = true;
 int iteration = 0;
 
 static char label[1000]; /* Storage for current string   */
@@ -220,6 +225,12 @@ void display(void) {
   float dc, rho;
   // Display all particles
   if (!skip_display_particles) {
+    if (useFastRenderer && fastRenderer) {
+      // Fast path using VBOs - single draw call
+      fastRenderer->updateParticles(p_cpp, d_cpp, localConfig->getParticleCount(), localConfig);
+      fastRenderer->render(sc, false);
+    } else {
+      // Legacy slow path
       for (i = 0; i < localConfig->getParticleCount(); ++i) {
         if (!load_from_file) {
           rho = d_cpp[p_indexb[i * 2 + 0]];
@@ -284,6 +295,7 @@ void display(void) {
           }
         }
       }
+    } // End of legacy slow path
   }
   glLineWidth((GLfloat)0.1);
   // Display elastic connections
@@ -1046,6 +1058,12 @@ inline void init(void) {
 
   glEnable(GL_BLEND);
   glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+  // Initialize fast renderer
+  if (useFastRenderer) {
+    fastRenderer = new owFastRenderer();
+    fastRenderer->init(200000);  // Support up to 200k particles
+  }
 }
 void sighandler(int s) {
   std::cout << "\nCaught signal CTRL+C. Exit Simulation...\n"; // this is
