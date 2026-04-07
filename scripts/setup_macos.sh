@@ -75,13 +75,27 @@ echo "Installing numpy for the system Python (required by C++ binary)..."
 $PIP_BIN install numpy
 
 echo ""
-echo "Building Sibernetic..."
+echo "Setting up Metal support..."
+
+# Download metal-cpp headers if not present (required for Metal backend)
+if [ ! -d "metal-cpp" ]; then
+    echo "Downloading metal-cpp headers from Apple..."
+    curl -L -o metal-cpp.zip "https://developer.apple.com/metal/cpp/files/metal-cpp_macOS15_iOS18.zip"
+    unzip -q metal-cpp.zip
+    rm metal-cpp.zip
+    echo "metal-cpp headers installed"
+else
+    echo "metal-cpp headers already present"
+fi
+
+echo ""
+echo "Building Sibernetic with Metal backend..."
 
 # Create build directory
 mkdir -p build
 cd build
 
-# Configure with CMake
+# Configure with CMake (Metal enabled by default on macOS)
 cmake .. \
     -DCMAKE_BUILD_TYPE=Release \
     -DPython3_EXECUTABLE=$PYTHON_BIN \
