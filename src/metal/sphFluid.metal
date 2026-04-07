@@ -627,3 +627,78 @@ kernel void computeInteractionWithMembranes_finalize(
     
     velocity[id].xyz += force * params.timeStep / params.mass;
 }
+
+// ============================================================================
+// Bitonic Sort for particle indices
+// ============================================================================
+
+// Sort key-value pairs by key (cell index)
+// Each thread handles one comparison in the bitonic network
+kernel void bitonicSortStep(
+    device uint2* particleIndex [[buffer(0)]],
+    constant uint& j [[buffer(1)]],
+    constant uint& k [[buffer(2)]],
+    uint gid [[thread_position_in_grid]]
+) {
+    // Bitonic sort step
+    uint i = gid;
+    uint ixj = i ^ j;  // Partner to compare with
+    
+    if (ixj > i) {
+        // Determine sort direction based on position in bitonic sequence
+        bool ascending = ((i & k) == 0);
+        
+        uint2 a = particleIndex[i];
+        uint2 b = particleIndex[ixj];
+        
+        // Compare by cell index (first component)
+        bool needSwap = ascending ? (a.x > b.x) : (a.x < b.x);
+        
+        if (needSwap) {
+            particleIndex[i] = b;
+            particleIndex[ixj] = a;
+        }
+    }
+}
+
+// Local bitonic sort within threadgroup (faster for small sequences)
+kernel void bitonicSortLocal(
+    device uint2* particleIndex [[buffer(0)]],
+    constant uint& count [[buffer(1)]],
+    uint gid [[thread_position_in_grid]],
+    uint lid [[thread_position_in_threadgroup]],
+    uint tgSize [[threads_per_threadgroup]],
+    threadgroup uint2* localData [[threadgroup(0)]]
+) {
+    // Load into local memory
+    uint idx = gid;
+    if (idx < count) {
+        localData[lid] = particleIndex[idx];
+    } else {
+        localData[lid] = uint2(0xFFFFFFFF, 0);  // Sentinel for padding
+    }
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    
+    // Bitonic sort within threadgroup
+    for (uint k = 2; k <= tgSize; k <<= 1) {
+        for (uint j = k >> 1; j > 0; j >>= 1) {
+            uint ixj = lid ^ j;
+            if (ixj > lid && ixj < tgSize) {
+                bool ascending = ((lid & k) == 0);
+                uint2 a = localData[lid];
+                uint2 b = localData[ixj];
+                
+                if (ascending ? (a.x > b.x) : (a.x < b.x)) {
+                    localData[lid] = b;
+                    localData[ixj] = a;
+                }
+            }
+            threadgroup_barrier(mem_flags::mem_threadgroup);
+        }
+    }
+    
+    // Write back
+    if (idx < count) {
+        particleIndex[idx] = localData[lid];
+    }
+}

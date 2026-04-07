@@ -198,7 +198,7 @@ void owMetalSolver::createPipelineStates() {
     
     clearBuffersPipeline = createPipeline("clearBuffers");
     hashParticlesPipeline = createPipeline("hashParticles");
-    sortPipeline = nullptr;  // Sorting done on CPU for now
+    sortPipeline = device->newComputePipelineState(library->newFunction(NS::String::string("bitonicSortStep", NS::UTF8StringEncoding)), &error);
     findNeighborsPipeline = createPipeline("findNeighbors");
     computeDensityPipeline = createPipeline("pcisph_computeDensity");
     computeForcesPipeline = createPipeline("pcisph_computeForcesAndInitPressure");
@@ -379,22 +379,51 @@ unsigned int owMetalSolver::_runHashParticles(owConfigProperty* config) {
 }
 
 void owMetalSolver::_runSort(owConfigProperty* config) {
-    // CPU-based radix sort for now (Metal parallel sort is complex)
-    // This matches OpenCL behavior which also does partial CPU sort
-    unsigned int* indexData = (unsigned int*)particleIndexBuffer->contents();
-    
-    // Simple counting sort by cell index
-    std::vector<std::pair<unsigned int, unsigned int>> pairs(particleCount);
-    for (unsigned int i = 0; i < particleCount; i++) {
-        pairs[i] = {indexData[i * 2], indexData[i * 2 + 1]};  // cell, particle
+    // GPU bitonic sort
+    if (!sortPipeline) {
+        // Fallback to CPU sort if pipeline not available
+        unsigned int* indexData = (unsigned int*)particleIndexBuffer->contents();
+        std::vector<std::pair<unsigned int, unsigned int>> pairs(particleCount);
+        for (unsigned int i = 0; i < particleCount; i++) {
+            pairs[i] = {indexData[i * 2], indexData[i * 2 + 1]};
+        }
+        std::sort(pairs.begin(), pairs.end());
+        for (unsigned int i = 0; i < particleCount; i++) {
+            indexData[i * 2] = pairs[i].first;
+            indexData[i * 2 + 1] = pairs[i].second;
+        }
+        return;
     }
     
-    std::sort(pairs.begin(), pairs.end());
+    // Round up to power of 2 for bitonic sort
+    unsigned int n = 1;
+    while (n < particleCount) n <<= 1;
     
-    for (unsigned int i = 0; i < particleCount; i++) {
-        indexData[i * 2] = pairs[i].first;
-        indexData[i * 2 + 1] = pairs[i].second;
+    // Pad buffer if needed (already allocated for particleCount)
+    // For particles beyond count, hash kernel already set cell to 0xFFFFFFFF
+    
+    MTL::CommandBuffer* commandBuffer = commandQueue->commandBuffer();
+    
+    // Bitonic sort: O(log^2 n) passes
+    for (unsigned int k = 2; k <= n; k <<= 1) {
+        for (unsigned int j = k >> 1; j > 0; j >>= 1) {
+            MTL::ComputeCommandEncoder* encoder = commandBuffer->computeCommandEncoder();
+            encoder->setComputePipelineState(sortPipeline);
+            encoder->setBuffer(particleIndexBuffer, 0, 0);
+            
+            // Pass j and k as constants
+            encoder->setBytes(&j, sizeof(unsigned int), 1);
+            encoder->setBytes(&k, sizeof(unsigned int), 2);
+            
+            MTL::Size gridSize(particleCount, 1, 1);
+            MTL::Size threadGroupSize(std::min((unsigned int)256, particleCount), 1, 1);
+            encoder->dispatchThreads(gridSize, threadGroupSize);
+            encoder->endEncoding();
+        }
     }
+    
+    commandBuffer->commit();
+    commandBuffer->waitUntilCompleted();
 }
 
 unsigned int owMetalSolver::_runSortPostPass(owConfigProperty* config) {
