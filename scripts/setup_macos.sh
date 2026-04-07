@@ -17,6 +17,22 @@ else
     echo "Detected Intel Mac ($ARCH)"
 fi
 
+# Check for Xcode Command Line Tools (required for Metal compiler)
+if ! xcode-select -p &> /dev/null; then
+    echo "ERROR: Xcode Command Line Tools not found."
+    echo "Install with: xcode-select --install"
+    exit 1
+fi
+
+# Check for Metal compiler
+if ! xcrun -sdk macosx metal --version &> /dev/null; then
+    echo "ERROR: Metal compiler not found."
+    echo "Install Xcode Command Line Tools: xcode-select --install"
+    echo "Or install full Xcode from the App Store."
+    exit 1
+fi
+echo "Found Metal compiler: $(xcrun -sdk macosx metal --version 2>&1 | head -1)"
+
 # Check for Homebrew
 if ! command -v brew &> /dev/null; then
     echo "ERROR: Homebrew not found. Install it from https://brew.sh"
