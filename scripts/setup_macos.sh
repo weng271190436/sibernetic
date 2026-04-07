@@ -86,7 +86,8 @@ cmake .. \
     -DCMAKE_BUILD_TYPE=Release \
     -DPython3_EXECUTABLE=$PYTHON_BIN \
     -DSIBERNETIC_USE_GRAPHICS=ON \
-    -DSIBERNETIC_USE_PYTHON=ON
+    -DSIBERNETIC_USE_PYTHON=ON \
+    -DSIBERNETIC_USE_METAL=ON
 
 # Build
 cmake --build . --parallel $(sysctl -n hw.ncpu)
