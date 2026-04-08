@@ -91,6 +91,24 @@ echo "Installing numpy for the system Python (required by C++ binary)..."
 $PIP_BIN install numpy
 
 echo ""
+echo "Setting up Python virtual environment..."
+
+# Create venv for Python tools (SiberneticReplay, plot_positions, etc.)
+if [ ! -d "venv" ]; then
+    $PYTHON_BIN -m venv venv
+    echo "Created virtual environment in venv/"
+else
+    echo "Virtual environment already exists in venv/"
+fi
+
+# Install Python packages into venv
+source venv/bin/activate
+pip install --upgrade pip
+pip install numpy matplotlib pyvista
+deactivate
+echo "Installed Python packages into venv/"
+
+echo ""
 echo "Setting up Metal support..."
 
 # Download metal-cpp headers if not present (required for Metal backend)
@@ -133,6 +151,10 @@ echo "  PYTHONPATH=. ./build/bin/Sibernetic -f worm"
 echo ""
 echo "Or without graphics:"
 echo "  PYTHONPATH=. ./build/bin/Sibernetic -no_g -f worm"
+echo ""
+echo "To replay a saved simulation:"
+echo "  source venv/bin/activate"
+echo "  python SiberneticReplay.py buffers/position_buffer.txt"
 echo ""
 echo "To run with c302 neural simulation:"
 echo "  pip3.11 install pyneuroml matplotlib  # if not installed"
