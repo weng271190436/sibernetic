@@ -590,6 +590,10 @@ void owMetalSolver::_saveBaseAcceleration() {
     blitEncoder->endEncoding();
     commandBuffer->commit();
     commandBuffer->waitUntilCompleted();
+    
+    // Debug: print first particle's base acceleration
+    float* baseData = (float*)baseAccelerationBuffer->contents();
+    printf("DEBUG _saveBaseAcceleration: baseAccel[0] = (%e, %e, %e)\n", baseData[0], baseData[1], baseData[2]);
 }
 
 unsigned int owMetalSolver::_run_pcisph_predictPositions(owConfigProperty* config) {
