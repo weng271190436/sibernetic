@@ -288,9 +288,6 @@ void owMetalSolver::createBuffers(
     paramsBuffer = device->newBuffer(&params, sizeof(SimulationParams), MTL::ResourceStorageModeShared);
     
     std::cout << "Created Metal buffers for " << particleCount << " particles" << std::endl;
-    std::cout << "[Metal DEBUG] params.h = " << params.h << ", params.hScaled = " << params.hScaled 
-              << ", params.mass = " << params.mass << ", params.rho0 = " << params.rho0 
-              << ", params.simulationScale = " << params.simulationScale << std::endl;
 }
 
 // ============================================================================
@@ -447,20 +444,6 @@ unsigned int owMetalSolver::_runSortPostPass(owConfigProperty* config) {
     
     // Debug: check cell occupancy
     static int debugOnce = 0;
-    if (debugOnce++ < 1) {
-        int nonEmptyCells = 0;
-        int maxOccupancy = 0;
-        for (unsigned int c = 0; c < gridCellCount; c++) {
-            if (cellStart[c] != -1) {
-                nonEmptyCells++;
-                int occ = cellEnd[c] - cellStart[c];
-                if (occ > maxOccupancy) maxOccupancy = occ;
-            }
-        }
-        std::cout << "[Metal DEBUG] Non-empty cells: " << nonEmptyCells << " / " << gridCellCount << std::endl;
-        std::cout << "[Metal DEBUG] Max cell occupancy: " << maxOccupancy << std::endl;
-    }
-    
     return 0;
 }
 
@@ -506,16 +489,6 @@ unsigned int owMetalSolver::_run_pcisph_computeDensity(owConfigProperty* config)
         return 1;
     }
     
-    // Debug: check neighbor data before density computation
-    static int debugDensity = 0;
-    if (debugDensity < 1) {
-        int* ncount = (int*)neighborCountBuffer->contents();
-        int* nmap = (int*)neighborMapBuffer->contents();
-        std::cout << "[Metal DEBUG] In computeDensity - particle 1000 neighbors: " << ncount[1000] << std::endl;
-        std::cout << "  First 3 neighbor IDs: " << nmap[1000*32] << ", " << nmap[1000*32+1] << ", " << nmap[1000*32+2] << std::endl;
-        debugDensity++;
-    }
-    
     MTL::CommandBuffer* commandBuffer = commandQueue->commandBuffer();
     MTL::ComputeCommandEncoder* encoder = commandBuffer->computeCommandEncoder();
     
@@ -530,21 +503,11 @@ unsigned int owMetalSolver::_run_pcisph_computeDensity(owConfigProperty* config)
     NS::UInteger threadGroupSize = computeDensityPipeline->maxTotalThreadsPerThreadgroup();
     if (threadGroupSize > particleCount) threadGroupSize = particleCount;
     
-    std::cout << "[Metal DEBUG] Dispatching computeDensity with " << particleCount << " threads" << std::endl;
-    
     encoder->dispatchThreads(MTL::Size(particleCount, 1, 1), MTL::Size(threadGroupSize, 1, 1));
     encoder->endEncoding();
     
     commandBuffer->commit();
     commandBuffer->waitUntilCompleted();
-    
-    // Check result immediately
-    static int checkOnce = 0;
-    if (checkOnce < 1) {
-        float* rho = (float*)rhoBuffer->contents();
-        std::cout << "[Metal DEBUG] After computeDensity - particle 1000 rho: " << rho[2000] << std::endl;
-        checkOnce++;
-    }
     
     return 0;
 }
@@ -579,23 +542,6 @@ unsigned int owMetalSolver::_run_pcisph_computeForcesAndInitPressure(owConfigPro
 }
 
 unsigned int owMetalSolver::_run_pcisph_computeElasticForces(owConfigProperty* config) {
-    static int debugElastic = 0;
-    if (debugElastic < 1) {
-        std::cout << "[Metal DEBUG] computeElasticForces: numOfElasticP = " << config->numOfElasticP << std::endl;
-        
-        // Check elastic connections data
-        if (elasticConnectionsBuffer) {
-            float* edata = (float*)elasticConnectionsBuffer->contents();
-            std::cout << "[Metal DEBUG] First elastic particle connections:" << std::endl;
-            for (int i = 0; i < 3; i++) {
-                int idx = i * 32 * 4;  // MAX_NEIGHBOR_COUNT * float4
-                std::cout << "  Particle " << i << " conn[0]: partnerId=" << edata[idx] 
-                          << " restLen=" << edata[idx+1] << " muscleId=" << edata[idx+2] << std::endl;
-            }
-        }
-        debugElastic++;
-    }
-    
     if (!computeElasticForcesPipeline || config->numOfElasticP == 0) return 0;
     
     MTL::CommandBuffer* commandBuffer = commandQueue->commandBuffer();
@@ -716,42 +662,6 @@ unsigned int owMetalSolver::_run_pcisph_computePressureForceAcceleration(owConfi
 unsigned int owMetalSolver::_run_pcisph_integrate(int iterationCount, int mode, owConfigProperty* config) {
     if (!integratePipeline) return 1;
     
-    // Debug: check acceleration, velocity, density, and neighbor count values before integrate
-    static int debugCount = 0;
-    if (debugCount < 3) {
-        float* acc = (float*)accelerationBuffer->contents();
-        float* vel = (float*)velocityBuffer->contents();
-        float* rho = (float*)rhoBuffer->contents();
-        float* pos = (float*)positionBuffer->contents();
-        int* ncount = (int*)neighborCountBuffer->contents();
-        int* nmap = (int*)neighborMapBuffer->contents();
-        std::cout << "[Metal DEBUG] Before integrate:" << std::endl;
-        std::cout << "  Particle 1000 acc: (" << acc[4000] << ", " << acc[4001] << ", " << acc[4002] << ")" << std::endl;
-        std::cout << "  Particle 1000 vel: (" << vel[4000] << ", " << vel[4001] << ", " << vel[4002] << ")" << std::endl;
-        std::cout << "  Particle 1000 pos: (" << pos[4000] << ", " << pos[4001] << ", " << pos[4002] << ")" << std::endl;
-        std::cout << "  Particle 1000 rho: " << rho[2000] << " (1/rho: " << rho[2001] << ")" << std::endl;
-        std::cout << "  Particle 1000 neighbors: " << ncount[1000] << std::endl;
-        
-        // Print first few neighbor IDs
-        std::cout << "  Neighbor IDs: ";
-        for (int n = 0; n < 5 && n < ncount[1000]; n++) {
-            int nid = nmap[1000 * 32 + n];  // MAX_NEIGHBOR_COUNT = 32
-            std::cout << nid;
-            if (nid != -1) {
-                float dx = pos[4000] - pos[nid*4];
-                float dy = pos[4001] - pos[nid*4+1];
-                float dz = pos[4002] - pos[nid*4+2];
-                float dist = sqrt(dx*dx + dy*dy + dz*dz);
-                std::cout << "(d=" << dist << ") ";
-            } else {
-                std::cout << " ";
-            }
-        }
-        std::cout << std::endl;
-        
-        debugCount++;
-    }
-    
     MTL::CommandBuffer* commandBuffer = commandQueue->commandBuffer();
     MTL::ComputeCommandEncoder* encoder = commandBuffer->computeCommandEncoder();
     
@@ -770,17 +680,6 @@ unsigned int owMetalSolver::_run_pcisph_integrate(int iterationCount, int mode, 
     
     commandBuffer->commit();
     commandBuffer->waitUntilCompleted();
-    
-    // Debug: check results after integrate
-    static int integrateDebug = 0;
-    if (integrateDebug < 3) {
-        float* vel = (float*)velocityBuffer->contents();
-        float* pos = (float*)positionBuffer->contents();
-        std::cout << "[Metal DEBUG] After integrate:" << std::endl;
-        std::cout << "  Particle 1000 vel: (" << vel[4000] << ", " << vel[4001] << ", " << vel[4002] << ")" << std::endl;
-        std::cout << "  Particle 1000 pos: (" << pos[4000] << ", " << pos[4001] << ", " << pos[4002] << ")" << std::endl;
-        integrateDebug++;
-    }
     
     return 0;
 }

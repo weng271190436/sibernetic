@@ -373,36 +373,38 @@ double owPhysicsFluidSimulator::simulationStep(const bool load_to, const bool qu
   // the scene
 
   helper->refreshTime();
-  std::cout << "\n[[ Step " << iterationCount << " (total steps: ";
-  if (config->getNumberOfIterations() == 0)
-    std::cout << "unlimited";
-  else
-    std::cout << config->getNumberOfIterations();
+  if (!quiet_mode) {
+    std::cout << "\n[[ Step " << iterationCount << " (total steps: ";
+    if (config->getNumberOfIterations() == 0)
+      std::cout << "unlimited";
+    else
+      std::cout << config->getNumberOfIterations();
 
-  std::cout << ", t in sim: " << iterationCount * config->getTimeStep()
-            << "s) dt: " << config->getTimeStep() << " (in s)";
+    std::cout << ", t in sim: " << iterationCount * config->getTimeStep()
+              << "s) dt: " << config->getTimeStep() << " (in s)";
 
-  struct timeval current_time;
-  gettimeofday(&current_time, NULL);
-  float elapsed_seconds = (float)(current_time.tv_sec - simulation_start.tv_sec);
-  float time_elapsed = elapsed_seconds / 60.0;
-  std::string time_elapsed_unit = "(in min)";
-  if (time_elapsed > 60.0) {
-    time_elapsed /= 60.0;
-    time_elapsed_unit = "(in h)";
-  }
-  printf(", time elapsed: %.2f %s", time_elapsed, time_elapsed_unit.c_str());
-  if (config->getNumberOfIterations() > 0) {
-    int steps_left = config->getNumberOfIterations() - iterationCount;
-    float time_left = ((elapsed_seconds/iterationCount)*steps_left/60.0);
-    std::string time_left_unit = "(in min)";
-    if (time_left > 60) {
-        time_left /= 60.0;
-        time_left_unit = "(in h)";
+    struct timeval current_time;
+    gettimeofday(&current_time, NULL);
+    float elapsed_seconds = (float)(current_time.tv_sec - simulation_start.tv_sec);
+    float time_elapsed = elapsed_seconds / 60.0;
+    std::string time_elapsed_unit = "(in min)";
+    if (time_elapsed > 60.0) {
+      time_elapsed /= 60.0;
+      time_elapsed_unit = "(in h)";
     }
-    printf(", time left: %.2f %s", time_left, time_left_unit.c_str());
+    printf(", time elapsed: %.2f %s", time_elapsed, time_elapsed_unit.c_str());
+    if (config->getNumberOfIterations() > 0) {
+      int steps_left = config->getNumberOfIterations() - iterationCount;
+      float time_left = ((elapsed_seconds/iterationCount)*steps_left/60.0);
+      std::string time_left_unit = "(in min)";
+      if (time_left > 60) {
+          time_left /= 60.0;
+          time_left_unit = "(in h)";
+      }
+      printf(", time left: %.2f %s", time_left, time_left_unit.c_str());
+    }
+    std::cout << " ]]\n";
   }
-  std::cout << " ]]\n";
 
   // SEARCH FOR NEIGHBOURS PART
   // solver->_runClearBuffers();

@@ -285,7 +285,7 @@ void display(void) {
             beginWinCoords();
             glRasterPos2f (0.01F, 0.05F);
             if(err_coord_cnt<50){
-            sprintf(label,"%d: %f , %f , %f",i,p_cpp[i*4
+            snprintf(label, sizeof(label),"%d: %f , %f , %f",i,p_cpp[i*4
             ],p_cpp[i*4+1],p_cpp[i*4+2]);
             glPrint( 0.f, (float)(50+err_coord_cnt*11), label, m_font);}
             if(err_coord_cnt==50) {
@@ -678,7 +678,7 @@ inline void renderInfo(int x, int y) {
   int i_shift = 0;
   if (showInfo) {
     glColor3f(0.5F, 1.0F, 1.0F);
-    sprintf(label,
+    snprintf(label, sizeof(label),
             "Liquid particles: %d, elastic matter p.: %d, boundary p.: %d; "
             "total count: %d :: SIBERNETIC (sibernetic.org) 2011-2017 ::",
             localConfig->numOfLiquidP, localConfig->numOfElasticP,
@@ -688,11 +688,11 @@ inline void renderInfo(int x, int y) {
     glColor3f(1.0F, 1.0F, 1.0F);
 
     if (load_from_file)
-      // sprintf(label, "Selected device: %s FPS = %.2f, time step: %d (%f s)",
+      // snprintf(label, sizeof(label), "Selected device: %s FPS = %.2f, time step: %d (%f s)",
       //        localConfig->getDeviceName(), fps, iteration,
       //        iteration * localConfig->getTimeStep() *
       //            localConfig->getLogStep());
-      sprintf(label,
+      snprintf(label, sizeof(label),
               "time step: %d, physical time: %.3f s" /*  :: SIBERNETIC
                                                         (sibernetic.org) by
                                                         A.Palyanov and
@@ -703,12 +703,12 @@ inline void renderInfo(int x, int y) {
               iteration * localConfig->getTimeStep() *
                   localConfig->getLogStep());
     else
-      // sprintf(label, "Selected device: %s FPS = %.2f, time step: %d (%f s)",
+      // snprintf(label, sizeof(label), "Selected device: %s FPS = %.2f, time step: %d (%f s)",
       //        localConfig->getDeviceName(), fps,
       //        fluid_simulation->getIteration(),
       //        ((float)fluid_simulation->getIteration()) *
       //            localConfig->getTimeStep());
-      sprintf(label,
+      snprintf(label, sizeof(label),
               "Selected device: %s, FPS = %.2f, time step: %8d (phys. time = "
               "%8f s)" /* :: by A.Palyanov and S.Khayrulin ::"*/, /*viscosity,*/
               localConfig->getDeviceName(), fps,
@@ -719,7 +719,7 @@ inline void renderInfo(int x, int y) {
 
     if (localConfig->isWormConfig()) {
       i_shift = 0;
-      sprintf(label,
+      snprintf(label, sizeof(label),
               "MDR: %.2f[01] %.2f[03] %.2f[05] %.2f[07] %.2f[09] "
               "%.2f[11] %.2f[13] %.2f[15] %.2f[17] %.2f[19] %.2f[21] "
               "%.2f[23] indexes: +0",
@@ -736,7 +736,7 @@ inline void renderInfo(int x, int y) {
               muscle_activation_signal_cpp[20 + i_shift],
               muscle_activation_signal_cpp[22 + i_shift]);
       glPrint(2, 42, label, m_font);
-      sprintf(label,
+      snprintf(label, sizeof(label),
               "MDR: %.2f[02] %.2f[04] %.2f[06] %.2f[08] %.2f[10] "
               "%.2f[12] %.2f[14] %.2f[16] %.2f[18] %.2f[20] %.2f[22] "
               "%.2f[24] indexes: +0",
@@ -755,7 +755,7 @@ inline void renderInfo(int x, int y) {
       glPrint(2, 55, label, m_font);
 
       i_shift = 24;
-      sprintf(label,
+      snprintf(label, sizeof(label),
               "MVR: %.2f[01] %.2f[03] %.2f[05] %.2f[07] %.2f[09] "
               "%.2f[11] %.2f[13] %.2f[15] %.2f[17] %.2f[19] %.2f[21] "
               "%.2f[23] indexes: +24",
@@ -772,7 +772,7 @@ inline void renderInfo(int x, int y) {
               muscle_activation_signal_cpp[20 + i_shift],
               muscle_activation_signal_cpp[22 + i_shift]);
       glPrint(2, 73, label, m_font);
-      sprintf(label,
+      snprintf(label, sizeof(label),
               "MVR: %.2f[02] %.2f[04] %.2f[06] %.2f[08] %.2f[10] "
               "%.2f[12] %.2f[14] %.2f[16] %.2f[18] %.2f[20] %.2f[22] "
               "%.2f[24] indexes: +24",
@@ -791,7 +791,7 @@ inline void renderInfo(int x, int y) {
       glPrint(2, 87, label, m_font);
 
       i_shift = 24 * 2;
-      sprintf(label,
+      snprintf(label, sizeof(label),
               "MVL: %.2f[01] %.2f[03] %.2f[05] %.2f[07] %.2f[09] "
               "%.2f[11] %.2f[13] %.2f[15] %.2f[17] %.2f[19] %.2f[21] "
               "%.2f[23] indexes: +48",
@@ -808,7 +808,7 @@ inline void renderInfo(int x, int y) {
               muscle_activation_signal_cpp[20 + i_shift],
               muscle_activation_signal_cpp[22 + i_shift]);
       glPrint(2, 105, label, m_font);
-      sprintf(label,
+      snprintf(label, sizeof(label),
               "MVL: %.2f[02] %.2f[04] %.2f[06] %.2f[08] %.2f[10] "
               "%.2f[12] %.2f[14] %.2f[16] %.2f[18] %.2f[20] %.2f[22] "
               "%.2f[24] indexes: +48",
@@ -827,7 +827,7 @@ inline void renderInfo(int x, int y) {
       glPrint(2, 118, label, m_font);
 
       i_shift = 24 * 3;
-      sprintf(label,
+      snprintf(label, sizeof(label),
               "MDL: %.2f[01] %.2f[03] %.2f[05] %.2f[07] %.2f[09] "
               "%.2f[11] %.2f[13] %.2f[15] %.2f[17] %.2f[19] %.2f[21] "
               "%.2f[23] indexes: +72",
@@ -844,7 +844,7 @@ inline void renderInfo(int x, int y) {
               muscle_activation_signal_cpp[20 + i_shift],
               muscle_activation_signal_cpp[22 + i_shift]);
       glPrint(2, 136, label, m_font);
-      sprintf(label,
+      snprintf(label, sizeof(label),
               "MDL: %.2f[02] %.2f[04] %.2f[06] %.2f[08] %.2f[10] "
               "%.2f[12] %.2f[14] %.2f[16] %.2f[18] %.2f[20] %.2f[22] "
               "%.2f[24] indexes: +72",
