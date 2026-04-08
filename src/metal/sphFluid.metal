@@ -20,17 +20,11 @@ using namespace metal;
 // ============================================================================
 
 constant int MAX_NEIGHBOR_COUNT = 32;
-constant int MAX_MEMBRANES_INCLUDING_SAME_PARTICLE = 7;
 
-constant int LIQUID_PARTICLE = 1;
-constant int ELASTIC_PARTICLE = 2;
 constant int BOUNDARY_PARTICLE = 3;
 
 constant int NO_PARTICLE_ID = -1;
-constant int NO_CELL_ID = -1;
 constant float NO_DISTANCE = -1.0f;
-
-constant int radius_segments = 30;
 
 // ============================================================================
 // Simulation Parameters (passed as buffer)
@@ -228,8 +222,6 @@ kernel void pcisph_computeForcesAndInitPressure(
     
     float3 pos_i = position[id].xyz;
     float3 vel_i = velocity[id].xyz;
-    float rho_i = rhoInv[id].x;
-    float rhoInv_i = rhoInv[id].y;
     
     float3 force = float3(0.0f);
     
@@ -331,7 +323,6 @@ kernel void pcisph_computePressureForceAcceleration(
     
     float3 pos_i = position[id].xyz;
     float pressure_i = pressure[id];
-    float rho_i = rhoInv[id].x;
     float rhoInvSq_i = rhoInv[id].y * rhoInv[id].y;
     
     float3 pressureForce = float3(0.0f);
