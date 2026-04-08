@@ -307,12 +307,13 @@ kernel void pcisph_correctPressure(
 kernel void pcisph_computePressureForceAcceleration(
     device float4* position [[buffer(0)]],
     device float4* acceleration [[buffer(1)]],
-    device float* pressure [[buffer(2)]],
-    device float2* rhoInv [[buffer(3)]],
-    device int* neighborMap [[buffer(4)]],
-    device int* neighborCount [[buffer(5)]],
-    device int* particleType [[buffer(6)]],
-    constant SimulationParams& params [[buffer(7)]],
+    device const float4* baseAcceleration [[buffer(2)]],  // Base accel (gravity+viscosity+elastic) - read only
+    device float* pressure [[buffer(3)]],
+    device float2* rhoInv [[buffer(4)]],
+    device int* neighborMap [[buffer(5)]],
+    device int* neighborCount [[buffer(6)]],
+    device int* particleType [[buffer(7)]],
+    constant SimulationParams& params [[buffer(8)]],
     uint id [[thread_position_in_grid]]
 ) {
     if (id >= params.particleCount) return;
@@ -346,7 +347,9 @@ kernel void pcisph_computePressureForceAcceleration(
         pressureForce -= params.mass * pressureTerm * grad;
     }
     
-    acceleration[id] += float4(pressureForce / params.mass, 0.0f);
+    // Output: base acceleration + pressure force
+    // This OVERWRITES (not accumulates) so each PCISPH iteration starts fresh
+    acceleration[id] = baseAcceleration[id] + float4(pressureForce / params.mass, 0.0f);
 }
 
 // ============================================================================

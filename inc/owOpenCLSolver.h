@@ -75,6 +75,7 @@ public:
   unsigned int
   _run_pcisph_computeForcesAndInitPressure(owConfigProperty *config) override;
   unsigned int _run_pcisph_computeElasticForces(owConfigProperty *config) override;
+  void _saveBaseAcceleration() override { /* No-op for OpenCL - uses separate buffer */ }
   unsigned int _run_pcisph_predictPositions(owConfigProperty *config) override;
   unsigned int _run_pcisph_predictDensity(owConfigProperty *config) override;
   unsigned int _run_pcisph_correctPressure(owConfigProperty *config) override;

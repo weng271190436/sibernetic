@@ -37,7 +37,7 @@ owMetalSolver::owMetalSolver(
     const int* membraneData_cpp,
     const int* particleMembranesList_cpp
 ) : device(nullptr), commandQueue(nullptr), library(nullptr),
-    positionBuffer(nullptr), velocityBuffer(nullptr), accelerationBuffer(nullptr),
+    positionBuffer(nullptr), velocityBuffer(nullptr), accelerationBuffer(nullptr), baseAccelerationBuffer(nullptr),
     positionPredictedBuffer(nullptr), velocityPredictedBuffer(nullptr),
     pressureBuffer(nullptr), rhoBuffer(nullptr), neighborMapBuffer(nullptr),
     neighborCountBuffer(nullptr), cellStartBuffer(nullptr), cellEndBuffer(nullptr),
@@ -77,6 +77,7 @@ owMetalSolver::~owMetalSolver() {
     if (positionBuffer) positionBuffer->release();
     if (velocityBuffer) velocityBuffer->release();
     if (accelerationBuffer) accelerationBuffer->release();
+    if (baseAccelerationBuffer) baseAccelerationBuffer->release();
     if (positionPredictedBuffer) positionPredictedBuffer->release();
     if (velocityPredictedBuffer) velocityPredictedBuffer->release();
     if (pressureBuffer) pressureBuffer->release();
@@ -257,6 +258,7 @@ void owMetalSolver::createBuffers(
     positionBuffer = device->newBuffer(position_cpp, particleCount * float4Size, MTL::ResourceStorageModeShared);
     velocityBuffer = device->newBuffer(velocity_cpp, particleCount * float4Size, MTL::ResourceStorageModeShared);
     accelerationBuffer = device->newBuffer(particleCount * float4Size, MTL::ResourceStorageModeShared);
+    baseAccelerationBuffer = device->newBuffer(particleCount * float4Size, MTL::ResourceStorageModeShared);  // For PCISPH: stores base accel
     positionPredictedBuffer = device->newBuffer(particleCount * float4Size, MTL::ResourceStorageModeShared);
     velocityPredictedBuffer = device->newBuffer(particleCount * float4Size, MTL::ResourceStorageModeShared);
     pressureBuffer = device->newBuffer(particleCount * sizeof(float) * 2, MTL::ResourceStorageModeShared);  // Extra for membrane handling
@@ -576,6 +578,13 @@ unsigned int owMetalSolver::_run_pcisph_computeElasticForces(owConfigProperty* c
     return 0;
 }
 
+void owMetalSolver::_saveBaseAcceleration() {
+    // Copy current acceleration (gravity + viscosity + elastic) to baseAcceleration
+    // This is called before the PCISPH pressure loop so pressure kernel can use fresh base each iteration
+    size_t bufferSize = particleCount * 4 * sizeof(float);
+    memcpy(baseAccelerationBuffer->contents(), accelerationBuffer->contents(), bufferSize);
+}
+
 unsigned int owMetalSolver::_run_pcisph_predictPositions(owConfigProperty* config) {
     if (!predictPositionsPipeline) return 1;
     
@@ -640,12 +649,13 @@ unsigned int owMetalSolver::_run_pcisph_computePressureForceAcceleration(owConfi
     encoder->setComputePipelineState(computePressureForcePipeline);
     encoder->setBuffer(positionBuffer, 0, 0);
     encoder->setBuffer(accelerationBuffer, 0, 1);
-    encoder->setBuffer(pressureBuffer, 0, 2);
-    encoder->setBuffer(rhoBuffer, 0, 3);
-    encoder->setBuffer(neighborMapBuffer, 0, 4);
-    encoder->setBuffer(neighborCountBuffer, 0, 5);
-    encoder->setBuffer(particleTypeBuffer, 0, 6);
-    encoder->setBuffer(paramsBuffer, 0, 7);
+    encoder->setBuffer(baseAccelerationBuffer, 0, 2);  // Base accel (gravity+viscosity+elastic)
+    encoder->setBuffer(pressureBuffer, 0, 3);
+    encoder->setBuffer(rhoBuffer, 0, 4);
+    encoder->setBuffer(neighborMapBuffer, 0, 5);
+    encoder->setBuffer(neighborCountBuffer, 0, 6);
+    encoder->setBuffer(particleTypeBuffer, 0, 7);
+    encoder->setBuffer(paramsBuffer, 0, 8);
     
     NS::UInteger threadGroupSize = computePressureForcePipeline->maxTotalThreadsPerThreadgroup();
     if (threadGroupSize > particleCount) threadGroupSize = particleCount;

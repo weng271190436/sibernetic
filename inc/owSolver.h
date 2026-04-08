@@ -39,6 +39,7 @@ public:
     virtual unsigned int _run_pcisph_computeDensity(owConfigProperty* config) = 0;
     virtual unsigned int _run_pcisph_computeForcesAndInitPressure(owConfigProperty* config) = 0;
     virtual unsigned int _run_pcisph_computeElasticForces(owConfigProperty* config) = 0;
+    virtual void _saveBaseAcceleration() = 0;  // Save base accel before PCISPH loop
     virtual unsigned int _run_pcisph_predictPositions(owConfigProperty* config) = 0;
     virtual unsigned int _run_pcisph_predictDensity(owConfigProperty* config) = 0;
     virtual unsigned int _run_pcisph_correctPressure(owConfigProperty* config) = 0;

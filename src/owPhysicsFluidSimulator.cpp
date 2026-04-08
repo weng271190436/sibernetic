@@ -432,6 +432,7 @@ double owPhysicsFluidSimulator::simulationStep(const bool load_to, const bool qu
   solver->_run_pcisph_computeDensity(config);
   solver->_run_pcisph_computeForcesAndInitPressure(config);
   solver->_run_pcisph_computeElasticForces(config);
+  solver->_saveBaseAcceleration();  // Save base accel before PCISPH loop (for Metal)
   do {
     // printf("\n^^^^ iter %d ^^^^\n",iter);
     solver->_run_pcisph_predictPositions(config);
