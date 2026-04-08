@@ -581,8 +581,15 @@ unsigned int owMetalSolver::_run_pcisph_computeElasticForces(owConfigProperty* c
 void owMetalSolver::_saveBaseAcceleration() {
     // Copy current acceleration (gravity + viscosity + elastic) to baseAcceleration
     // This is called before the PCISPH pressure loop so pressure kernel can use fresh base each iteration
+    // Using GPU blit copy to ensure proper synchronization
     size_t bufferSize = particleCount * 4 * sizeof(float);
-    memcpy(baseAccelerationBuffer->contents(), accelerationBuffer->contents(), bufferSize);
+    
+    MTL::CommandBuffer* commandBuffer = commandQueue->commandBuffer();
+    MTL::BlitCommandEncoder* blitEncoder = commandBuffer->blitCommandEncoder();
+    blitEncoder->copyFromBuffer(accelerationBuffer, 0, baseAccelerationBuffer, 0, bufferSize);
+    blitEncoder->endEncoding();
+    commandBuffer->commit();
+    commandBuffer->waitUntilCompleted();
 }
 
 unsigned int owMetalSolver::_run_pcisph_predictPositions(owConfigProperty* config) {
