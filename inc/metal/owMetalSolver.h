@@ -29,6 +29,7 @@ namespace MTL {
 struct SimulationParams {
     float h;
     float hScaled;  // h * simulationScale (for SPH kernels)
+    float hScaled2; // hScaled^2
     float mass;
     float simulationScale;
     float simulationScaleInv;  // 1 / simulationScale (for position updates)
@@ -36,6 +37,13 @@ struct SimulationParams {
     float viscosity;
     float surfaceTension;
     float gravity;
+    float r0;  // equilibrium distance = 0.5 * h
+    
+    // Pre-computed coefficients matching OpenCL
+    float mass_mult_Wpoly6Coefficient;
+    float mass_mult_gradWspikyCoefficient;
+    float mass_mult_divgradWviscosityCoefficient;
+    float surfTensCoeff;
     
     unsigned int particleCount;
     unsigned int gridCellCount;
@@ -153,6 +161,7 @@ private:
     MTL::Buffer* velocityBuffer;
     MTL::Buffer* accelerationBuffer;
     MTL::Buffer* baseAccelerationBuffer;  // Stores gravity+viscosity+elastic before PCISPH loop
+    MTL::Buffer* prevAccelerationBuffer;  // Stores total acceleration from previous step (for Leapfrog)
     MTL::Buffer* positionPredictedBuffer;
     MTL::Buffer* velocityPredictedBuffer;
     MTL::Buffer* pressureBuffer;

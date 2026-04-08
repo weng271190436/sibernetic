@@ -33,6 +33,7 @@ constant float NO_DISTANCE = -1.0f;
 struct SimulationParams {
     float h;                    // Smoothing radius (world scale for grid)
     float hScaled;              // h * simulationScale (for SPH kernels)
+    float hScaled2;             // hScaled^2
     float mass;                 // Particle mass
     float simulationScale;      // Scale factor
     float simulationScaleInv;   // 1 / simulationScale (for position updates)
@@ -40,6 +41,13 @@ struct SimulationParams {
     float viscosity;            // Viscosity coefficient
     float surfaceTension;       // Surface tension coefficient
     float gravity;              // Gravity acceleration
+    float r0;                   // Equilibrium distance = 0.5 * h
+    
+    // Pre-computed coefficients matching OpenCL
+    float mass_mult_Wpoly6Coefficient;
+    float mass_mult_gradWspikyCoefficient;
+    float mass_mult_divgradWviscosityCoefficient;
+    float surfTensCoeff;
     
     uint particleCount;         // Total particles
     uint gridCellCount;         // Grid cells
@@ -140,6 +148,7 @@ kernel void hashParticles(
 
 // ============================================================================
 // Kernel: Compute Density (PCISPH)
+// Matches OpenCL pcisph_computeDensity: uses pre-scaled distances and (hScaled²-r²)³
 // ============================================================================
 
 kernel void pcisph_computeDensity(
@@ -154,42 +163,32 @@ kernel void pcisph_computeDensity(
     if (id >= params.particleCount) return;
     
     float3 pos_i = position[id].xyz;
-    float hScaled = params.hScaled;
+    float hScaled2 = params.hScaled2;
+    float hScaled6 = hScaled2 * hScaled2 * hScaled2;
     float simScale = params.simulationScale;
-    
-    // Numerically stable: use normalized distances q = r/h
-    // Wpoly6(r, h) = 315/(64*pi*h^3) * (1 - (r/h)^2)^3  (for r < h)
-    // density = mass * sum(Wpoly6) = mass * 315/(64*pi*h^3) * sum((1-q^2)^3)
-    
-    float h3 = hScaled * hScaled * hScaled;
-    float coeff = 315.0f / (64.0f * M_PI_F * h3) * params.mass;
     
     float density = 0.0f;
     
-    // Self contribution: q = 0, (1 - 0)^3 = 1
-    density += 1.0f;
-    
-    // Neighbor contributions
     int count = neighborCount[id];
     for (int j = 0; j < count && j < MAX_NEIGHBOR_COUNT; j++) {
         int neighborIdx = neighborMap[id * MAX_NEIGHBOR_COUNT + j];
         if (neighborIdx == NO_PARTICLE_ID || neighborIdx < 0) continue;
         
         float3 pos_j = position[neighborIdx].xyz;
-        float r = length(pos_i - pos_j) * simScale;
+        float r = length(pos_i - pos_j) * simScale;  // scaled distance
+        float r2 = r * r;
         
-        if (r < hScaled) {
-            float q = r / hScaled;      // normalized distance [0, 1)
-            float q2 = q * q;
-            float term = 1.0f - q2;     // (1 - q²)
-            density += term * term * term;  // (1 - q²)³
+        if (r2 < hScaled2) {
+            float diff = hScaled2 - r2;
+            density += diff * diff * diff;  // (hScaled² - r²)³
         }
     }
     
-    density *= coeff;
+    // Clamp minimum density (matches OpenCL)
+    if (density < hScaled6)
+        density = hScaled6;
     
-    // Clamp to rest density minimum
-    if (density < 1.0f) density = 1.0f;
+    density *= params.mass_mult_Wpoly6Coefficient;
     
     rhoInv[id].x = density;
     rhoInv[id].y = 1.0f / density;
@@ -197,6 +196,10 @@ kernel void pcisph_computeDensity(
 
 // ============================================================================
 // Kernel: Compute Forces and Init Pressure
+// Matches OpenCL pcisph_computeForcesAndInitPressure:
+//   viscosity: 1e-4 * (vj - vi) * (hScaled - r_ij) / 1000 * 1.5 * mass_mult_divgrad / rho_i
+//   surface tension: -1.7e-9 * surfTensCoeff * (hScaled²-r²)³ * (pos_i - pos_j) / mass
+//   gravity: (gravity_x, gravity_y, gravity_z)
 // ============================================================================
 
 kernel void pcisph_computeForcesAndInitPressure(
@@ -222,13 +225,13 @@ kernel void pcisph_computeForcesAndInitPressure(
     
     float3 pos_i = position[id].xyz;
     float3 vel_i = velocity[id].xyz;
+    float rho_i = rhoInv[id].x;
+    float hScaled = params.hScaled;
+    float hScaled2 = params.hScaled2;
     
-    float3 force = float3(0.0f);
+    float4 accel_viscosity = float4(0.0f);
+    float4 accel_surfTens = float4(0.0f);
     
-    // Gravity (params.gravity is already negative for downward)
-    force.y += params.gravity * params.mass;
-    
-    // Viscosity force
     int count = neighborCount[id];
     for (int j = 0; j < count && j < MAX_NEIGHBOR_COUNT; j++) {
         int neighborIdx = neighborMap[id * MAX_NEIGHBOR_COUNT + j];
@@ -236,18 +239,38 @@ kernel void pcisph_computeForcesAndInitPressure(
         
         float3 pos_j = position[neighborIdx].xyz;
         float3 vel_j = velocity[neighborIdx].xyz;
-        float rho_j = rhoInv[neighborIdx].x;
+        int ntype = particleType[neighborIdx];
+        float not_bp = (ntype != BOUNDARY_PARTICLE) ? 1.0f : 0.0f;
         
         float3 r_vec = pos_i - pos_j;
-        float r = length(r_vec);
+        float r_unscaled = length(r_vec);
+        float r_ij = r_unscaled * params.simulationScale;  // scaled distance
+        float r_ij2 = r_ij * r_ij;
         
-        // Viscosity
-        float3 vel_diff = vel_j - vel_i;
-        float lap = laplacianWviscosity(r, params.h);
-        force += params.viscosity * params.mass * (vel_diff / max(rho_j, 1e-8f)) * lap;
+        if (r_ij < hScaled) {
+            // Viscosity: matches OpenCL formula
+            // All particle type pairs use 1.0e-4f coefficient (simplified from OpenCL's type-based branching)
+            float4 vel_diff = float4(vel_j * not_bp - vel_i, 0.0f);
+            accel_viscosity += 1.0e-4f * vel_diff * (hScaled - r_ij) / 1000.0f;
+            
+            // Surface tension: -1.7e-9 * surfTensCoeff * (hScaled²-r²)³ * (pos_i - pos_j)
+            float surffKern = (hScaled2 - r_ij2) * (hScaled2 - r_ij2) * (hScaled2 - r_ij2);
+            accel_surfTens += -1.7e-09f * params.surfTensCoeff * surffKern * float4(r_vec, 0.0f);
+        }
     }
     
-    acceleration[id] = float4(force / params.mass, 0.0f);
+    // Apply viscosity coefficient: *= 1.5 * mass_mult_divgradWviscosityCoefficient / rho_i
+    accel_viscosity *= 1.5f * params.mass_mult_divgradWviscosityCoefficient / max(rho_i, 1e-8f);
+    
+    // Surface tension / mass
+    accel_surfTens /= params.mass;
+    
+    // Total: viscosity + gravity + surface tension
+    float4 accel_i = accel_viscosity;
+    accel_i += float4(0.0f, params.gravity, 0.0f, 0.0f);
+    accel_i += accel_surfTens;
+    
+    acceleration[id] = accel_i;
     pressure[id] = 0.0f;  // Initial pressure = 0
 }
 
@@ -260,24 +283,24 @@ kernel void pcisph_predictPositions(
     device float4* velocity [[buffer(1)]],
     device float4* acceleration [[buffer(2)]],
     device float4* positionPredicted [[buffer(3)]],
-    device float4* velocityPredicted [[buffer(4)]],
-    device int* particleType [[buffer(5)]],
-    constant SimulationParams& params [[buffer(6)]],
+    device int* particleType [[buffer(4)]],
+    constant SimulationParams& params [[buffer(5)]],
     uint id [[thread_position_in_grid]]
 ) {
     if (id >= params.particleCount) return;
     
     if (particleType[id] == BOUNDARY_PARTICLE) {
         positionPredicted[id] = position[id];
-        velocityPredicted[id] = float4(0.0f);
         return;
     }
     
+    // Semi-implicit Euler prediction matching OpenCL pcisph_predictPositions:
+    // velocity_t_dt = velocity_t + dt * acceleration_t_dt
+    // position_t_dt = position_t + dt * simulationScaleInv * velocity_t_dt
     float3 vel = velocity[id].xyz + acceleration[id].xyz * params.timeStep;
-    float3 pos = position[id].xyz + vel * params.timeStep;
+    float3 pos = position[id].xyz + vel * params.timeStep * params.simulationScaleInv;
     
     positionPredicted[id] = float4(pos, position[id].w);
-    velocityPredicted[id] = float4(vel, 0.0f);
 }
 
 // ============================================================================
@@ -292,22 +315,28 @@ kernel void pcisph_correctPressure(
 ) {
     if (id >= params.particleCount) return;
     
-    float rho = rhoInv[id].x;
-    float rhoError = rho - params.rho0;
+    // Use PREDICTED density (stored in .y by predictDensity kernel)
+    float rho_predicted = rhoInv[id].y;
+    float rhoError = rho_predicted - params.rho0;
     
-    // Pressure update
-    pressure[id] += params.delta * rhoError;
-    pressure[id] = max(pressure[id], 0.0f);  // No negative pressure
+    // Pressure correction (non-negative)
+    float p_corr = rhoError * params.delta;
+    if (p_corr < 0.0f) p_corr = 0.0f;
+    pressure[id] += p_corr;
 }
 
 // ============================================================================
 // Kernel: Compute Pressure Force Acceleration
+// Matches OpenCL pcisph_computePressureForceAcceleration (Solenthaler variant 1):
+//   value = -(hScaled-r_ij)² * 0.5 * (p_i + p_j) / rho_j
+//   result += value * vr_ij / r_ij  (with close-range repulsion)
+//   result *= mass_mult_gradWspikyCoefficient / rho_i
 // ============================================================================
 
 kernel void pcisph_computePressureForceAcceleration(
     device float4* position [[buffer(0)]],
     device float4* acceleration [[buffer(1)]],
-    device const float4* baseAcceleration [[buffer(2)]],  // Base accel (gravity+viscosity+elastic) - read only
+    device const float4* baseAcceleration [[buffer(2)]],
     device float* pressure [[buffer(3)]],
     device float2* rhoInv [[buffer(4)]],
     device int* neighborMap [[buffer(5)]],
@@ -324,9 +353,10 @@ kernel void pcisph_computePressureForceAcceleration(
     
     float3 pos_i = position[id].xyz;
     float pressure_i = pressure[id];
-    float rhoInvSq_i = rhoInv[id].y * rhoInv[id].y;
+    float rho_i = rhoInv[id].x;  // predicted density
+    float hScaled = params.hScaled;
     
-    float3 pressureForce = float3(0.0f);
+    float4 result = float4(0.0f);
     
     int count = neighborCount[id];
     for (int j = 0; j < count && j < MAX_NEIGHBOR_COUNT; j++) {
@@ -334,26 +364,100 @@ kernel void pcisph_computePressureForceAcceleration(
         if (neighborIdx == NO_PARTICLE_ID) continue;
         
         float3 pos_j = position[neighborIdx].xyz;
-        float pressure_j = pressure[neighborIdx];
-        float rhoInvSq_j = rhoInv[neighborIdx].y * rhoInv[neighborIdx].y;
+        float3 r_vec_unscaled = pos_i - pos_j;
+        float4 vr_ij = float4(r_vec_unscaled * params.simulationScale, 0.0f);
+        float r_ij = length(vr_ij.xyz);
         
-        float3 r_vec = pos_i - pos_j;
-        float r = length(r_vec);
-        
-        // Pressure gradient (symmetric formulation)
-        float pressureTerm = pressure_i * rhoInvSq_i + pressure_j * rhoInvSq_j;
-        float3 grad = gradWspiky(r_vec, r, params.h);
-        
-        pressureForce -= params.mass * pressureTerm * grad;
+        if (r_ij < hScaled && r_ij > 0.0f) {
+            float pressure_j = pressure[neighborIdx];
+            float rho_j = rhoInv[neighborIdx].x;  // predicted density
+            
+            // Solenthaler variant 1: -(hScaled-r)² * 0.5 * (p_i+p_j) / rho_j
+            float value = -(hScaled - r_ij) * (hScaled - r_ij) * 0.5f * (pressure_i + pressure_j) / max(rho_j, 1e-8f);
+            
+            // Close-range repulsion (r < r0 = hScaled/4)
+            if (r_ij < 0.5f * (hScaled * 0.5f)) {
+                value = -(hScaled * 0.25f - r_ij) * (hScaled * 0.25f - r_ij) * 0.5f * (params.rho0 * params.delta) / max(rho_j, 1e-8f);
+            }
+            
+            result += value * vr_ij / r_ij;
+        }
     }
     
+    result *= params.mass_mult_gradWspikyCoefficient / max(rho_i, 1e-8f);
+    
     // Output: base acceleration + pressure force
-    // This OVERWRITES (not accumulates) so each PCISPH iteration starts fresh
-    acceleration[id] = baseAcceleration[id] + float4(pressureForce / params.mass, 0.0f);
+    acceleration[id] = baseAcceleration[id] + result;
 }
 
 // ============================================================================
-// Kernel: Integrate (Final position/velocity update)
+// Helper: Boundary particle interaction (Ihmsen et al., 2010)
+// Computes position correction and tangential velocity from boundary normals.
+// Boundary particle "normals" are stored in the velocity buffer.
+// ============================================================================
+
+inline void computeInteractionWithBoundaryParticles(
+    uint id,
+    float r0,
+    device int* neighborMap,
+    device float4* position,
+    device float4* velocity,   // boundary normals stored here
+    device int* particleType,
+    device int* neighborCount,
+    thread float4& pos_,
+    bool tangVel,
+    thread float4& vel_
+) {
+    float4 n_c_i = float4(0.0f);
+    float w_c_ib_sum = 0.0f;
+    float w_c_ib_second_sum = 0.0f;
+    
+    int count = neighborCount[id];
+    for (int nc = 0; nc < count && nc < MAX_NEIGHBOR_COUNT; nc++) {
+        int id_b = neighborMap[id * MAX_NEIGHBOR_COUNT + nc];
+        if (id_b == NO_PARTICLE_ID) continue;
+        
+        if (particleType[id_b] == BOUNDARY_PARTICLE) {
+            float3 diff = pos_.xyz - position[id_b].xyz;
+            float x_ib_dist = length(diff);
+            
+            float w_c_ib = max(0.0f, (r0 - x_ib_dist) / r0);  // Ihmsen formula (10)
+            float4 n_b = velocity[id_b];  // boundary normal stored in velocity
+            
+            n_c_i += n_b * w_c_ib;                    // formula (9)
+            w_c_ib_sum += w_c_ib;                     // formula (11) sum #1
+            w_c_ib_second_sum += w_c_ib * (r0 - x_ib_dist);  // formula (11) sum #2
+        }
+    }
+    
+    float n_c_i_length_sq = dot(n_c_i.xyz, n_c_i.xyz);
+    if (n_c_i_length_sq > 0.0f) {
+        float n_c_i_length = sqrt(n_c_i_length_sq);
+        float4 delta_pos = (n_c_i / n_c_i_length) * w_c_ib_second_sum / w_c_ib_sum;  // formula (11)
+        pos_.x += delta_pos.x;
+        pos_.y += delta_pos.y;
+        pos_.z += delta_pos.z;
+        
+        if (tangVel) {
+            float eps = 0.99f;  // friction coefficient
+            float vel_n_len = n_c_i.x * vel_.x + n_c_i.y * vel_.y + n_c_i.z * vel_.z;
+            if (vel_n_len < 0.0f) {
+                vel_.x -= n_c_i.x * vel_n_len;
+                vel_.y -= n_c_i.y * vel_n_len;
+                vel_.z -= n_c_i.z * vel_n_len;
+                vel_ = vel_ * eps;  // formula (12)
+            }
+        }
+    }
+}
+
+// ============================================================================
+// Kernel: Integrate (Leapfrog + Semi-implicit Euler)
+// Matches OpenCL pcisph_integrate:
+//   iterationCount==0: store acceleration and return (initialization)
+//   mode==0 (Leapfrog positions): pos += (vel*dt + prevAccel*dt²/2) * scaleInv
+//   mode==1 (Leapfrog velocities): vel += (prevAccel+newAccel)*dt/2 + boundary
+//   mode==2 (Semi-implicit Euler): vel += acc*dt, pos += vel*dt*scaleInv + boundary
 // ============================================================================
 
 kernel void pcisph_integrate(
@@ -362,29 +466,74 @@ kernel void pcisph_integrate(
     device float4* acceleration [[buffer(2)]],
     constant SimulationParams& params [[buffer(3)]],
     constant int& mode [[buffer(4)]],
+    device float4* prevAcceleration [[buffer(5)]],
+    device int* neighborMap [[buffer(6)]],
+    device int* neighborCount [[buffer(7)]],
+    device int* particleType [[buffer(8)]],
+    constant int& iterationCount [[buffer(9)]],
     uint id [[thread_position_in_grid]]
 ) {
     if (id >= params.particleCount) return;
     
-    int particleType = (int)position[id].w;
-    if (particleType == BOUNDARY_PARTICLE) {
+    if (particleType[id] == BOUNDARY_PARTICLE) {
         return;
     }
     
-    float3 acc = acceleration[id].xyz;
-    float3 vel = velocity[id].xyz + acc * params.timeStep;
+    // At iterationCount == 0: just store acceleration for Leapfrog bootstrap
+    if (iterationCount == 0) {
+        prevAcceleration[id] = acceleration[id];  // total accel (base + pressure)
+        return;
+    }
     
-    // Position update: velocity is in scaled coords, position is in world coords
-    // Need to multiply by simulationScaleInv to convert
-    float3 pos = position[id].xyz + vel * params.timeStep * params.simulationScaleInv;
+    float4 acceleration_t = prevAcceleration[id];  // previous step's total acceleration
+    acceleration_t.w = 0.0f;
+    float4 velocity_t = velocity[id];
+    float ptype = position[id].w;
     
-    // Simple boundary clamping
-    float3 minBound = float3(getGridMin(params)[0], getGridMin(params)[1], getGridMin(params)[2]) + 0.01f;
-    float3 maxBound = float3(getGridMax(params)[0], getGridMax(params)[1], getGridMax(params)[2]) - 0.01f;
-    pos = clamp(pos, minBound, maxBound);
+    if (mode == 2) {
+        // Semi-implicit Euler
+        float4 acceleration_t_dt = acceleration[id];
+        acceleration_t_dt.w = 0.0f;
+        float4 velocity_t_dt = velocity_t + acceleration_t_dt * params.timeStep;
+        float4 position_t_dt = float4(position[id].xyz, 0.0f) + velocity_t_dt * params.timeStep * params.simulationScaleInv;
+        
+        // Boundary interaction
+        computeInteractionWithBoundaryParticles(
+            id, params.r0, neighborMap, position, velocity,
+            particleType, neighborCount, position_t_dt, true, velocity_t_dt);
+        
+        velocity[id] = velocity_t_dt;
+        position[id] = position_t_dt;
+        position[id].w = ptype;
+        prevAcceleration[id] = acceleration_t_dt;
+        return;
+    }
     
-    position[id] = float4(pos, position[id].w);  // Preserve particle type
-    velocity[id] = float4(vel, 0.0f);
+    // Leapfrog integration
+    if (mode == 0) {
+        // Position update: x(t+dt) = x(t) + (v(t)*dt + a(t)*dt²/2) * scaleInv
+        float4 position_t = float4(position[id].xyz, 0.0f);
+        float4 position_t_dt = position_t + (velocity_t * params.timeStep + acceleration_t * params.timeStep * params.timeStep * 0.5f) * params.simulationScaleInv;
+        position[id] = position_t_dt;
+        position[id].w = ptype;
+    }
+    else if (mode == 1) {
+        // Velocity update: v(t+dt) = v(t) + (a(t) + a(t+dt))*dt/2
+        float4 position_t_dt = float4(position[id].xyz, 0.0f);
+        float4 acceleration_t_dt = acceleration[id];
+        acceleration_t_dt.w = 0.0f;
+        float4 velocity_t_dt = velocity_t + (acceleration_t + acceleration_t_dt) * params.timeStep * 0.5f;
+        
+        // Boundary interaction (with tangential velocity adjustment)
+        computeInteractionWithBoundaryParticles(
+            id, params.r0, neighborMap, position, velocity,
+            particleType, neighborCount, position_t_dt, true, velocity_t_dt);
+        
+        velocity[id] = velocity_t_dt;
+        prevAcceleration[id] = acceleration_t_dt;  // store for next step
+        position[id] = position_t_dt;
+        position[id].w = ptype;
+    }
 }
 
 // ============================================================================
@@ -521,6 +670,10 @@ kernel void pcisph_computeElasticForces(
 
 // ============================================================================
 // Kernel: Predict Density (PCISPH)
+// Matches OpenCL pcisph_predictDensity:
+//   density = sum((h²-r²)³) * simulationScale⁶ * mass_mult_Wpoly6Coefficient
+//   Uses predicted positions (not actual positions)
+//   Writes predicted density to rhoInv[id].y (base density stays in .x)
 // ============================================================================
 
 kernel void pcisph_predictDensity(
@@ -534,27 +687,42 @@ kernel void pcisph_predictDensity(
     if (id >= params.particleCount) return;
     
     float3 pos_i = positionPredicted[id].xyz;
-    float rho = 0.0f;
+    float h = params.h;  // unscaled h (positions are in world coords)
+    float h2 = h * h;
+    float hScaled2 = params.hScaled2;
+    float hScaled6 = hScaled2 * hScaled2 * hScaled2;
+    float simScale = params.simulationScale;
+    float simScale6 = simScale * simScale;
+    simScale6 = simScale6 * simScale6 * simScale6;
+    
+    float density_accum = 0.0f;
     
     int count = neighborCount[id];
-    for (int n = 0; n < count; n++) {
+    for (int n = 0; n < count && n < MAX_NEIGHBOR_COUNT; n++) {
         int j = neighborMap[id * MAX_NEIGHBOR_COUNT + n];
         if (j == NO_PARTICLE_ID) continue;
         
         float3 pos_j = positionPredicted[j].xyz;
-        float r = length(pos_i - pos_j);
+        float3 r_vec = pos_i - pos_j;
+        float r2 = dot(r_vec, r_vec);  // world coords distance squared
         
-        if (r < params.h) {
-            float q = 1.0f - r / params.h;
-            rho += params.mass * (315.0f / (64.0f * M_PI_F * pow(params.h, 3.0f))) * pow(q, 3.0f);
+        if (r2 < h2) {
+            float diff = h2 - r2;
+            density_accum += diff * diff * diff;  // (h² - r²)³
         }
     }
     
-    // Add self contribution
-    rho += params.mass * (315.0f / (64.0f * M_PI_F * pow(params.h, 3.0f)));
+    float density = density_accum * simScale6;  // scale to simulation units
     
-    rhoInv[id].x = rho;
-    rhoInv[id].y = (rho > 1e-8f) ? 1.0f / rho : 0.0f;
+    // Floor clamp matching OpenCL
+    if (density < hScaled6) {
+        density = hScaled6;
+    }
+    
+    density *= params.mass_mult_Wpoly6Coefficient;
+    
+    // Write predicted density to .y (keep base density in .x)
+    rhoInv[id].y = density;
 }
 
 // ============================================================================

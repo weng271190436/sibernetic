@@ -38,6 +38,7 @@ owMetalSolver::owMetalSolver(
     const int* particleMembranesList_cpp
 ) : device(nullptr), commandQueue(nullptr), library(nullptr),
     positionBuffer(nullptr), velocityBuffer(nullptr), accelerationBuffer(nullptr), baseAccelerationBuffer(nullptr),
+    prevAccelerationBuffer(nullptr),
     positionPredictedBuffer(nullptr), velocityPredictedBuffer(nullptr),
     pressureBuffer(nullptr), rhoBuffer(nullptr), neighborMapBuffer(nullptr),
     neighborCountBuffer(nullptr), cellStartBuffer(nullptr), cellEndBuffer(nullptr),
@@ -228,6 +229,7 @@ void owMetalSolver::createBuffers(
     // Setup simulation parameters
     params.h = config->getConst("h");
     params.hScaled = config->getConst("_hScaled");  // h * simulationScale for SPH
+    params.hScaled2 = params.hScaled * params.hScaled;
     params.mass = config->getConst("mass");
     params.simulationScale = config->getConst("simulationScale");
     params.simulationScaleInv = 1.0f / params.simulationScale;
@@ -235,6 +237,14 @@ void owMetalSolver::createBuffers(
     params.viscosity = config->getConst("viscosity");
     params.surfaceTension = 0.0f;
     params.gravity = config->getConst("gravity_y");  // Y is down
+    params.r0 = 0.5f * params.h;  // Equilibrium distance
+    
+    // Pre-computed coefficients matching OpenCL
+    params.mass_mult_Wpoly6Coefficient = config->getConst("mass_mult_Wpoly6Coefficient");
+    params.mass_mult_gradWspikyCoefficient = config->getConst("mass_mult_gradWspikyCoefficient");
+    params.mass_mult_divgradWviscosityCoefficient = config->getConst("mass_mult_divgradWviscosityCoefficient");
+    params.surfTensCoeff = config->getConst("surfTensCoeff");
+    
     params.particleCount = particleCount;
     params.gridCellCount = gridCellCount;
     params.gridMinX = config->xmin;
@@ -246,7 +256,7 @@ void owMetalSolver::createBuffers(
     params.gridResX = config->gridCellsX;
     params.gridResY = config->gridCellsY;
     params.gridResZ = config->gridCellsZ;
-    params.cellSize = config->getConst("h");
+    params.cellSize = 2.0f * config->getConst("h");  // hashGridCellSize = 2*h
     params.rho0 = config->getConst("rho0");
     params.delta = config->getDelta();
     params.pcisphIterations = 3;
@@ -259,6 +269,7 @@ void owMetalSolver::createBuffers(
     velocityBuffer = device->newBuffer(velocity_cpp, particleCount * float4Size, MTL::ResourceStorageModeShared);
     accelerationBuffer = device->newBuffer(particleCount * float4Size, MTL::ResourceStorageModeShared);
     baseAccelerationBuffer = device->newBuffer(particleCount * float4Size, MTL::ResourceStorageModeShared);  // For PCISPH: stores base accel
+    prevAccelerationBuffer = device->newBuffer(particleCount * float4Size, MTL::ResourceStorageModeShared);  // For Leapfrog: stores prev step accel
     positionPredictedBuffer = device->newBuffer(particleCount * float4Size, MTL::ResourceStorageModeShared);
     velocityPredictedBuffer = device->newBuffer(particleCount * float4Size, MTL::ResourceStorageModeShared);
     pressureBuffer = device->newBuffer(particleCount * sizeof(float) * 2, MTL::ResourceStorageModeShared);  // Extra for membrane handling
@@ -590,10 +601,6 @@ void owMetalSolver::_saveBaseAcceleration() {
     blitEncoder->endEncoding();
     commandBuffer->commit();
     commandBuffer->waitUntilCompleted();
-    
-    // Debug: print first particle's base acceleration
-    float* baseData = (float*)baseAccelerationBuffer->contents();
-    printf("DEBUG _saveBaseAcceleration: baseAccel[0] = (%e, %e, %e)\n", baseData[0], baseData[1], baseData[2]);
 }
 
 unsigned int owMetalSolver::_run_pcisph_predictPositions(owConfigProperty* config) {
@@ -623,8 +630,30 @@ unsigned int owMetalSolver::_run_pcisph_predictPositions(owConfigProperty* confi
 }
 
 unsigned int owMetalSolver::_run_pcisph_predictDensity(owConfigProperty* config) {
-    // TODO: Properly implement with separate storage for predicted density
-    // For now, skip to avoid overwriting computed density
+    if (!predictDensityPipeline) {
+        std::cout << "[Metal ERROR] predictDensityPipeline is NULL!" << std::endl;
+        return 1;
+    }
+    
+    MTL::CommandBuffer* commandBuffer = commandQueue->commandBuffer();
+    MTL::ComputeCommandEncoder* encoder = commandBuffer->computeCommandEncoder();
+    
+    encoder->setComputePipelineState(predictDensityPipeline);
+    encoder->setBuffer(positionPredictedBuffer, 0, 0);
+    encoder->setBuffer(rhoBuffer, 0, 1);
+    encoder->setBuffer(neighborMapBuffer, 0, 2);
+    encoder->setBuffer(neighborCountBuffer, 0, 3);
+    encoder->setBuffer(paramsBuffer, 0, 4);
+    
+    NS::UInteger threadGroupSize = predictDensityPipeline->maxTotalThreadsPerThreadgroup();
+    if (threadGroupSize > particleCount) threadGroupSize = particleCount;
+    
+    encoder->dispatchThreads(MTL::Size(particleCount, 1, 1), MTL::Size(threadGroupSize, 1, 1));
+    encoder->endEncoding();
+    
+    commandBuffer->commit();
+    commandBuffer->waitUntilCompleted();
+    
     return 0;
 }
 
@@ -692,6 +721,11 @@ unsigned int owMetalSolver::_run_pcisph_integrate(int iterationCount, int mode, 
     encoder->setBuffer(accelerationBuffer, 0, 2);
     encoder->setBuffer(paramsBuffer, 0, 3);
     encoder->setBytes(&mode, sizeof(int), 4);
+    encoder->setBuffer(prevAccelerationBuffer, 0, 5);
+    encoder->setBuffer(neighborMapBuffer, 0, 6);
+    encoder->setBuffer(neighborCountBuffer, 0, 7);
+    encoder->setBuffer(particleTypeBuffer, 0, 8);
+    encoder->setBytes(&iterationCount, sizeof(int), 9);
     
     NS::UInteger threadGroupSize = integratePipeline->maxTotalThreadsPerThreadgroup();
     if (threadGroupSize > particleCount) threadGroupSize = particleCount;
