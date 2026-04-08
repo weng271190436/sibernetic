@@ -49,6 +49,7 @@ rebuildandrun.sh
 #Apple stuff
 .DS_Store
 build
+build_opencl
 /Build
 /debug
 /Release
