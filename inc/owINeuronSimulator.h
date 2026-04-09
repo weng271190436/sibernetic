@@ -40,6 +40,9 @@
 #ifndef INC_OWINEURONSIMULATOR_H_
 #define INC_OWINEURONSIMULATOR_H_
 
+#include <vector>
+#include <Python.h>
+
 class owINeuronSimulator {
 protected:
 	std::vector<float> unpackPythonList(PyObject* pValue, size_t musclesNum=96){

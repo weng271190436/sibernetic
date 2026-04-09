@@ -21,7 +21,10 @@ using namespace metal;
 
 constant int MAX_NEIGHBOR_COUNT = 32;
 
+constant int LIQUID_PARTICLE = 1;
+constant int ELASTIC_PARTICLE = 2;
 constant int BOUNDARY_PARTICLE = 3;
+constant int MAX_MEMBRANES_INCLUDING_SAME_PARTICLE = 7;
 
 constant int NO_PARTICLE_ID = -1;
 constant float NO_DISTANCE = -1.0f;
@@ -353,7 +356,7 @@ kernel void pcisph_computePressureForceAcceleration(
     
     float3 pos_i = position[id].xyz;
     float pressure_i = pressure[id];
-    float rho_i = rhoInv[id].x;  // predicted density
+    float rho_i = rhoInv[id].y;  // predicted density
     float hScaled = params.hScaled;
     
     float4 result = float4(0.0f);
@@ -370,7 +373,7 @@ kernel void pcisph_computePressureForceAcceleration(
         
         if (r_ij < hScaled && r_ij > 0.0f) {
             float pressure_j = pressure[neighborIdx];
-            float rho_j = rhoInv[neighborIdx].x;  // predicted density
+            float rho_j = rhoInv[neighborIdx].y;  // predicted density
             
             // Solenthaler variant 1: -(hScaled-r)² * 0.5 * (p_i+p_j) / rho_j
             float value = -(hScaled - r_ij) * (hScaled - r_ij) * 0.5f * (pressure_i + pressure_j) / max(rho_j, 1e-8f);
@@ -488,7 +491,8 @@ kernel void pcisph_integrate(
     float4 acceleration_t = prevAcceleration[id];  // previous step's total acceleration
     acceleration_t.w = 0.0f;
     float4 velocity_t = velocity[id];
-    float ptype = position[id].w;
+    // Keep the original fractional subtype (e.g., 2.1/2.2) used by worm mechanics.
+    float particleTag = position[id].w;
     
     if (mode == 2) {
         // Semi-implicit Euler
@@ -504,7 +508,7 @@ kernel void pcisph_integrate(
         
         velocity[id] = velocity_t_dt;
         position[id] = position_t_dt;
-        position[id].w = ptype;
+        position[id].w = particleTag;
         prevAcceleration[id] = acceleration_t_dt;
         return;
     }
@@ -515,7 +519,7 @@ kernel void pcisph_integrate(
         float4 position_t = float4(position[id].xyz, 0.0f);
         float4 position_t_dt = position_t + (velocity_t * params.timeStep + acceleration_t * params.timeStep * params.timeStep * 0.5f) * params.simulationScaleInv;
         position[id] = position_t_dt;
-        position[id].w = ptype;
+        position[id].w = particleTag;
     }
     else if (mode == 1) {
         // Velocity update: v(t+dt) = v(t) + (a(t) + a(t+dt))*dt/2
@@ -532,7 +536,7 @@ kernel void pcisph_integrate(
         velocity[id] = velocity_t_dt;
         prevAcceleration[id] = acceleration_t_dt;  // store for next step
         position[id] = position_t_dt;
-        position[id].w = ptype;
+        position[id].w = particleTag;
     }
 }
 
@@ -726,68 +730,196 @@ kernel void pcisph_predictDensity(
 }
 
 // ============================================================================
+// Membrane helpers: determinant and point-to-plane projection
+// (Ported from OpenCL: calcDeterminant3x3, calculateProjectionOfPointToPlane)
+// ============================================================================
+
+inline float calcDeterminant3x3(float3 c1, float3 c2, float3 c3) {
+    return c1.x * c2.y * c3.z + c1.y * c2.z * c3.x + c1.z * c2.x * c3.y
+         - c1.z * c2.y * c3.x - c1.x * c2.z * c3.y - c1.y * c2.x * c3.z;
+}
+
+inline float4 calculateProjectionOfPointToPlane(float4 ps, float4 pa, float4 pb, float4 pc) {
+    float4 pm = float4(0.0f);
+    float b_1 = pa.x * ((pb.y - pa.y) * (pc.z - pa.z) - (pb.z - pa.z) * (pc.y - pa.y))
+              + pa.y * ((pb.z - pa.z) * (pc.x - pa.x) - (pb.x - pa.x) * (pc.z - pa.z))
+              + pa.z * ((pb.x - pa.x) * (pc.y - pa.y) - (pb.y - pa.y) * (pc.x - pa.x));
+    float b_2 = ps.x * (pb.x - pa.x) + ps.y * (pb.y - pa.y) + ps.z * (pb.z - pa.z);
+    float b_3 = ps.x * (pc.x - pa.x) + ps.y * (pc.y - pa.y) + ps.z * (pc.z - pa.z);
+
+    float3 a_1 = float3((pb.y - pa.y) * (pc.z - pa.z) - (pb.z - pa.z) * (pc.y - pa.y),
+                        pb.x - pa.x,
+                        pc.x - pa.x);
+    float3 a_2 = float3((pb.z - pa.z) * (pc.x - pa.x) - (pb.x - pa.x) * (pc.z - pa.z),
+                        pb.y - pa.y,
+                        pc.y - pa.y);
+    float3 a_3 = float3((pb.x - pa.x) * (pc.y - pa.y) - (pb.y - pa.y) * (pc.x - pa.x),
+                        pb.z - pa.z,
+                        pc.z - pa.z);
+    float3 b = float3(b_1, b_2, b_3);
+
+    float denominator = calcDeterminant3x3(a_1, a_2, a_3);
+    if (denominator != 0.0f) {
+        pm.x = calcDeterminant3x3(b,   a_2, a_3) / denominator;
+        pm.y = calcDeterminant3x3(a_1, b,   a_3) / denominator;
+        pm.z = calcDeterminant3x3(a_1, a_2, b  ) / denominator;
+    } else {
+        pm.w = -1.0f; // degenerate triangle
+    }
+    return pm;
+}
+
+// ============================================================================
 // Kernel: Clear Membrane Buffers
 // ============================================================================
 
 kernel void clearMembraneBuffers(
-    device float* membraneForces [[buffer(0)]],
+    device float4* membraneCorrection [[buffer(0)]],
     constant SimulationParams& params [[buffer(1)]],
     uint id [[thread_position_in_grid]]
 ) {
     if (id >= params.particleCount) return;
-    membraneForces[id * 4 + 0] = 0.0f;
-    membraneForces[id * 4 + 1] = 0.0f;
-    membraneForces[id * 4 + 2] = 0.0f;
-    membraneForces[id * 4 + 3] = 0.0f;
+    membraneCorrection[id] = float4(0.0f);
 }
 
 // ============================================================================
 // Kernel: Compute Interaction With Membranes
+// Ported from OpenCL computeInteractionWithMembranes
+// Ihmsen et al., 2010 boundary handling for liquid-membrane interaction
 // ============================================================================
 
 kernel void computeInteractionWithMembranes(
     device float4* position [[buffer(0)]],
-    device int* membraneData [[buffer(1)]],  // Triangles: i, j, k indices
-    device float* membraneForces [[buffer(2)]],
-    constant SimulationParams& params [[buffer(3)]],
-    constant int& numMembranes [[buffer(4)]],
+    device float4* velocity [[buffer(1)]],
+    device int* neighborMap [[buffer(2)]],
+    device int* neighborCount [[buffer(3)]],
+    device int* particleType [[buffer(4)]],
+    device int* particleMembranesList [[buffer(5)]],
+    device int* membraneData [[buffer(6)]],
+    device float4* membraneCorrection [[buffer(7)]],
+    constant SimulationParams& params [[buffer(8)]],
+    constant uint& numOfElasticP [[buffer(9)]],
     uint id [[thread_position_in_grid]]
 ) {
-    // For each membrane triangle, compute forces
-    // This is a simplified placeholder
-    if ((int)id >= numMembranes) return;
-    
-    int i = membraneData[id * 3 + 0];
-    int j = membraneData[id * 3 + 1];
-    int k = membraneData[id * 3 + 2];
-    
-    if (i < 0 || j < 0 || k < 0) return;
-    
-    // TODO: Compute actual membrane forces
-    // This involves computing normals, area preservation, etc.
+    if (id >= params.particleCount) return;
+
+    // Only liquid particles interact with membranes
+    if (particleType[id] != LIQUID_PARTICLE) return;
+
+    int idx = id * MAX_NEIGHBOR_COUNT;
+    float4 membrane_jd_normal_vector[MAX_NEIGHBOR_COUNT];
+    float  distance_id_jd_arr[MAX_NEIGHBOR_COUNT];
+    int    membrane_jd_arr[MAX_NEIGHBOR_COUNT];
+    int    membrane_jd_counter = 0;
+
+    for (int n = 0; n < MAX_NEIGHBOR_COUNT; n++) {
+        membrane_jd_normal_vector[n] = float4(0.0f);
+    }
+
+    // Search all neighbors for elastic membrane particles
+    int ncount = neighborCount[id];
+    for (int nc = 0; nc < ncount && nc < MAX_NEIGHBOR_COUNT; nc++) {
+        int jd = neighborMap[idx + nc];
+        if (jd == NO_PARTICLE_ID) break;
+
+        // Only elastic particles can compose membranes
+        if (particleType[jd] != ELASTIC_PARTICLE) continue;
+
+        // Compute 2D distance (XY only, z=0) matching OpenCL
+        float4 vector_id_jd = position[id] - position[jd];
+        vector_id_jd.z = 0.0f;
+        float _distance_id_jd = sqrt(dot(vector_id_jd, vector_id_jd));
+
+        int membrane_ijk_counter = 0;
+
+        // Check membrane triangles this elastic particle belongs to
+        if ((uint)jd < numOfElasticP) {
+            for (int mli = 0; mli < MAX_MEMBRANES_INCLUDING_SAME_PARTICLE; mli++) {
+                int mdi = particleMembranesList[jd * MAX_MEMBRANES_INCLUDING_SAME_PARTICLE + mli];
+                if (mdi < 0) break;
+
+                int ti = membraneData[mdi * 3 + 0];
+                int tj = membraneData[mdi * 3 + 1];
+                int tk = membraneData[mdi * 3 + 2];
+
+                float4 pos_i = position[ti];
+                float4 pos_j = position[tj];
+                float4 pos_k = position[tk];
+
+                // Project liquid particle onto membrane triangle plane
+                float4 pos_p = calculateProjectionOfPointToPlane(position[id], pos_i, pos_j, pos_k);
+                if (pos_p.w == -1.0f) return; // degenerate triangle
+
+                // Normal from projection to particle
+                float4 normal_to_plane = position[id] - pos_p;
+                float normal_length = sqrt(normal_to_plane.x * normal_to_plane.x
+                                         + normal_to_plane.y * normal_to_plane.y
+                                         + normal_to_plane.z * normal_to_plane.z);
+
+                if (normal_length > 0.0f) {
+                    normal_to_plane /= normal_length;
+                    membrane_jd_normal_vector[membrane_jd_counter] += normal_to_plane;
+                    membrane_ijk_counter++;
+                } else {
+                    return; // particle exactly on membrane plane
+                }
+            }
+        }
+
+        if (membrane_ijk_counter > 0) {
+            membrane_jd_normal_vector[membrane_jd_counter] /= (float)membrane_ijk_counter;
+            distance_id_jd_arr[membrane_jd_counter] = _distance_id_jd;
+            membrane_jd_arr[membrane_jd_counter] = jd;
+            membrane_jd_counter++;
+        }
+    }
+
+    // Apply Ihmsen et al. 2010 boundary handling (formulas 9-11)
+    if (membrane_jd_counter > 0) {
+        float4 n_c_i = float4(0.0f);
+        float w_c_im_sum = 0.0f;
+        float w_c_im_second_sum = 0.0f;
+        float r0 = params.r0;
+
+        for (int nc = 0; nc < membrane_jd_counter; nc++) {
+            float x_im_dist = distance_id_jd_arr[nc];
+            float w_c_im = max(0.0f, (r0 - x_im_dist) / r0);       // formula (10)
+            float4 n_m = membrane_jd_normal_vector[nc];
+
+            n_c_i += n_m * w_c_im;                                  // formula (9)
+            w_c_im_sum += w_c_im;                                   // formula (11) sum #1
+            w_c_im_second_sum += w_c_im * (r0 - x_im_dist);        // formula (11) sum #2
+        }
+
+        n_c_i.w = 0.0f;
+        float n_c_i_length_sq = dot(n_c_i.xyz, n_c_i.xyz);
+
+        if (n_c_i_length_sq > 0.0f) {
+            float n_c_i_length = sqrt(n_c_i_length_sq);
+            float4 delta_pos = (n_c_i / n_c_i_length) * w_c_im_second_sum / w_c_im_sum; // formula (11)
+            membraneCorrection[id].x += delta_pos.x;
+            membraneCorrection[id].y += delta_pos.y;
+            membraneCorrection[id].z += delta_pos.z;
+        }
+    }
 }
 
 // ============================================================================
 // Kernel: Finalize Membrane Interaction
+// Applies accumulated membrane corrections to particle positions.
 // ============================================================================
 
 kernel void computeInteractionWithMembranes_finalize(
     device float4* position [[buffer(0)]],
-    device float4* velocity [[buffer(1)]],
-    device float* membraneForces [[buffer(2)]],
+    device float4* membraneCorrection [[buffer(1)]],
+    device int* particleType [[buffer(2)]],
     constant SimulationParams& params [[buffer(3)]],
     uint id [[thread_position_in_grid]]
 ) {
     if (id >= params.particleCount) return;
-    
-    // Apply accumulated membrane forces to velocity
-    float3 force = float3(
-        membraneForces[id * 4 + 0],
-        membraneForces[id * 4 + 1],
-        membraneForces[id * 4 + 2]
-    );
-    
-    velocity[id].xyz += force * params.timeStep / params.mass;
+    if (particleType[id] == BOUNDARY_PARTICLE) return;
+
+    position[id].xyz += membraneCorrection[id].xyz;
 }
 
 // ============================================================================

@@ -45,7 +45,7 @@ owMetalSolver::owMetalSolver(
     particleIndexBuffer(nullptr), particleTypeBuffer(nullptr),
     elasticConnectionsBuffer(nullptr), membraneDataBuffer(nullptr),
     particleMembranesListBuffer(nullptr), muscleActivationBuffer(nullptr),
-    paramsBuffer(nullptr)
+    membraneCorrectionBuffer(nullptr), paramsBuffer(nullptr)
 {
     std::cout << "Initializing Metal solver..." << std::endl;
     
@@ -93,6 +93,7 @@ owMetalSolver::~owMetalSolver() {
     if (membraneDataBuffer) membraneDataBuffer->release();
     if (particleMembranesListBuffer) particleMembranesListBuffer->release();
     if (muscleActivationBuffer) muscleActivationBuffer->release();
+    if (membraneCorrectionBuffer) membraneCorrectionBuffer->release();
     if (paramsBuffer) paramsBuffer->release();
     
     // Release pipelines
@@ -298,6 +299,7 @@ void owMetalSolver::createBuffers(
     }
     
     muscleActivationBuffer = device->newBuffer(config->MUSCLE_COUNT * sizeof(float), MTL::ResourceStorageModeShared);
+    membraneCorrectionBuffer = device->newBuffer(particleCount * float4Size, MTL::ResourceStorageModeShared);
     paramsBuffer = device->newBuffer(&params, sizeof(SimulationParams), MTL::ResourceStorageModeShared);
     
     std::cout << "Created Metal buffers for " << particleCount << " particles" << std::endl;
@@ -740,24 +742,80 @@ unsigned int owMetalSolver::_run_pcisph_integrate(int iterationCount, int mode, 
 }
 
 unsigned int owMetalSolver::_run_clearMembraneBuffers(owConfigProperty* config) {
-    // Clear membrane-related parts of pressure buffer
-    float* pressure = (float*)pressureBuffer->contents();
-    for (unsigned int i = 0; i < particleCount; i++) {
-        pressure[particleCount + i] = 0.0f;  // Second half is membrane handling
-    }
+    if (!clearMembraneBuffersPipeline) return 1;
+
+    MTL::CommandBuffer* commandBuffer = commandQueue->commandBuffer();
+    MTL::ComputeCommandEncoder* encoder = commandBuffer->computeCommandEncoder();
+
+    encoder->setComputePipelineState(clearMembraneBuffersPipeline);
+    encoder->setBuffer(membraneCorrectionBuffer, 0, 0);
+    encoder->setBuffer(paramsBuffer, 0, 1);
+
+    NS::UInteger threadGroupSize = clearMembraneBuffersPipeline->maxTotalThreadsPerThreadgroup();
+    if (threadGroupSize > particleCount) threadGroupSize = particleCount;
+
+    encoder->dispatchThreads(MTL::Size(particleCount, 1, 1), MTL::Size(threadGroupSize, 1, 1));
+    encoder->endEncoding();
+
+    commandBuffer->commit();
+    commandBuffer->waitUntilCompleted();
+
     return 0;
 }
 
 unsigned int owMetalSolver::_run_computeInteractionWithMembranes(owConfigProperty* config) {
-    // TODO: Implement membrane interaction kernel
-    // For now, skip if no membranes
-    if (config->numOfMembranes == 0) return 0;
+    if (!computeMembranesPipeline || config->numOfMembranes == 0) return 0;
+
+    unsigned int numOfElasticP = config->numOfElasticP;
+
+    MTL::CommandBuffer* commandBuffer = commandQueue->commandBuffer();
+    MTL::ComputeCommandEncoder* encoder = commandBuffer->computeCommandEncoder();
+
+    encoder->setComputePipelineState(computeMembranesPipeline);
+    encoder->setBuffer(positionBuffer, 0, 0);
+    encoder->setBuffer(velocityBuffer, 0, 1);
+    encoder->setBuffer(neighborMapBuffer, 0, 2);
+    encoder->setBuffer(neighborCountBuffer, 0, 3);
+    encoder->setBuffer(particleTypeBuffer, 0, 4);
+    encoder->setBuffer(particleMembranesListBuffer, 0, 5);
+    encoder->setBuffer(membraneDataBuffer, 0, 6);
+    encoder->setBuffer(membraneCorrectionBuffer, 0, 7);
+    encoder->setBuffer(paramsBuffer, 0, 8);
+    encoder->setBytes(&numOfElasticP, sizeof(unsigned int), 9);
+
+    NS::UInteger threadGroupSize = computeMembranesPipeline->maxTotalThreadsPerThreadgroup();
+    if (threadGroupSize > particleCount) threadGroupSize = particleCount;
+
+    encoder->dispatchThreads(MTL::Size(particleCount, 1, 1), MTL::Size(threadGroupSize, 1, 1));
+    encoder->endEncoding();
+
+    commandBuffer->commit();
+    commandBuffer->waitUntilCompleted();
+
     return 0;
 }
 
 unsigned int owMetalSolver::_run_computeInteractionWithMembranes_finalize(owConfigProperty* config) {
-    // TODO: Implement membrane finalization kernel
-    if (config->numOfMembranes == 0) return 0;
+    if (!computeMembranesFinalizePipeline || config->numOfMembranes == 0) return 0;
+
+    MTL::CommandBuffer* commandBuffer = commandQueue->commandBuffer();
+    MTL::ComputeCommandEncoder* encoder = commandBuffer->computeCommandEncoder();
+
+    encoder->setComputePipelineState(computeMembranesFinalizePipeline);
+    encoder->setBuffer(positionBuffer, 0, 0);
+    encoder->setBuffer(membraneCorrectionBuffer, 0, 1);
+    encoder->setBuffer(particleTypeBuffer, 0, 2);
+    encoder->setBuffer(paramsBuffer, 0, 3);
+
+    NS::UInteger threadGroupSize = computeMembranesFinalizePipeline->maxTotalThreadsPerThreadgroup();
+    if (threadGroupSize > particleCount) threadGroupSize = particleCount;
+
+    encoder->dispatchThreads(MTL::Size(particleCount, 1, 1), MTL::Size(threadGroupSize, 1, 1));
+    encoder->endEncoding();
+
+    commandBuffer->commit();
+    commandBuffer->waitUntilCompleted();
+
     return 0;
 }
 

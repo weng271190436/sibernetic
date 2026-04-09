@@ -176,6 +176,7 @@ private:
     MTL::Buffer* membraneDataBuffer;
     MTL::Buffer* particleMembranesListBuffer;
     MTL::Buffer* muscleActivationBuffer;
+    MTL::Buffer* membraneCorrectionBuffer;
     MTL::Buffer* paramsBuffer;
     
     // Configuration

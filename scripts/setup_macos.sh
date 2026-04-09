@@ -86,9 +86,9 @@ echo "Using pip: $PIP_BIN"
 echo ""
 echo "Installing numpy for the system Python (required by C++ binary)..."
 
-# Install numpy to the Python that CMake will link against
+# Install numpy and matplotlib to the Python that CMake will link against
 # This is needed because the embedded Python interpreter doesn't see venv packages
-$PIP_BIN install numpy
+$PIP_BIN install numpy matplotlib
 
 echo ""
 echo "Setting up Python virtual environment..."
