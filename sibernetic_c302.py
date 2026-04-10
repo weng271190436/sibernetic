@@ -1,10 +1,12 @@
-from pyneuroml import pynml
 import argparse
 import re
 import os
 import sys
 import time
 import math
+import subprocess
+
+os.environ.setdefault("MPLBACKEND", "Agg")
 
 import pprint
 
@@ -195,6 +197,48 @@ def print_(msg):
     print("%s %s" % (pre, msg.replace("\n", "\n" + pre + " ")))
 
 
+def execute_command(command, run_dir, prefix="", env=None, verbose=True, pynml=None):
+    if pynml is not None:
+        return pynml.execute_command_in_dir_with_realtime_output(
+            command, run_dir, prefix=prefix, env=env, verbose=verbose
+        )
+
+    merged_env = os.environ.copy()
+    if env:
+        merged_env.update(env)
+
+    process = subprocess.Popen(
+        command,
+        shell=True,
+        cwd=run_dir,
+        env=merged_env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        universal_newlines=True,
+    )
+
+    if process.stdout is not None:
+        for line in process.stdout:
+            print("%s%s" % (prefix, line), end="")
+
+    process.wait()
+    return process.returncode == 0
+
+
+def find_sibernetic_executable(run_dir):
+    candidates = [
+        os.environ.get("SIBERNETIC_EXECUTABLE"),
+        os.path.join(run_dir, "build", "bin", "Sibernetic"),
+        os.path.join(run_dir, "Release", "Sibernetic"),
+    ]
+
+    for candidate in candidates:
+        if candidate and os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+            return candidate
+
+    return os.path.join(run_dir, "build", "bin", "Sibernetic")
+
+
 def main(args=None):
     if args is None:
         args = process_args()
@@ -280,22 +324,44 @@ def dynamic_import(abs_module_path, class_name):
 
 
 def run(a=None, **kwargs):
+    a = build_namespace(a, **kwargs)
+    pynml = None
+
     try:
         import neuroml  # noqa: F401
-        import pyneuroml  # noqa: F401
-    except Exception as e:
-        print_(
-            "Cannot import one of the required packages. Please install!\n"
-            "Exception: %s\n" % e
-        )
+        from pyneuroml import pynml as pynml_module
 
-    a = build_namespace(a, **kwargs)
+        pynml = pynml_module
+    except Exception as e:
+        if not a.noc302:
+            print_(
+                "Cannot import one of the required packages. Please install!\n"
+                "Exception: %s\n" % e
+            )
+            exit(-1)
+        else:
+            print_(
+                "pyneuroml/neuroml not available; continuing in -noc302 mode "
+                "using subprocess execution."
+            )
 
     if not a.noc302:
         try:
             if "C302_HOME" in os.environ:
-                os.environ["C302_HOME"]
-                sys.path.append(os.environ["C302_HOME"])
+                c302_home_raw = os.environ["C302_HOME"]
+                c302_home = c302_home_raw
+                # Support either .../pythonScripts (preferred) or legacy .../pythonScripts/c302.
+                if os.path.basename(os.path.normpath(c302_home)) == "c302":
+                    c302_home = os.path.dirname(os.path.normpath(c302_home))
+                legacy_path = os.path.normpath(c302_home_raw)
+                if legacy_path != os.path.normpath(c302_home):
+                    sys.path = [p for p in sys.path if os.path.normpath(p) != legacy_path]
+                if c302_home in sys.path:
+                    sys.path.remove(c302_home)
+                sys.path.insert(0, c302_home)
+                c302_module_dir = os.path.join(c302_home, "c302")
+                if os.path.isdir(c302_module_dir) and c302_module_dir not in sys.path:
+                    sys.path.append(c302_module_dir)
                 print_("Python path now: %s" % sys.path)
             import c302
             import c302.c302_utils as c302_utils
@@ -339,6 +405,8 @@ def run(a=None, **kwargs):
     run_dir = "."
     if "SIBERNETIC_HOME" in os.environ:
         run_dir = os.environ["SIBERNETIC_HOME"]
+
+    sibernetic_exe = find_sibernetic_executable(run_dir)
 
     if not a.noc302:
         if a.lems:
@@ -395,6 +463,8 @@ def run(a=None, **kwargs):
             )
             line = line.replace("open('time.dat", "open('%s/time.dat" % sim_dir)
             line = line.replace("open('c302_", "open('%s/c302_" % sim_dir)
+            line = line.replace('h.load_file("stdgui.hoc")', 'h.load_file("stdrun.hoc")')
+            line = line.replace("h.load_file('stdgui.hoc')", "h.load_file('stdrun.hoc')")
             updated += line
         main_nrn_py.close()
 
@@ -404,20 +474,24 @@ def run(a=None, **kwargs):
         main_nrn_py.write(updated)
         main_nrn_py.close()
 
-        command = "nrnivmodl %s" % sim_dir
-        # command = 'nrnivmodl .'
+        # Compile NEURON mod files inside sim_dir so generated arm64/ artifacts stay local.
+        command = "nrnivmodl ."
         announce("Compiling NMODL files for NEURON...")
         try:
-            pynml.execute_command_in_dir_with_realtime_output(
-                command, run_dir, prefix="nrnivmodl >> "
+            execute_command(
+                command,
+                sim_dir,
+                prefix="nrnivmodl >> ",
+                pynml=pynml,
             )
         except KeyboardInterrupt:
             print_("\nCaught CTRL+C\n")
             sys.exit()
 
     command = (
-        "./Release/Sibernetic %s %s -f %s -no_g -l_to lpath=%s timelimit=%s timestep=%s logstep=%s device=%s"
+        "%s %s %s -f %s -no_g -l_to lpath=%s timelimit=%s timestep=%s logstep=%s device=%s"
         % (
+            sibernetic_exe,
             "" if a.noc302 else "-c302",
             "-q" if a.q else "",
             a.configuration,
@@ -430,12 +504,9 @@ def run(a=None, **kwargs):
     )
 
     env = {
-        "DISPLAY": os.environ.get("DISPLAY")
-        if os.environ.get("DISPLAY") is not None
-        else "",
-        "XAUTHORITY": os.environ.get("XAUTHORITY")
-        if os.environ.get("XAUTHORITY") is not None
-        else "",
+        "DISPLAY": "",
+        "XAUTHORITY": "",
+        "MPLBACKEND": "Agg",
         "PYTHONPATH": ".:%s:%s"
         % (os.environ.get("PYTHONPATH", "."), os.path.abspath(sim_dir)),
         "NEURON_MODULE_OPTIONS": "-nogui",
@@ -452,8 +523,13 @@ def run(a=None, **kwargs):
         % (a.duration, command, run_dir, env)
     )
     try:
-        pynml_success = pynml.execute_command_in_dir_with_realtime_output(
-            command, run_dir, prefix="Sibernetic >> ", env=env, verbose=True
+        pynml_success = execute_command(
+            command,
+            run_dir,
+            prefix="Sibernetic >> ",
+            env=env,
+            verbose=True,
+            pynml=pynml,
         )
         completion_status = (
             SUCCESS if pynml_success else "Failure running command: %s" % command
@@ -491,7 +567,7 @@ def run(a=None, **kwargs):
         else:
             reportj["reference"] = a.reference
             reportj["c302params"] = a.c302params
-        reportj["c302_version"] = c302.__version__
+        reportj["c302_version"] = getattr(c302, "__version__", "unknown")
 
         for m in ["pyneuroml", "neuroml", "matplotlib", "numpy", "cect"]:
             if m == "neuroml":
@@ -532,28 +608,31 @@ def run(a=None, **kwargs):
         report_file.write(s)
 
     if not a.noc302 and successful:
-        announce(
-            "Generating images for neuronal activity (via %s in %s)..."
-            % (lems_file, sim_dir)
-        )
+        if a.test:
+            announce("Skipping c302 plotting in test mode")
+        else:
+            announce(
+                "Generating images for neuronal activity (via %s in %s)..."
+                % (lems_file, sim_dir)
+            )
 
-        results = pynml.reload_saved_data(
-            lems_file,
-            base_dir=sim_dir,
-            plot=False,
-            show_plot_already=False,
-            simulator=None,
-            verbose=True,
-        )
+            results = pynml.reload_saved_data(
+                lems_file,
+                base_dir=sim_dir,
+                plot=False,
+                show_plot_already=False,
+                simulator=None,
+                verbose=True,
+            )
 
-        c302_utils.plot_c302_results(
-            results,
-            config=a.reference,
-            parameter_set=a.c302params,
-            directory=sim_dir,
-            save=True,
-            show_plot_already=False,
-        )
+            c302_utils.plot_c302_results(
+                results,
+                config=a.reference,
+                parameter_set=a.c302params,
+                directory=sim_dir,
+                save=True,
+                show_plot_already=False,
+            )
 
     ####   WCON plotting better...
     # pos_file_name = os.path.abspath('%s/position_buffer.txt'%sim_dir)
@@ -595,8 +674,8 @@ def run(a=None, **kwargs):
         )
         + "Report of simulation at: %s/report.json\n\n" % (sim_dir)
         + (
-            "Replay recorded simulation with: ./Release/Sibernetic -l_from lpath=%s\n"
-            % (sim_dir)
+            "Replay recorded simulation with: %s -l_from lpath=%s\n"
+            % (sibernetic_exe, sim_dir)
             if successful
             else ""
         )

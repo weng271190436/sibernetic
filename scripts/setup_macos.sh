@@ -11,9 +11,11 @@ echo ""
 ARCH=$(uname -m)
 if [ "$ARCH" = "arm64" ]; then
     HOMEBREW_PREFIX="/opt/homebrew"
+    CMAKE_ARCH="arm64"
     echo "Detected Apple Silicon ($ARCH)"
 else
     HOMEBREW_PREFIX="/usr/local"
+    CMAKE_ARCH="x86_64"
     echo "Detected Intel Mac ($ARCH)"
 fi
 
@@ -95,17 +97,23 @@ echo "Setting up Python virtual environment..."
 
 # Create venv for Python tools (SiberneticReplay, plot_positions, etc.)
 if [ ! -d "venv" ]; then
-    $PYTHON_BIN -m venv venv
+    "$PYTHON_BIN" -m venv venv
     echo "Created virtual environment in venv/"
 else
     echo "Virtual environment already exists in venv/"
 fi
 
-# Install Python packages into venv
-source venv/bin/activate
-pip install --upgrade pip
-pip install numpy matplotlib pyvista
-deactivate
+# Repair stale virtualenvs left behind after Python upgrades/removals.
+if [ ! -x "venv/bin/python" ]; then
+    echo "Existing venv is broken (missing venv/bin/python). Recreating venv..."
+    rm -rf venv
+    "$PYTHON_BIN" -m venv venv
+    echo "Recreated virtual environment in venv/"
+fi
+
+# Install Python packages into venv using python -m pip to avoid stale pip shebangs.
+"venv/bin/python" -m pip install --upgrade pip
+"venv/bin/python" -m pip install numpy matplotlib pyvista pyneuroml
 echo "Installed Python packages into venv/"
 
 echo ""
@@ -125,6 +133,16 @@ fi
 echo ""
 echo "Building Sibernetic with Metal backend..."
 
+# Recreate build directory if it was configured for a different CPU architecture.
+if [ -f "build/CMakeCache.txt" ]; then
+    CACHED_ARCH=$(grep '^CMAKE_OSX_ARCHITECTURES:STRING=' build/CMakeCache.txt | cut -d= -f2 || true)
+    if [ -n "$CACHED_ARCH" ] && [ "$CACHED_ARCH" != "$CMAKE_ARCH" ]; then
+        echo "Detected build arch mismatch: cached '$CACHED_ARCH', current '$CMAKE_ARCH'."
+        echo "Removing stale build/ directory to force clean reconfigure..."
+        rm -rf build
+    fi
+fi
+
 # Create build directory
 mkdir -p build
 cd build
@@ -132,6 +150,7 @@ cd build
 # Configure with CMake (Metal enabled by default on macOS)
 cmake .. \
     -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_OSX_ARCHITECTURES=$CMAKE_ARCH \
     -DPython3_EXECUTABLE=$PYTHON_BIN \
     -DSIBERNETIC_USE_GRAPHICS=ON \
     -DSIBERNETIC_USE_PYTHON=ON \
