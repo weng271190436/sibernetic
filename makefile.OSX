@@ -37,8 +37,8 @@ PYTHON_LDFLAGS := $(shell if [ -n "$(PYTHON)" ]; then "$(PYTHON)" -c "import sys
 
 LIBS := -framework OpenGL -framework GLUT -framework OpenCL
 
-OPENCL_TEST_SRC  := tests/opencl_hash_particles_gtest.cpp
-OPENCL_TEST_HDRS := $(wildcard tests/*.h)
+OPENCL_TEST_SRC  := tests/hash_particles/opencl_hash_particles_gtest.cpp
+OPENCL_TEST_HDRS := $(shell find tests -type f -name '*.h')
 OPENCL_TEST_BIN  := $(BUILDDIR)/opencl_kernel_tests
 OPENCL_TEST_OBJDIR := $(BUILDDIR)/test_obj
 OPENCL_TEST_OBJS := $(patsubst tests/%.cpp,$(OPENCL_TEST_OBJDIR)/%.o,$(filter %.cpp,$(OPENCL_TEST_SRC)))
@@ -82,7 +82,7 @@ $(OPENCL_TEST_BIN): $(OPENCL_TEST_OBJS)
 		-framework OpenCL -framework Metal -framework Foundation
 
 $(OPENCL_TEST_OBJDIR)/%.o: tests/%.cpp $(OPENCL_TEST_HDRS)
-	@mkdir -p $(OPENCL_TEST_OBJDIR)
+	@mkdir -p $(dir $@)
 	$(CXX) $(OPENCL_TEST_CXXFLAGS) -I$(INCDIR) -I$(GTEST_PREFIX)/include -Imetal-cpp -c $< -o $@
 
 test-opencl: bootstrap-test $(OPENCL_TEST_BIN)

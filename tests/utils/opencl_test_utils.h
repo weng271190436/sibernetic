@@ -7,7 +7,7 @@
 
 #include "test_utils.h"
 
-#include "../inc/OpenCL/cl.hpp"
+#include "../../inc/OpenCL/cl.hpp"
 
 namespace SiberneticTest {
 
