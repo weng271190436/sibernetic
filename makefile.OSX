@@ -1,11 +1,14 @@
 TARGET = Sibernetic
 RM := rm -rf
 
+PYTHON ?= $(if $(wildcard ./venv/bin/python),./venv/bin/python,python3)
+
 # All of the sources participating in the build are defined here
 SOURCES = src/owSignalSimulator.cpp \
 src/owVtkExport.cpp \
 src/main.cpp \
 src/owHelper.cpp \
+src/owFastRenderer.cpp \
 src/owOpenCLSolver.cpp \
 src/owPhysicsFluidSimulator.cpp \
 src/owWorldSimulation.cpp \
@@ -25,12 +28,10 @@ OBJECTS += $(BINARYTESTDIR)/owPhysicTest.o
 
 CPP_DEPS = $(OBJECTS:.o=.d)
 
-# Change these to set the different python directories
-PYTHONHEADERDIR = /opt/local/Library/Frameworks/Python.framework/Versions/2.7/include/python2.7/
-PYTHONLIBDIR = /opt/local/Library/Frameworks/Python.framework/Versions/2.7/lib/python2.7/
-PYTHONFRAMEWORKDIR = /Library/Frameworks/
+PYTHON_CFLAGS := $(shell $(PYTHON) -c "import sysconfig; print('-I'+sysconfig.get_paths()['include'])")
+PYTHON_LDFLAGS := $(shell $(PYTHON) -c "import sysconfig; libdir=sysconfig.get_config_var('LIBDIR'); ver=sysconfig.get_config_var('VERSION'); print('-L%s -Wl,-rpath,%s -lpython%s' % (libdir, libdir, ver))")
 
-LIBS := -framework Python -framework OpenGL -framework GLUT -framework OpenCL
+LIBS := -framework OpenGL -framework GLUT -framework OpenCL
 
 
 # All Target
@@ -40,7 +41,7 @@ all: $(TARGET)
 $(TARGET): $(OBJECTS)
 	@echo 'Building target: $@'
 	@echo 'Invoking: clang C++ Linker'
-	g++ -std=c++14 -L/usr/lib -F$(PYTHONFRAMEWORKDIR) -L$(PYTHONLIBDIR) -o $(BUILDDIR)/$(TARGET) $(OBJECTS) $(LIBS)
+	g++ -std=c++14 -L/usr/lib $(PYTHON_LDFLAGS) -o $(BUILDDIR)/$(TARGET) $(OBJECTS) $(LIBS)
 	@echo 'Finished building target: $@'
 	@echo ' '
 
@@ -51,7 +52,7 @@ $(BINARYDIR)/%.o: $(SRCDIR)/%.cpp
 	@echo 'Invoking: clang C++ Compiler'
 #### use this to compile against homebrew installed python
 #### change version number as necessary (2.7.n)
-	g++ -std=c++14 -O3 -Wall -c -I$(PYTHONHEADERDIR) -I$(INCDIR) -framework OpenCL -fmessage-length=0 -MMD -MP -MF"$(@:%.o=%.d)" -MT"$(@:%.o=%.d)" -o "$@" "$<"
+	g++ -std=c++14 -O3 -Wall -c $(PYTHON_CFLAGS) -I$(INCDIR) -framework OpenCL -fmessage-length=0 -MMD -MP -MF"$(@:%.o=%.d)" -MT"$(@:%.o=%.d)" -o "$@" "$<"
 	@echo 'Finished building: $<'
 	@echo ' '
 
