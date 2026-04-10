@@ -37,9 +37,18 @@ PYTHON_LDFLAGS := $(shell if [ -n "$(PYTHON)" ]; then "$(PYTHON)" -c "import sys
 
 LIBS := -framework OpenGL -framework GLUT -framework OpenCL
 
+OPENCL_TEST_SRC  := tests/opencl_hash_particles_gtest.cpp
+OPENCL_TEST_HDRS := $(wildcard tests/*.h)
+OPENCL_TEST_BIN  := $(BUILDDIR)/opencl_kernel_tests
+OPENCL_TEST_CXXFLAGS := -std=c++17 -O2 -Wall
+CLANG_FORMAT ?= clang-format
+GTEST_PREFIX ?= $(shell p=$$(brew --prefix googletest 2>/dev/null); if [ -n "$$p" ] && [ -d "$$p/lib" ]; then echo $$p; elif [ -d /opt/homebrew/opt/googletest/lib ]; then echo /opt/homebrew/opt/googletest; elif [ -d /usr/local/opt/googletest/lib ]; then echo /usr/local/opt/googletest; fi)
+
 
 # All Target
 all: bootstrap $(TARGET)
+
+test: test-opencl
 
 bootstrap:
 	@if [ -z "$(CXX)" ] || ! command -v "$(CXX)" >/dev/null 2>&1; then \
@@ -55,6 +64,22 @@ bootstrap:
 		echo "Creating virtual environment at $(VENV_DIR)"; \
 		"$(HOST_PYTHON)" -m venv "$(VENV_DIR)"; \
 	fi
+
+bootstrap-test: bootstrap
+	@if [ -z "$(GTEST_PREFIX)" ] || [ ! -f "$(GTEST_PREFIX)/include/gtest/gtest.h" ]; then \
+		echo "Error: GoogleTest not found."; \
+		echo "Install it with: brew install googletest"; \
+		exit 1; \
+	fi
+
+$(OPENCL_TEST_BIN): $(OPENCL_TEST_SRC) $(OPENCL_TEST_HDRS)
+	@mkdir -p $(BUILDDIR)
+	$(CXX) $(OPENCL_TEST_CXXFLAGS) -I$(INCDIR) -I$(GTEST_PREFIX)/include \
+		$(OPENCL_TEST_SRC) -o $(OPENCL_TEST_BIN) \
+		-L$(GTEST_PREFIX)/lib -lgtest -lgtest_main -framework OpenCL
+
+test-opencl: bootstrap-test $(OPENCL_TEST_BIN)
+	$(OPENCL_TEST_BIN)
 
 # Tool invocations
 $(TARGET): bootstrap $(OBJECTS)
@@ -76,9 +101,53 @@ $(BINARYDIR)/%.o: $(SRCDIR)/%.cpp
 	@echo ' '
 
 # Other Targets
+bootstrap-format:
+	@set -e; \
+	if command -v "$(CLANG_FORMAT)" >/dev/null 2>&1; then \
+		echo "Using clang-format: $$(command -v "$(CLANG_FORMAT)")"; \
+		exit 0; \
+	fi; \
+	if ! command -v brew >/dev/null 2>&1; then \
+		echo "Error: clang-format not found and Homebrew is not installed."; \
+		echo "Install Homebrew or set CLANG_FORMAT to an existing clang-format binary."; \
+		exit 1; \
+	fi; \
+	echo "Installing clang-format via Homebrew..."; \
+	brew install clang-format; \
+	if ! command -v "$(CLANG_FORMAT)" >/dev/null 2>&1; then \
+		echo "Error: clang-format installation completed but binary is not in PATH."; \
+		echo "Set CLANG_FORMAT to the full binary path and retry."; \
+		exit 1; \
+	fi; \
+	echo "Using clang-format: $$(command -v "$(CLANG_FORMAT)")"
+
+format-tests: bootstrap-format
+	@files="$$(find tests -type f \( -name '*.cpp' -o -name '*.h' \))"; \
+	if [ -z "$$files" ]; then \
+		echo "No test files found under tests/."; \
+		exit 0; \
+	fi; \
+	count=$$(echo "$$files" | wc -w | tr -d '[:space:]'); \
+	echo "Formatting $$count test file(s):"; \
+	for f in $$files; do echo "  - $$f"; done; \
+	"$(CLANG_FORMAT)" -i $$files; \
+	echo "Formatting complete."
+
+format-tests-check: bootstrap-format
+	@files="$$(find tests -type f \( -name '*.cpp' -o -name '*.h' \))"; \
+	if [ -z "$$files" ]; then \
+		echo "No test files found under tests/."; \
+		exit 0; \
+	fi; \
+	count=$$(echo "$$files" | wc -w | tr -d '[:space:]'); \
+	echo "Checking formatting for $$count test file(s):"; \
+	for f in $$files; do echo "  - $$f"; done; \
+	"$(CLANG_FORMAT)" --dry-run --Werror $$files; \
+	echo "Formatting check passed."
+
 clean:
 	-$(RM) $(OBJECTS)$(CPP_DEPS) $(BUILDDIR)/$(TARGET)
 	-@echo ' '
 
-.PHONY: all bootstrap clean dependents
+.PHONY: all test bootstrap bootstrap-test bootstrap-format test-opencl format-tests format-tests-check clean dependents
 .SECONDARY:
