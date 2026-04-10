@@ -211,7 +211,7 @@
 #include <string>
 #endif 
 
-#if defined(linux) || defined(__APPLE__) || defined(__MACOSX)
+#if (defined(linux) || defined(__APPLE__) || defined(__MACOSX)) && (defined(__i386__) || defined(__x86_64__))
 #include <alloca.h>
 
 #include <emmintrin.h>
@@ -1038,7 +1038,13 @@ namespace detail {
 #endif // !_WIN32
     }
 
-    inline void fence() { _mm_mfence(); }
+    inline void fence() {
+#ifdef _WIN32
+        MemoryBarrier();
+#else
+        __sync_synchronize();
+#endif
+    }
 }; // namespace detail
 
     
