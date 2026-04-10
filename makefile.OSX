@@ -40,7 +40,10 @@ LIBS := -framework OpenGL -framework GLUT -framework OpenCL
 OPENCL_TEST_SRC  := tests/opencl_hash_particles_gtest.cpp
 OPENCL_TEST_HDRS := $(wildcard tests/*.h)
 OPENCL_TEST_BIN  := $(BUILDDIR)/opencl_kernel_tests
-OPENCL_TEST_CXXFLAGS := -std=c++17 -O2 -Wall
+OPENCL_TEST_OBJDIR := $(BUILDDIR)/test_obj
+OPENCL_TEST_OBJS := $(patsubst tests/%.cpp,$(OPENCL_TEST_OBJDIR)/%.o,$(filter %.cpp,$(OPENCL_TEST_SRC)))
+CXX_STANDARD ?= c++17
+OPENCL_TEST_CXXFLAGS := -std=$(CXX_STANDARD) -O2 -Wall -fblocks
 CLANG_FORMAT ?= clang-format
 GTEST_PREFIX ?= $(shell p=$$(brew --prefix googletest 2>/dev/null); if [ -n "$$p" ] && [ -d "$$p/lib" ]; then echo $$p; elif [ -d /opt/homebrew/opt/googletest/lib ]; then echo /opt/homebrew/opt/googletest; elif [ -d /usr/local/opt/googletest/lib ]; then echo /usr/local/opt/googletest; fi)
 
@@ -72,11 +75,15 @@ bootstrap-test: bootstrap
 		exit 1; \
 	fi
 
-$(OPENCL_TEST_BIN): $(OPENCL_TEST_SRC) $(OPENCL_TEST_HDRS)
+$(OPENCL_TEST_BIN): $(OPENCL_TEST_OBJS)
 	@mkdir -p $(BUILDDIR)
-	$(CXX) $(OPENCL_TEST_CXXFLAGS) -I$(INCDIR) -I$(GTEST_PREFIX)/include \
-		$(OPENCL_TEST_SRC) -o $(OPENCL_TEST_BIN) \
-		-L$(GTEST_PREFIX)/lib -lgtest -lgtest_main -framework OpenCL
+	$(CXX) $(OPENCL_TEST_CXXFLAGS) $(OPENCL_TEST_OBJS) -o $(OPENCL_TEST_BIN) \
+		-L$(GTEST_PREFIX)/lib -lgtest -lgtest_main \
+		-framework OpenCL -framework Metal -framework Foundation
+
+$(OPENCL_TEST_OBJDIR)/%.o: tests/%.cpp $(OPENCL_TEST_HDRS)
+	@mkdir -p $(OPENCL_TEST_OBJDIR)
+	$(CXX) $(OPENCL_TEST_CXXFLAGS) -I$(INCDIR) -I$(GTEST_PREFIX)/include -Imetal-cpp -c $< -o $@
 
 test-opencl: bootstrap-test $(OPENCL_TEST_BIN)
 	$(OPENCL_TEST_BIN)
@@ -85,7 +92,7 @@ test-opencl: bootstrap-test $(OPENCL_TEST_BIN)
 $(TARGET): bootstrap $(OBJECTS)
 	@echo 'Building target: $@'
 	@echo 'Invoking: clang C++ Linker'
-	$(CXX) -std=c++14 -L/usr/lib $(PYTHON_LDFLAGS) -o $(BUILDDIR)/$(TARGET) $(OBJECTS) $(LIBS)
+	$(CXX) -std=$(CXX_STANDARD) -L/usr/lib $(PYTHON_LDFLAGS) -o $(BUILDDIR)/$(TARGET) $(OBJECTS) $(LIBS)
 	@echo 'Finished building target: $@'
 	@echo ' '
 
@@ -96,7 +103,7 @@ $(BINARYDIR)/%.o: $(SRCDIR)/%.cpp
 	@echo 'Invoking: clang C++ Compiler'
 #### use this to compile against homebrew installed python
 #### change version number as necessary (2.7.n)
-	$(CXX) -std=c++14 -O3 -Wall -c $(PYTHON_CFLAGS) -I$(INCDIR) -framework OpenCL -fmessage-length=0 -MMD -MP -MF"$(@:%.o=%.d)" -MT"$(@:%.o=%.d)" -o "$@" "$<"
+	$(CXX) -std=$(CXX_STANDARD) -O3 -Wall -c $(PYTHON_CFLAGS) -I$(INCDIR) -framework OpenCL -fmessage-length=0 -MMD -MP -MF"$(@:%.o=%.d)" -MT"$(@:%.o=%.d)" -o "$@" "$<"
 	@echo 'Finished building: $<'
 	@echo ' '
 
@@ -146,7 +153,8 @@ format-tests-check: bootstrap-format
 	echo "Formatting check passed."
 
 clean:
-	-$(RM) $(OBJECTS)$(CPP_DEPS) $(BUILDDIR)/$(TARGET)
+	-$(RM) $(OBJECTS) $(CPP_DEPS) $(BUILDDIR)/$(TARGET)
+	-$(RM) $(OPENCL_TEST_OBJS) $(OPENCL_TEST_BIN) $(OPENCL_TEST_OBJDIR)
 	-@echo ' '
 
 .PHONY: all test bootstrap bootstrap-test bootstrap-format test-opencl format-tests format-tests-check clean dependents
