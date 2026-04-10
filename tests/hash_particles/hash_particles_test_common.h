@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -8,17 +9,12 @@
 
 namespace SiberneticTest {
 
-struct HashParticlesFloat4 {
-  float s[4];
-};
-
-struct HashParticlesUInt2 {
-  uint32_t s[2];
-};
+using HashParticlesPosition = std::array<float, 4>;
+using HashParticlesIndexEntry = std::array<uint32_t, 2>;
 
 struct HashParticlesCase {
   const char *name;
-  std::vector<HashParticlesFloat4> positions;
+  std::vector<HashParticlesPosition> positions;
   uint32_t gridCellsX;
   uint32_t gridCellsY;
   uint32_t gridCellsZ;
@@ -30,7 +26,7 @@ struct HashParticlesCase {
 };
 
 struct HashParticlesResult {
-  std::vector<HashParticlesUInt2> particleIndex;
+  std::vector<HashParticlesIndexEntry> particleIndex;
 };
 
 class HashParticlesRunner {
@@ -39,26 +35,22 @@ public:
   virtual HashParticlesResult run(const HashParticlesCase &tc) = 0;
 };
 
-inline HashParticlesFloat4 makeFloat4(float x, float y, float z,
-                                      float w = 0.0f) {
-  HashParticlesFloat4 v;
-  v.s[0] = x;
-  v.s[1] = y;
-  v.s[2] = z;
-  v.s[3] = w;
-  return v;
+inline HashParticlesPosition makeFloat4(float x, float y, float z,
+                                        float w = 0.0f) {
+  return {x, y, z, w};
 }
 
-inline void expectHashParticlesResultMatches(const HashParticlesCase &tc,
-                                             const HashParticlesResult &result) {
+inline void
+expectHashParticlesResultMatches(const HashParticlesCase &tc,
+                                 const HashParticlesResult &result) {
   ASSERT_EQ(tc.positions.size(), tc.expectedCellIds.size());
   ASSERT_EQ(result.particleIndex.size(), tc.expectedCellIds.size());
 
   const uint32_t particleCount =
       static_cast<uint32_t>(result.particleIndex.size());
   for (uint32_t i = 0; i < particleCount; ++i) {
-    EXPECT_EQ(result.particleIndex[i].s[0], tc.expectedCellIds[i]);
-    EXPECT_EQ(result.particleIndex[i].s[1], i);
+    EXPECT_EQ(result.particleIndex[i][0], tc.expectedCellIds[i]);
+    EXPECT_EQ(result.particleIndex[i][1], i);
   }
 }
 
@@ -102,8 +94,8 @@ inline const std::vector<HashParticlesCase> &hashParticlesCases() {
   return kCases;
 }
 
-inline std::string hashParticlesCaseName(
-    const ::testing::TestParamInfo<HashParticlesCase> &info) {
+inline std::string
+hashParticlesCaseName(const ::testing::TestParamInfo<HashParticlesCase> &info) {
   return info.param.name;
 }
 

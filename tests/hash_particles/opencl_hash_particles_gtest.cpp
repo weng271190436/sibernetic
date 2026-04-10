@@ -4,8 +4,8 @@
 
 #include <gtest/gtest.h>
 
-#include "hash_particles_test_common.h"
 #include "../utils/opencl_test_utils.h"
+#include "hash_particles_test_common.h"
 
 using namespace SiberneticTest;
 
@@ -26,10 +26,10 @@ public:
 
     std::vector<cl_float4> positions(tc.positions.size());
     for (size_t i = 0; i < tc.positions.size(); ++i) {
-      positions[i].s[0] = tc.positions[i].s[0];
-      positions[i].s[1] = tc.positions[i].s[1];
-      positions[i].s[2] = tc.positions[i].s[2];
-      positions[i].s[3] = tc.positions[i].s[3];
+      positions[i].s[0] = tc.positions[i][0];
+      positions[i].s[1] = tc.positions[i][1];
+      positions[i].s[2] = tc.positions[i][2];
+      positions[i].s[3] = tc.positions[i][3];
     }
 
     HashParticlesResult result;
@@ -53,14 +53,14 @@ public:
     const cl_uint gridCellsY = static_cast<cl_uint>(tc.gridCellsY);
     const cl_uint gridCellsZ = static_cast<cl_uint>(tc.gridCellsZ);
     const cl_float hashGridCellSizeInv =
-      static_cast<cl_float>(tc.hashGridCellSizeInv);
+        static_cast<cl_float>(tc.hashGridCellSizeInv);
     const cl_float xmin = static_cast<cl_float>(tc.xmin);
     const cl_float ymin = static_cast<cl_float>(tc.ymin);
     const cl_float zmin = static_cast<cl_float>(tc.zmin);
     const cl_uint particleCount = static_cast<cl_uint>(positions.size());
 
     if (kernel.setArg(0, positionBuffer) != CL_SUCCESS ||
-      kernel.setArg(1, gridCellsX) != CL_SUCCESS ||
+        kernel.setArg(1, gridCellsX) != CL_SUCCESS ||
         kernel.setArg(2, gridCellsY) != CL_SUCCESS ||
         kernel.setArg(3, gridCellsZ) != CL_SUCCESS ||
         kernel.setArg(4, hashGridCellSizeInv) != CL_SUCCESS ||
@@ -87,8 +87,8 @@ public:
     }
 
     for (size_t i = 0; i < clResult.size(); ++i) {
-      result.particleIndex[i].s[0] = clResult[i].s[0];
-      result.particleIndex[i].s[1] = clResult[i].s[1];
+      result.particleIndex[i][0] = clResult[i].s[0];
+      result.particleIndex[i][1] = clResult[i].s[1];
     }
 
     return result;
@@ -116,6 +116,6 @@ TEST_P(OpenCLHashParticlesParamTest, ProducesExpectedCellAndSerialIds) {
   expectHashParticlesResultMatches(tc, result);
 }
 
-INSTANTIATE_TEST_SUITE_P(
-    HashParticlesCases, OpenCLHashParticlesParamTest,
-    ::testing::ValuesIn(hashParticlesCases()), hashParticlesCaseName);
+INSTANTIATE_TEST_SUITE_P(HashParticlesCases, OpenCLHashParticlesParamTest,
+                         ::testing::ValuesIn(hashParticlesCases()),
+                         hashParticlesCaseName);

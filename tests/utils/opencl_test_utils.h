@@ -56,16 +56,6 @@ protected:
   cl::CommandQueue queue;
   cl::Program program;
 
-  cl::Kernel createKernel(const char *kernelName) const {
-    cl_int err = CL_SUCCESS;
-    cl::Kernel kernel(program, kernelName, &err);
-    if (err != CL_SUCCESS) {
-      throw std::runtime_error(std::string("Failed to create kernel: ") +
-                               kernelName);
-    }
-    return kernel;
-  }
-
   virtual const char *kernelSourcePath() const { return "src/sphFluid.cl"; }
 
   void SetUp() override {
