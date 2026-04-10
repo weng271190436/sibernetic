@@ -202,6 +202,7 @@
 
 #include <utility>
 #include <limits>
+#include <atomic>
 
 #if !defined(__NO_STD_VECTOR)
 #include <vector>
@@ -214,8 +215,10 @@
 #if defined(linux) || defined(__APPLE__) || defined(__MACOSX)
 #include <alloca.h>
 
+#if defined(__i386__) || defined(__x86_64__) || defined(_M_IX86) || defined(_M_X64)
 #include <emmintrin.h>
 #include <xmmintrin.h>
+#endif
 #endif // linux
 
 #include <cstring>
@@ -1038,7 +1041,14 @@ namespace detail {
 #endif // !_WIN32
     }
 
-    inline void fence() { _mm_mfence(); }
+    inline void fence()
+    {
+#if defined(__i386__) || defined(__x86_64__) || defined(_M_IX86) || defined(_M_X64)
+        _mm_mfence();
+#else
+        std::atomic_thread_fence(std::memory_order_seq_cst);
+#endif
+    }
 }; // namespace detail
 
     

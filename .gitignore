@@ -73,3 +73,9 @@ simulations
 /report.txt
 /cube.sh
 /install_drivers.sh
+
+# Local workspace artifacts
+/.cache/
+/venv/
+/build_opencl/
+/metal-cpp/
