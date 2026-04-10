@@ -1,9 +1,5 @@
-#define NS_PRIVATE_IMPLEMENTATION
-#define MTL_PRIVATE_IMPLEMENTATION
+#pragma once
 
-#include <algorithm>
-#include <cstdint>
-#include <gtest/gtest.h>
 #include <stdexcept>
 #include <vector>
 
@@ -17,24 +13,17 @@
 #include "../../metal-cpp/Metal/MTLComputeCommandEncoder.hpp"
 #include "../../metal-cpp/Metal/MTLComputePipeline.hpp"
 #include "../../metal-cpp/Metal/MTLDevice.hpp"
-#include "../../metal-cpp/Metal/MTLLibrary.hpp"
 #include "../../metal-cpp/Metal/MTLTypes.hpp"
 
-using namespace SiberneticTest;
-
-namespace {
+namespace SiberneticTest {
 
 class MetalHashParticlesRunner : public HashParticlesRunner {
 public:
   HashParticlesResult run(const HashParticlesCase &tc) override {
     MetalKernelContext metal;
-    MTL::Device *device = metal.device();
-    NS::SharedPtr<MTL::Library> library = metal.compileDefaultLibrary();
-    NS::SharedPtr<MTL::Function> function =
-        metal.createFunction(library.get(), "hashParticlesMetal");
-    NS::SharedPtr<MTL::ComputePipelineState> pipeline =
-        metal.createComputePipeline(function.get());
-    NS::SharedPtr<MTL::CommandQueue> queue = metal.createCommandQueue();
+    const NS::SharedPtr<MTL::Device> &device = metal.device();
+    const NS::SharedPtr<MTL::ComputePipelineState> &pipeline = metal.pipeline();
+    const NS::SharedPtr<MTL::CommandQueue> &queue = metal.queue();
 
     std::vector<MetalFloat4> positions(tc.positions.size());
     for (size_t i = 0; i < tc.positions.size(); ++i) {
@@ -47,23 +36,20 @@ public:
     HashParticlesResult result;
     result.particleIndex.resize(positions.size());
 
-    MTL::Buffer *positionBufferRaw = device->newBuffer(
-        positions.data(), sizeof(MetalFloat4) * positions.size(),
-        MTL::ResourceStorageModeShared);
-    if (positionBufferRaw == nullptr) {
+    NS::SharedPtr<MTL::Buffer> positionBuffer = NS::TransferPtr(
+      device->newBuffer(positions.data(),
+                sizeof(MetalFloat4) * positions.size(),
+                MTL::ResourceStorageModeShared));
+    if (positionBuffer.get() == nullptr) {
       throw std::runtime_error("Failed to create Metal position buffer");
     }
-    NS::SharedPtr<MTL::Buffer> positionBuffer =
-        NS::TransferPtr(positionBufferRaw);
 
-    MTL::Buffer *particleIndexBufferRaw =
-        device->newBuffer(sizeof(MetalUInt2) * result.particleIndex.size(),
-                          MTL::ResourceStorageModeShared);
-    if (particleIndexBufferRaw == nullptr) {
+    NS::SharedPtr<MTL::Buffer> particleIndexBuffer = NS::TransferPtr(
+      device->newBuffer(sizeof(MetalUInt2) * result.particleIndex.size(),
+                MTL::ResourceStorageModeShared));
+    if (particleIndexBuffer.get() == nullptr) {
       throw std::runtime_error("Failed to create Metal particleIndex buffer");
     }
-    NS::SharedPtr<MTL::Buffer> particleIndexBuffer =
-        NS::TransferPtr(particleIndexBufferRaw);
 
     const uint32_t gridCellsX = tc.gridCellsX;
     const uint32_t gridCellsY = tc.gridCellsY;
@@ -74,9 +60,20 @@ public:
     const float zmin = tc.zmin;
     const uint32_t particleCount = static_cast<uint32_t>(positions.size());
 
-    MTL::CommandBuffer *commandBuffer = queue->commandBuffer();
-    MTL::ComputeCommandEncoder *encoder =
-        commandBuffer->computeCommandEncoder();
+    MTL::CommandBuffer *commandBufferRaw = queue->commandBuffer();
+    if (commandBufferRaw == nullptr) {
+      throw std::runtime_error("Failed to create Metal command buffer");
+    }
+    NS::SharedPtr<MTL::CommandBuffer> commandBuffer =
+      NS::RetainPtr(commandBufferRaw);
+
+    MTL::ComputeCommandEncoder *encoderRaw =
+      commandBuffer->computeCommandEncoder();
+    if (encoderRaw == nullptr) {
+      throw std::runtime_error("Failed to create Metal compute encoder");
+    }
+    NS::SharedPtr<MTL::ComputeCommandEncoder> encoder =
+      NS::RetainPtr(encoderRaw);
     encoder->setComputePipelineState(pipeline.get());
     encoder->setBuffer(positionBuffer.get(), 0, 0);
     encoder->setBytes(&gridCellsX, sizeof(gridCellsX), 1);
@@ -90,9 +87,11 @@ public:
     encoder->setBytes(&particleCount, sizeof(particleCount), 9);
 
     const NS::UInteger threads = static_cast<NS::UInteger>(particleCount);
-    const NS::UInteger tgWidth = std::max<NS::UInteger>(
-        1, std::min<NS::UInteger>(threads,
-                                  pipeline->maxTotalThreadsPerThreadgroup()));
+    const NS::UInteger tgWidth =
+        std::max<NS::UInteger>(
+            1,
+            std::min<NS::UInteger>(threads,
+                                   pipeline->maxTotalThreadsPerThreadgroup()));
     encoder->dispatchThreads(MTL::Size::Make(threads, 1, 1),
                              MTL::Size::Make(tgWidth, 1, 1));
     encoder->endEncoding();
@@ -101,12 +100,11 @@ public:
     commandBuffer->waitUntilCompleted();
 
     if (commandBuffer->status() != MTL::CommandBufferStatusCompleted) {
-      throw std::runtime_error(
-          "Metal command buffer did not complete successfully");
+      throw std::runtime_error("Metal command buffer did not complete successfully");
     }
 
-    const auto *deviceOut =
-        reinterpret_cast<const MetalUInt2 *>(particleIndexBuffer->contents());
+    const auto *deviceOut = reinterpret_cast<const MetalUInt2 *>(
+        particleIndexBuffer->contents());
     for (size_t i = 0; i < result.particleIndex.size(); ++i) {
       result.particleIndex[i][0] = deviceOut[i].s[0];
       result.particleIndex[i][1] = deviceOut[i].s[1];
@@ -116,22 +114,4 @@ public:
   }
 };
 
-class MetalHashParticlesParamTest
-    : public ::testing::Test,
-      public ::testing::WithParamInterface<HashParticlesCase> {};
-
-} // namespace
-
-TEST_P(MetalHashParticlesParamTest, ProducesExpectedCellAndSerialIds) {
-  const HashParticlesCase &tc = GetParam();
-
-  MetalHashParticlesRunner runner;
-  HashParticlesResult result;
-  ASSERT_NO_THROW(result = runner.run(tc));
-
-  expectHashParticlesResultMatches(tc, result);
-}
-
-INSTANTIATE_TEST_SUITE_P(HashParticlesCases, MetalHashParticlesParamTest,
-                         ::testing::ValuesIn(hashParticlesCases()),
-                         hashParticlesCaseName);
+} // namespace SiberneticTest

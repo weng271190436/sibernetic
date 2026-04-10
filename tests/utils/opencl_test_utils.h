@@ -1,6 +1,7 @@
 #pragma once
 
 #include <stdexcept>
+#include <string>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -48,6 +49,61 @@ inline cl::Device pickDevice() {
 
   throw std::runtime_error("No OpenCL device found");
 }
+
+class OpenCLKernelContext {
+public:
+  static constexpr const char *defaultKernelSourcePath() {
+    return "src/sphFluid.cl";
+  }
+
+  OpenCLKernelContext() {
+    device_ = pickDevice();
+
+    cl_int err = CL_SUCCESS;
+    context_ = cl::Context(device_, nullptr, nullptr, nullptr, &err);
+    if (err != CL_SUCCESS) {
+      throw std::runtime_error("Failed to create OpenCL context");
+    }
+
+    queue_ = cl::CommandQueue(context_, device_, 0, &err);
+    if (err != CL_SUCCESS) {
+      throw std::runtime_error("Failed to create OpenCL command queue");
+    }
+
+    program_ = compileProgramFromSourceFile(defaultKernelSourcePath());
+  }
+
+  const cl::Device &device() const { return device_; }
+  cl::Context &context() { return context_; }
+  cl::CommandQueue &queue() { return queue_; }
+  cl::Program &program() { return program_; }
+
+  cl::Program compileProgramFromSourceFile(const std::string &sourcePath) const {
+    const std::string kernelSource = readTextFile(sourcePath);
+    cl::Program::Sources sources;
+    sources.push_back({kernelSource.c_str(), kernelSource.size()});
+
+    cl_int err = CL_SUCCESS;
+    cl::Program program(context_, sources, &err);
+    if (err != CL_SUCCESS) {
+      throw std::runtime_error("Failed to create OpenCL program");
+    }
+
+    err = program.build({device_});
+    if (err != CL_SUCCESS) {
+      const std::string log = program.getBuildInfo<CL_PROGRAM_BUILD_LOG>(device_);
+      throw std::runtime_error(std::string("OpenCL build failed: ") + log);
+    }
+
+    return program;
+  }
+
+private:
+  cl::Device device_;
+  cl::Context context_;
+  cl::CommandQueue queue_;
+  cl::Program program_;
+};
 
 class OpenCLKernelFixture : public ::testing::Test {
 protected:

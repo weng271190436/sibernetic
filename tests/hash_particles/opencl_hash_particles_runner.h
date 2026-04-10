@@ -1,25 +1,22 @@
-#define CL_TARGET_OPENCL_VERSION 120
+#pragma once
 
+#include <stdexcept>
 #include <vector>
-
-#include <gtest/gtest.h>
 
 #include "../utils/opencl_test_utils.h"
 #include "hash_particles_test_common.h"
 
-using namespace SiberneticTest;
-
-namespace {
+namespace SiberneticTest {
 
 class OpenCLHashParticlesRunner : public HashParticlesRunner {
 public:
-  OpenCLHashParticlesRunner(cl::Context &context, cl::CommandQueue &queue,
-                            cl::Program &program)
-      : context_(context), queue_(queue), program_(program) {}
+  OpenCLHashParticlesRunner() = default;
 
   HashParticlesResult run(const HashParticlesCase &tc) override {
+    OpenCLKernelContext opencl;
+
     cl_int err = CL_SUCCESS;
-    cl::Kernel kernel(program_, "hashParticles", &err);
+    cl::Kernel kernel(opencl.program(), "hashParticles", &err);
     if (err != CL_SUCCESS) {
       throw std::runtime_error("Failed to create kernel: hashParticles");
     }
@@ -35,15 +32,16 @@ public:
     HashParticlesResult result;
     result.particleIndex.resize(positions.size());
 
-    cl::Buffer positionBuffer(context_, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
-                              sizeof(cl_float4) * positions.size(),
-                              positions.data(), &err);
+    cl::Buffer positionBuffer(opencl.context(),
+                  CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
+                  sizeof(cl_float4) * positions.size(),
+                  positions.data(), &err);
     if (err != CL_SUCCESS) {
       throw std::runtime_error("Failed to create position buffer");
     }
 
     cl::Buffer particleIndexBuffer(
-        context_, CL_MEM_WRITE_ONLY,
+      opencl.context(), CL_MEM_WRITE_ONLY,
         sizeof(cl_uint2) * result.particleIndex.size(), nullptr, &err);
     if (err != CL_SUCCESS) {
       throw std::runtime_error("Failed to create particleIndex buffer");
@@ -72,17 +70,17 @@ public:
       throw std::runtime_error("Failed to set kernel args for hashParticles");
     }
 
-    if (queue_.enqueueNDRangeKernel(kernel, cl::NullRange,
-                                    cl::NDRange(particleCount),
-                                    cl::NullRange) != CL_SUCCESS ||
-        queue_.finish() != CL_SUCCESS) {
+    if (opencl.queue().enqueueNDRangeKernel(kernel, cl::NullRange,
+                                            cl::NDRange(particleCount),
+                                            cl::NullRange) != CL_SUCCESS ||
+        opencl.queue().finish() != CL_SUCCESS) {
       throw std::runtime_error("Failed to execute hashParticles kernel");
     }
 
     std::vector<cl_uint2> clResult(result.particleIndex.size());
-    if (queue_.enqueueReadBuffer(particleIndexBuffer, CL_TRUE, 0,
-                                 sizeof(cl_uint2) * clResult.size(),
-                                 clResult.data()) != CL_SUCCESS) {
+    if (opencl.queue().enqueueReadBuffer(particleIndexBuffer, CL_TRUE, 0,
+                                         sizeof(cl_uint2) * clResult.size(),
+                                         clResult.data()) != CL_SUCCESS) {
       throw std::runtime_error("Failed to read particleIndex buffer");
     }
 
@@ -93,29 +91,6 @@ public:
 
     return result;
   }
-
-private:
-  cl::Context &context_;
-  cl::CommandQueue &queue_;
-  cl::Program &program_;
 };
 
-class OpenCLHashParticlesParamTest
-    : public OpenCLKernelFixture,
-      public ::testing::WithParamInterface<HashParticlesCase> {};
-
-} // namespace
-
-TEST_P(OpenCLHashParticlesParamTest, ProducesExpectedCellAndSerialIds) {
-  const HashParticlesCase &tc = GetParam();
-
-  OpenCLHashParticlesRunner runner(context, queue, program);
-  HashParticlesResult result;
-  ASSERT_NO_THROW(result = runner.run(tc));
-
-  expectHashParticlesResultMatches(tc, result);
-}
-
-INSTANTIATE_TEST_SUITE_P(HashParticlesCases, OpenCLHashParticlesParamTest,
-                         ::testing::ValuesIn(hashParticlesCases()),
-                         hashParticlesCaseName);
+} // namespace SiberneticTest

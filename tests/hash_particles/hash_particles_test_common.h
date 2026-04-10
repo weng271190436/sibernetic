@@ -31,6 +31,7 @@ struct HashParticlesResult {
 
 class HashParticlesRunner {
 public:
+  HashParticlesRunner() = default;
   virtual ~HashParticlesRunner() = default;
   virtual HashParticlesResult run(const HashParticlesCase &tc) = 0;
 };
