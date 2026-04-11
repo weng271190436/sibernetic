@@ -37,6 +37,9 @@ kernel void hashParticles(const device float4 *position [[buffer(0)]],
   cellFactors.z = static_cast<int>(p.z * hashGridCellSizeInv);
 
   // Keep low 24 bits to match existing OpenCL behavior.
+  // This limits the simulation to at most 2^24 = 16,777,216 grid cells
+  // (e.g. a 256x256x256 grid). Typical Sibernetic runs use ~32^3-64^3
+  // cells, so this ceiling is never approached in practice.
   const int cell = cellId(cellFactors, gridCellsX, gridCellsY) & 0x00ffffff;
   particleIndex[id] = uint2(static_cast<uint>(cell), id);
 }
@@ -80,47 +83,45 @@ kernel void indexx(const device uint2 *particleIndex [[buffer(0)]],
                    constant uint &gridCellCount [[buffer(1)]],
                    device uint *gridCellIndex [[buffer(2)]],
                    constant uint &particleCount [[buffer(3)]],
-                   uint id [[thread_position_in_grid]]) {
-  if (id > gridCellCount) {
+                   uint targetCellId [[thread_position_in_grid]]) {
+  if (targetCellId > gridCellCount) {
     return;
   }
-  if (id == gridCellCount) {
-    gridCellIndex[id] = particleCount;
+  if (targetCellId == gridCellCount) {
+    gridCellIndex[targetCellId] = particleCount;
     return;
   }
-  if (id == 0) {
-    gridCellIndex[id] = 0;
+  if (targetCellId == 0) {
+    gridCellIndex[targetCellId] = 0;
     return;
   }
 
   int low = 0;
   int high = static_cast<int>(particleCount) - 1;
-  bool converged = false;
   int cellIndex = -1;
-  while (!converged) {
-    if (low > high) {
-      converged = true;
-      cellIndex = -1;
-      continue;
+  while (low <= high) {
+    const int idx = low + (high - low) / 2;
+    const int sampleCellId = static_cast<int>(particleIndex[idx].x);
+
+    if (sampleCellId < static_cast<int>(targetCellId)) {
+      low = idx + 1;
+    } else if (sampleCellId > static_cast<int>(targetCellId)) {
+      high = idx - 1;
+    } else {
+      // Found a match; check if it's the leftmost occurrence.
+      // Guard idx-1 access: when idx==0 there is no previous element,
+      // so this is trivially the left boundary.
+      const bool isLeftBoundary =
+          (idx == 0) ||
+          (static_cast<int>(particleIndex[idx - 1].x) < sampleCellId);
+      if (isLeftBoundary) {
+        cellIndex = idx;
+        break;
+      }
+      high = idx - 1; // keep searching left for the first occurrence
     }
-
-    const int idx = ((high - low) >> 1) + low;
-    const uint2 sample = particleIndex[idx];
-    const int sampleCellId = static_cast<int>(sample.x);
-    const bool isHigh = (sampleCellId > static_cast<int>(id));
-    const bool isLow = (sampleCellId < static_cast<int>(id));
-    const bool isMiddle = !(isHigh || isLow);
-
-    high = isHigh ? idx - 1 : high;
-    low = isLow ? idx + 1 : low;
-
-    const bool zeroCase = (idx == 0 && isMiddle);
-    const int sampleM1CellId =
-        zeroCase ? -1 : static_cast<int>(particleIndex[idx - 1].x);
-    converged = isMiddle && (zeroCase || sampleM1CellId < sampleCellId);
-    cellIndex = converged ? idx : cellIndex;
-    high = (isMiddle && !converged) ? idx - 1 : high;
   }
 
-  gridCellIndex[id] = static_cast<uint>(cellIndex);
+  // cellIndex == -1 when not found; cast to uint gives 0xFFFFFFFF == UINT_MAX.
+  gridCellIndex[targetCellId] = static_cast<uint>(cellIndex);
 }
