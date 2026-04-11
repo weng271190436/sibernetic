@@ -6,8 +6,7 @@ struct TestCase {};
 
 struct TestResult {};
 
-template <typename TCase, typename TResult>
-class TestRunner {
+template <typename TCase, typename TResult> class TestRunner {
 public:
   TestRunner() = default;
   virtual ~TestRunner() = default;

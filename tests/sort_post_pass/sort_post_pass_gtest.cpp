@@ -4,9 +4,9 @@
 #include <memory>
 #include <vector>
 
-#include "sort_post_pass_test_common.h"
-#include "opencl_sort_post_pass_runner.h"
 #include "metal_sort_post_pass_runner.h"
+#include "opencl_sort_post_pass_runner.h"
+#include "sort_post_pass_test_common.h"
 
 using namespace SiberneticTest;
 

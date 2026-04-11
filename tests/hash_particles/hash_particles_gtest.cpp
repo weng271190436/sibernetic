@@ -5,13 +5,13 @@
 #include <vector>
 
 #include "hash_particles_test_common.h"
-#include "opencl_hash_particles_runner.h"
 #include "metal_hash_particles_runner.h"
+#include "opencl_hash_particles_runner.h"
 
 using namespace SiberneticTest;
 
 class HashParticlesBackendParamTest
-  : public ::testing::Test,
+    : public ::testing::Test,
       public ::testing::WithParamInterface<HashParticlesCase> {};
 
 TEST_P(HashParticlesBackendParamTest, AllBackends) {

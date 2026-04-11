@@ -10,8 +10,6 @@ namespace SiberneticTest {
 
 class OpenCLHashParticlesRunner : public HashParticlesRunner {
 public:
-  OpenCLHashParticlesRunner() = default;
-
   HashParticlesResult run(const HashParticlesCase &tc) override {
     OpenCLKernelContext opencl;
 
@@ -29,20 +27,13 @@ public:
       positions[i].s[3] = tc.positions[i][3];
     }
 
-    HashParticlesResult result;
-    result.particleIndex.resize(positions.size());
-
-    cl::Buffer positionBuffer(opencl.context(),
-                  CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
-                  sizeof(cl_float4) * positions.size(),
-                  positions.data(), &err);
+    const cl_uint particleCount = static_cast<cl_uint>(positions.size());
+    auto positionBuf = makeOpenCLReadBuffer(opencl.context(), positions, err);
     if (err != CL_SUCCESS) {
       throw std::runtime_error("Failed to create position buffer");
     }
-
-    cl::Buffer particleIndexBuffer(
-      opencl.context(), CL_MEM_WRITE_ONLY,
-        sizeof(cl_uint2) * result.particleIndex.size(), nullptr, &err);
+    auto particleIndexBuf = makeOpenCLWriteBuffer(
+        opencl.context(), sizeof(cl_uint2) * particleCount, err);
     if (err != CL_SUCCESS) {
       throw std::runtime_error("Failed to create particleIndex buffer");
     }
@@ -55,9 +46,8 @@ public:
     const cl_float xmin = static_cast<cl_float>(tc.xmin);
     const cl_float ymin = static_cast<cl_float>(tc.ymin);
     const cl_float zmin = static_cast<cl_float>(tc.zmin);
-    const cl_uint particleCount = static_cast<cl_uint>(positions.size());
 
-    if (kernel.setArg(0, positionBuffer) != CL_SUCCESS ||
+    if (kernel.setArg(0, positionBuf) != CL_SUCCESS ||
         kernel.setArg(1, gridCellsX) != CL_SUCCESS ||
         kernel.setArg(2, gridCellsY) != CL_SUCCESS ||
         kernel.setArg(3, gridCellsZ) != CL_SUCCESS ||
@@ -65,7 +55,7 @@ public:
         kernel.setArg(5, xmin) != CL_SUCCESS ||
         kernel.setArg(6, ymin) != CL_SUCCESS ||
         kernel.setArg(7, zmin) != CL_SUCCESS ||
-        kernel.setArg(8, particleIndexBuffer) != CL_SUCCESS ||
+        kernel.setArg(8, particleIndexBuf) != CL_SUCCESS ||
         kernel.setArg(9, particleCount) != CL_SUCCESS) {
       throw std::runtime_error("Failed to set kernel args for hashParticles");
     }
@@ -77,18 +67,18 @@ public:
       throw std::runtime_error("Failed to execute hashParticles kernel");
     }
 
-    std::vector<cl_uint2> clResult(result.particleIndex.size());
-    if (opencl.queue().enqueueReadBuffer(particleIndexBuffer, CL_TRUE, 0,
-                                         sizeof(cl_uint2) * clResult.size(),
+    HashParticlesResult result;
+    result.particleIndex.resize(particleCount);
+    std::vector<cl_uint2> clResult(particleCount);
+    if (opencl.queue().enqueueReadBuffer(particleIndexBuf, CL_TRUE, 0,
+                                         sizeof(cl_uint2) * particleCount,
                                          clResult.data()) != CL_SUCCESS) {
       throw std::runtime_error("Failed to read particleIndex buffer");
     }
-
     for (size_t i = 0; i < clResult.size(); ++i) {
       result.particleIndex[i][0] = clResult[i].s[0];
       result.particleIndex[i][1] = clResult[i].s[1];
     }
-
     return result;
   }
 };

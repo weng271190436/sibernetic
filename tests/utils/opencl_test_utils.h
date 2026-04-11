@@ -78,7 +78,8 @@ public:
   cl::CommandQueue &queue() { return queue_; }
   cl::Program &program() { return program_; }
 
-  cl::Program compileProgramFromSourceFile(const std::string &sourcePath) const {
+  cl::Program
+  compileProgramFromSourceFile(const std::string &sourcePath) const {
     const std::string kernelSource = readTextFile(sourcePath);
     cl::Program::Sources sources;
     sources.push_back({kernelSource.c_str(), kernelSource.size()});
@@ -91,7 +92,8 @@ public:
 
     err = program.build({device_});
     if (err != CL_SUCCESS) {
-      const std::string log = program.getBuildInfo<CL_PROGRAM_BUILD_LOG>(device_);
+      const std::string log =
+          program.getBuildInfo<CL_PROGRAM_BUILD_LOG>(device_);
       throw std::runtime_error(std::string("OpenCL build failed: ") + log);
     }
 
@@ -139,5 +141,20 @@ protected:
     }
   }
 };
+
+// Creates a CL_MEM_READ_ONLY buffer pre-loaded with `data`.
+template <typename T>
+cl::Buffer makeOpenCLReadBuffer(cl::Context &ctx, const std::vector<T> &data,
+                                cl_int &err) {
+  return cl::Buffer(
+      ctx, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, sizeof(T) * data.size(),
+      const_cast<void *>(static_cast<const void *>(data.data())), &err);
+}
+
+// Creates a CL_MEM_WRITE_ONLY output buffer of `bytes` bytes.
+inline cl::Buffer makeOpenCLWriteBuffer(cl::Context &ctx, size_t bytes,
+                                        cl_int &err) {
+  return cl::Buffer(ctx, CL_MEM_WRITE_ONLY, bytes, nullptr, &err);
+}
 
 } // namespace SiberneticTest

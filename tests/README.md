@@ -8,16 +8,19 @@ and are run with `make test` from the repo root.
 
 ```
 tests/
+  metal_private_impl.cpp      # Owns NS/MTL_PRIVATE_IMPLEMENTATION (one per binary)
   utils/
     types.h                   # Base structs: TestCase, TestResult, TestRunner<>
     test_utils.h              # readTextFile(), logging macros
-    opencl_test_utils.h       # OpenCLKernelContext (device, context, queue, program)
-    metal_test_utils.h        # MetalKernelContext  (device, library, pipeline, queue)
+    opencl_test_utils.h       # OpenCLKernelContext + makeOpenCLReadBuffer/WriteBuffer
+    metal_test_utils.h        # MetalKernelContext (dispatch, makeMetalInputBuffer/OutputBuffer)
   hash_particles/             # One directory per kernel under test
     hash_particles_test_common.h      # Shared: Case/Result types, test data, assertions
     opencl_hash_particles_runner.h    # OpenCL backend runner
     metal_hash_particles_runner.h     # Metal backend runner
     hash_particles_gtest.cpp          # GoogleTest entry point
+  sort_post_pass/             # sortPostPass kernel tests
+    ...
 ```
 
 ## How to add tests for a new kernel
@@ -89,8 +92,15 @@ class OpenCLMyKernelRunner : public MyKernelRunner {
 public:
   MyKernelResult run(const MyKernelCase &tc) override {
     OpenCLKernelContext opencl;
-    cl::Kernel kernel(opencl.program(), "myKernelFunctionName");
-    // allocate cl::Buffer objects, set args, enqueue, read back
+    cl_int err = CL_SUCCESS;
+    cl::Kernel kernel(opencl.program(), "myKernelFunctionName", &err);
+
+    // 1. Convert input data to CL types
+    // 2. Create buffers using helpers:
+    auto inputBuf  = makeOpenCLReadBuffer(opencl.context(), clInputData, err);
+    auto outputBuf = makeOpenCLWriteBuffer(opencl.context(), outputBytes, err);
+    // 3. Set kernel args, enqueue, finish
+    // 4. Read back and fill MyKernelResult
     MyKernelResult result;
     return result;
   }
@@ -114,8 +124,21 @@ namespace SiberneticTest {
 class MetalMyKernelRunner : public MyKernelRunner {
 public:
   MyKernelResult run(const MyKernelCase &tc) override {
-    MetalKernelContext metal("myMetalFunctionName");   // see note below
-    // create MTL::Buffer objects, encode, dispatch, read back
+    MetalKernelContext metal("myMetalFunctionName");
+    auto *dev = metal.device().get();
+    const uint32_t n = ...;
+
+    // 1. Convert input data to MetalFloat4 / MetalUInt2
+    // 2. Create buffers using helpers:
+    auto inputBuf  = makeMetalInputBuffer(dev, inputVec);
+    auto outputBuf = makeMetalOutputBuffer(dev, outputBytes);
+    // 3. Dispatch — only setBuffer/setBytes calls needed inside the lambda:
+    metal.dispatch(n, [&](MTL::ComputeCommandEncoder *enc) {
+      enc->setBuffer(inputBuf.get(), 0, 0);
+      enc->setBuffer(outputBuf.get(), 0, 1);
+      // ...
+    });
+    // 4. Read back contents and fill MyKernelResult
     MyKernelResult result;
     return result;
   }
@@ -130,8 +153,6 @@ public:
 ### 5. Write `my_kernel_gtest.cpp`
 
 ```cpp
-#define NS_PRIVATE_IMPLEMENTATION
-#define MTL_PRIVATE_IMPLEMENTATION
 #define CL_TARGET_OPENCL_VERSION 120
 
 #include <gtest/gtest.h>

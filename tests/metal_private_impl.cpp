@@ -6,5 +6,5 @@
 #define NS_PRIVATE_IMPLEMENTATION
 #define MTL_PRIVATE_IMPLEMENTATION
 
-#include "../metal-cpp/Foundation/Foundation.hpp"  // IWYU pragma: keep
-#include "../metal-cpp/Metal/Metal.hpp"             // IWYU pragma: keep
+#include "../metal-cpp/Foundation/Foundation.hpp" // IWYU pragma: keep
+#include "../metal-cpp/Metal/Metal.hpp"           // IWYU pragma: keep

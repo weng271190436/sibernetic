@@ -34,9 +34,8 @@ struct SortPostPassResult : public TestResult {
 class SortPostPassRunner
     : public TestRunner<SortPostPassCase, SortPostPassResult> {};
 
-inline void
-expectSortPostPassResultMatches(const SortPostPassCase &tc,
-                                const SortPostPassResult &result) {
+inline void expectSortPostPassResultMatches(const SortPostPassCase &tc,
+                                            const SortPostPassResult &result) {
   const uint32_t n = static_cast<uint32_t>(tc.particleIndex.size());
   ASSERT_EQ(result.sortedPosition.size(), n);
   ASSERT_EQ(result.sortedVelocity.size(), n);
@@ -118,8 +117,8 @@ inline const std::vector<SortPostPassCase> &sortPostPassCases() {
   return kCases;
 }
 
-inline std::string sortPostPassCaseName(
-    const ::testing::TestParamInfo<SortPostPassCase> &info) {
+inline std::string
+sortPostPassCaseName(const ::testing::TestParamInfo<SortPostPassCase> &info) {
   return info.param.name;
 }
 
