@@ -45,7 +45,7 @@ OPENCL_TEST_HDRS := $(shell find tests -type f -name '*.h')
 OPENCL_TEST_BIN  := $(BUILDDIR)/opencl_kernel_tests
 OPENCL_TEST_OBJDIR := $(BUILDDIR)/test_obj
 OPENCL_TEST_OBJS := $(patsubst tests/%.cpp,$(OPENCL_TEST_OBJDIR)/%.o,$(filter %.cpp,$(OPENCL_TEST_SRC)))
-CXX_STANDARD ?= c++17
+CXX_STANDARD ?= c++20
 OPENCL_TEST_CXXFLAGS := -std=$(CXX_STANDARD) -O2 -Wall -fblocks
 CLANG_FORMAT ?= clang-format
 GTEST_PREFIX ?= $(shell p=$$(brew --prefix googletest 2>/dev/null); if [ -n "$$p" ] && [ -d "$$p/lib" ]; then echo $$p; elif [ -d /opt/homebrew/opt/googletest/lib ]; then echo /opt/homebrew/opt/googletest; elif [ -d /usr/local/opt/googletest/lib ]; then echo /usr/local/opt/googletest; fi)

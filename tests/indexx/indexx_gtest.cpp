@@ -7,7 +7,6 @@
 
 using namespace SiberneticTest;
 
-SIB_DEFINE_BACKEND_PARAM_TEST(IndexxBackendParamTest, IndexxCase, IndexxRunner,
-                              OpenCLIndexxRunner, MetalIndexxRunner,
-                              indexxCases, indexxCaseName,
-                              expectIndexxResultMatches);
+SIB_DEFINE_BACKEND_PARAM_TEST(IndexxBackendParamTest, IndexxTestCommon,
+                              IndexxRunner, OpenCLIndexxRunner,
+                              MetalIndexxRunner);

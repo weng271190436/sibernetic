@@ -7,6 +7,7 @@
 
 #include <gtest/gtest.h>
 
+#include "../utils/backend_param_test.h"
 #include "../utils/types.h"
 
 namespace SiberneticTest {
@@ -39,65 +40,70 @@ inline HashParticlesPosition makeFloat4(float x, float y, float z,
   return {x, y, z, w};
 }
 
-inline void
-expectHashParticlesResultMatches(const HashParticlesCase &tc,
-                                 const HashParticlesResult &result) {
-  ASSERT_EQ(tc.positions.size(), tc.expectedCellIds.size());
-  ASSERT_EQ(result.particleIndex.size(), tc.expectedCellIds.size());
+struct HashParticlesTestCommon {
+  using Case = HashParticlesCase;
+  using Result = HashParticlesResult;
 
-  const uint32_t particleCount =
-      static_cast<uint32_t>(result.particleIndex.size());
-  for (uint32_t i = 0; i < particleCount; ++i) {
-    EXPECT_EQ(result.particleIndex[i][0], tc.expectedCellIds[i]);
-    EXPECT_EQ(result.particleIndex[i][1], i);
+  static const std::vector<Case> &cases() {
+    static const std::vector<Case> kCases = {
+        HashParticlesCase{
+            {},
+            "UnitCellSize_4x4x4",
+            {makeFloat4(0.1f, 0.1f, 0.1f), makeFloat4(1.2f, 0.1f, 0.1f),
+             makeFloat4(0.2f, 1.7f, 0.1f), makeFloat4(2.8f, 3.1f, 1.0f)},
+            4,
+            4,
+            4,
+            1.0f,
+            0.0f,
+            0.0f,
+            0.0f,
+            {
+                0, // p0 -> cell (0,0,0)
+                1, // p1 -> cell (1,0,0)
+                4, // p2 -> cell (0,1,0)
+                30 // p3 -> cell (2,3,1)
+            }},
+        HashParticlesCase{
+            {},
+            "HalfCellSize_8x8x8",
+            {makeFloat4(0.1f, 0.1f, 0.1f), makeFloat4(0.6f, 0.1f, 0.1f),
+             makeFloat4(0.1f, 0.6f, 0.1f), makeFloat4(1.1f, 1.1f, 0.6f)},
+            8,
+            8,
+            8,
+            2.0f,
+            0.0f,
+            0.0f,
+            0.0f,
+            {
+                0, // p0 -> cell (0,0,0)
+                1, // p1 -> cell (1,0,0)
+                8, // p2 -> cell (0,1,0)
+                82 // p3 -> cell (2,2,1)
+            }},
+    };
+    return kCases;
   }
-}
 
-inline const std::vector<HashParticlesCase> &hashParticlesCases() {
-  static const std::vector<HashParticlesCase> kCases = {
-      HashParticlesCase{
-          {},
-          "UnitCellSize_4x4x4",
-          {makeFloat4(0.1f, 0.1f, 0.1f), makeFloat4(1.2f, 0.1f, 0.1f),
-           makeFloat4(0.2f, 1.7f, 0.1f), makeFloat4(2.8f, 3.1f, 1.0f)},
-          4,
-          4,
-          4,
-          1.0f,
-          0.0f,
-          0.0f,
-          0.0f,
-          {
-              0, // p0 -> cell (0,0,0)
-              1, // p1 -> cell (1,0,0)
-              4, // p2 -> cell (0,1,0)
-              30 // p3 -> cell (2,3,1)
-          }},
-      HashParticlesCase{
-          {},
-          "HalfCellSize_8x8x8",
-          {makeFloat4(0.1f, 0.1f, 0.1f), makeFloat4(0.6f, 0.1f, 0.1f),
-           makeFloat4(0.1f, 0.6f, 0.1f), makeFloat4(1.1f, 1.1f, 0.6f)},
-          8,
-          8,
-          8,
-          2.0f,
-          0.0f,
-          0.0f,
-          0.0f,
-          {
-              0, // p0 -> cell (0,0,0)
-              1, // p1 -> cell (1,0,0)
-              8, // p2 -> cell (0,1,0)
-              82 // p3 -> cell (2,2,1)
-          }},
-  };
-  return kCases;
-}
+  static std::string
+  caseName(const ::testing::TestParamInfo<Case> &info) {
+    return info.param.name;
+  }
 
-inline std::string
-hashParticlesCaseName(const ::testing::TestParamInfo<HashParticlesCase> &info) {
-  return info.param.name;
-}
+  static void expect(const Case &tc, const Result &result) {
+    ASSERT_EQ(tc.positions.size(), tc.expectedCellIds.size());
+    ASSERT_EQ(result.particleIndex.size(), tc.expectedCellIds.size());
+
+    const uint32_t particleCount =
+        static_cast<uint32_t>(result.particleIndex.size());
+    for (uint32_t i = 0; i < particleCount; ++i) {
+      EXPECT_EQ(result.particleIndex[i][0], tc.expectedCellIds[i]);
+      EXPECT_EQ(result.particleIndex[i][1], i);
+    }
+  }
+};
+
+static_assert(SiberneticTest::SibTestCommon<SiberneticTest::HashParticlesTestCommon>);
 
 } // namespace SiberneticTest

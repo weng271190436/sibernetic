@@ -8,6 +8,5 @@
 using namespace SiberneticTest;
 
 SIB_DEFINE_BACKEND_PARAM_TEST(
-    HashParticlesBackendParamTest, HashParticlesCase, HashParticlesRunner,
-    OpenCLHashParticlesRunner, MetalHashParticlesRunner, hashParticlesCases,
-    hashParticlesCaseName, expectHashParticlesResultMatches);
+    HashParticlesBackendParamTest, HashParticlesTestCommon, HashParticlesRunner,
+    OpenCLHashParticlesRunner, MetalHashParticlesRunner);
