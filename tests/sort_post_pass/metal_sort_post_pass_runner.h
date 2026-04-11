@@ -9,6 +9,16 @@
 
 namespace SiberneticTest {
 
+inline std::vector<uint32_t>
+convertMetalSortPostPassIndexBack(const uint32_t *src, size_t n) {
+  return std::vector<uint32_t>(src, src + n);
+}
+
+inline std::vector<HostFloat4>
+convertMetalSortPostPassFloat4(const MetalFloat4 *src, size_t n) {
+  return toHostFloat4Vector(src, n);
+}
+
 class MetalSortPostPassRunner : public SortPostPassRunner {
 public:
   SortPostPassResult run(const SortPostPassCase &tc) override {
@@ -31,29 +41,31 @@ public:
     auto sortedVelocityBuf =
         makeMetalOutputBuffer(dev, sizeof(MetalFloat4) * n);
 
-    metal.dispatch(n, [&](MTL::ComputeCommandEncoder *enc) {
-      enc->setBuffer(particleIndexBuf.get(), 0, 0);
-      enc->setBuffer(particleIndexBackBuf.get(), 0, 1);
-      enc->setBuffer(positionBuf.get(), 0, 2);
-      enc->setBuffer(velocityBuf.get(), 0, 3);
-      enc->setBuffer(sortedPositionBuf.get(), 0, 4);
-      enc->setBuffer(sortedVelocityBuf.get(), 0, 5);
-      enc->setBytes(&n, sizeof(n), 6);
-    });
-
     SortPostPassResult result;
-    result.particleIndexBack.resize(n);
-    const auto *outPos =
-        reinterpret_cast<const MetalFloat4 *>(sortedPositionBuf->contents());
-    const auto *outVel =
-        reinterpret_cast<const MetalFloat4 *>(sortedVelocityBuf->contents());
-    const auto *outBack =
-        reinterpret_cast<const uint32_t *>(particleIndexBackBuf->contents());
-    result.sortedPosition = toHostFloat4Vector(outPos, n);
-    result.sortedVelocity = toHostFloat4Vector(outVel, n);
-    for (size_t i = 0; i < n; ++i) {
-      result.particleIndexBack[i] = outBack[i];
-    }
+    auto outIndexBack =
+      makeMetalOutputFieldBinding<SortPostPassResult, uint32_t, uint32_t>(
+        1, particleIndexBackBuf, n, &SortPostPassResult::particleIndexBack,
+        convertMetalSortPostPassIndexBack);
+    auto outSortedPosition =
+      makeMetalOutputFieldBinding<SortPostPassResult, MetalFloat4,
+                    HostFloat4>(
+        4, sortedPositionBuf, n, &SortPostPassResult::sortedPosition,
+        convertMetalSortPostPassFloat4);
+    auto outSortedVelocity =
+      makeMetalOutputFieldBinding<SortPostPassResult, MetalFloat4,
+                    HostFloat4>(
+        5, sortedVelocityBuf, n, &SortPostPassResult::sortedVelocity,
+        convertMetalSortPostPassFloat4);
+
+    std::vector<MetalKernelArg> args = {
+        makeMetalInputArg(0, particleIndexBuf),
+        makeMetalInputArg(2, positionBuf),
+        makeMetalInputArg(3, velocityBuf),
+        makeMetalScalarArg(6, n),
+    };
+
+    runMetalKernelSpecAndStore(metal, n, std::move(args), result, outIndexBack,
+                   outSortedPosition, outSortedVelocity);
     return result;
   }
 };

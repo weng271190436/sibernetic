@@ -9,6 +9,15 @@
 
 namespace SiberneticTest {
 
+inline std::vector<FindNeighborsEntry>
+convertMetalFindNeighborsMap(const MetalFloat2 *src, size_t n) {
+  std::vector<FindNeighborsEntry> out(n);
+  for (size_t i = 0; i < n; ++i) {
+    out[i] = {src[i].s[0], src[i].s[1]};
+  }
+  return out;
+}
+
 class MetalFindNeighborsRunner : public FindNeighborsRunner {
 public:
   FindNeighborsResult run(const FindNeighborsCase &tc) override {
@@ -40,31 +49,32 @@ public:
     const float ymin = tc.ymin;
     const float zmin = tc.zmin;
 
-    metal.dispatch(particleCount, [&](MTL::ComputeCommandEncoder *enc) {
-      enc->setBuffer(gridCellIndexBuf.get(), 0, 0);
-      enc->setBuffer(sortedPositionBuf.get(), 0, 1);
-      enc->setBytes(&gridCellCount, sizeof(gridCellCount), 2);
-      enc->setBytes(&gridCellsX, sizeof(gridCellsX), 3);
-      enc->setBytes(&gridCellsY, sizeof(gridCellsY), 4);
-      enc->setBytes(&gridCellsZ, sizeof(gridCellsZ), 5);
-      enc->setBytes(&h, sizeof(h), 6);
-      enc->setBytes(&hashGridCellSize, sizeof(hashGridCellSize), 7);
-      enc->setBytes(&hashGridCellSizeInv, sizeof(hashGridCellSizeInv), 8);
-      enc->setBytes(&simulationScale, sizeof(simulationScale), 9);
-      enc->setBytes(&xmin, sizeof(xmin), 10);
-      enc->setBytes(&ymin, sizeof(ymin), 11);
-      enc->setBytes(&zmin, sizeof(zmin), 12);
-      enc->setBuffer(neighborMapBuf.get(), 0, 13);
-      enc->setBytes(&particleCount, sizeof(particleCount), 14);
-    });
-
     FindNeighborsResult result;
-    result.neighborMap.resize(neighborCount);
-    const auto *out =
-        reinterpret_cast<const MetalFloat2 *>(neighborMapBuf->contents());
-    for (size_t i = 0; i < neighborCount; ++i) {
-      result.neighborMap[i] = {out[i].s[0], out[i].s[1]};
-    }
+    auto outNeighborMap =
+      makeMetalOutputFieldBinding<FindNeighborsResult, MetalFloat2,
+                    FindNeighborsEntry>(
+        13, neighborMapBuf, neighborCount, &FindNeighborsResult::neighborMap,
+        convertMetalFindNeighborsMap);
+
+    std::vector<MetalKernelArg> args = {
+        makeMetalInputArg(0, gridCellIndexBuf),
+        makeMetalInputArg(1, sortedPositionBuf),
+        makeMetalScalarArg(2, gridCellCount),
+        makeMetalScalarArg(3, gridCellsX),
+        makeMetalScalarArg(4, gridCellsY),
+        makeMetalScalarArg(5, gridCellsZ),
+        makeMetalScalarArg(6, h),
+        makeMetalScalarArg(7, hashGridCellSize),
+        makeMetalScalarArg(8, hashGridCellSizeInv),
+        makeMetalScalarArg(9, simulationScale),
+        makeMetalScalarArg(10, xmin),
+        makeMetalScalarArg(11, ymin),
+        makeMetalScalarArg(12, zmin),
+        makeMetalScalarArg(14, particleCount),
+    };
+
+    runMetalKernelSpecAndStore(metal, particleCount, std::move(args), result,
+                               outNeighborMap);
     return result;
   }
 };

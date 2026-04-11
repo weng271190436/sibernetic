@@ -9,6 +9,11 @@
 
 namespace SiberneticTest {
 
+inline std::vector<uint32_t> convertMetalIndexxGridCellIndex(const uint32_t *src,
+                                                             size_t n) {
+  return std::vector<uint32_t>(src, src + n);
+}
+
 class MetalIndexxRunner : public IndexxRunner {
 public:
   IndexxResult run(const IndexxCase &tc) override {
@@ -27,20 +32,20 @@ public:
     auto gridCellIndexBuf =
         makeMetalOutputBuffer(dev, sizeof(uint32_t) * threadCount);
 
-    metal.dispatch(threadCount, [&](MTL::ComputeCommandEncoder *enc) {
-      enc->setBuffer(particleIndexBuf.get(), 0, 0);
-      enc->setBytes(&gridCellCount, sizeof(gridCellCount), 1);
-      enc->setBuffer(gridCellIndexBuf.get(), 0, 2);
-      enc->setBytes(&particleCount, sizeof(particleCount), 3);
-    });
-
     IndexxResult result;
-    result.gridCellIndex.resize(threadCount);
-    const auto *out =
-        reinterpret_cast<const uint32_t *>(gridCellIndexBuf->contents());
-    for (size_t i = 0; i < threadCount; ++i) {
-      result.gridCellIndex[i] = out[i];
-    }
+    auto outGridCellIndex =
+        makeMetalOutputFieldBinding<IndexxResult, uint32_t, uint32_t>(
+            2, gridCellIndexBuf, threadCount, &IndexxResult::gridCellIndex,
+            convertMetalIndexxGridCellIndex);
+
+    std::vector<MetalKernelArg> args = {
+        makeMetalInputArg(0, particleIndexBuf),
+        makeMetalScalarArg(1, gridCellCount),
+        makeMetalScalarArg(3, particleCount),
+    };
+
+    runMetalKernelSpecAndStore(metal, threadCount, std::move(args), result,
+                               outGridCellIndex);
     return result;
   }
 };
