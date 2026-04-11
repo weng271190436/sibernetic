@@ -1,11 +1,20 @@
 #include <metal_stdlib>
 using namespace metal;
 
+constant int kMaxNeighborCount = 32;
+constant int kNoParticleId = -1;
+
 // Flattens 3D grid coordinates (x,y,z) into a linear cell id.
 inline int cellId(int3 cellFactors, uint gridCellsX, uint gridCellsY) {
   return cellFactors.x + cellFactors.y * static_cast<int>(gridCellsX) +
          cellFactors.z * static_cast<int>(gridCellsX) *
              static_cast<int>(gridCellsY);
+}
+
+inline int3 cellFactors(float4 position, float hashGridCellSizeInv) {
+  return int3(static_cast<int>(position.x * hashGridCellSizeInv),
+              static_cast<int>(position.y * hashGridCellSizeInv),
+              static_cast<int>(position.z * hashGridCellSizeInv));
 }
 
 // Computes each particle's spatial hash cell and writes (cellId, serialId)
@@ -130,4 +139,147 @@ kernel void indexx(const device uint2 *particleIndex [[buffer(0)]],
 
   // cellIndex == -1 when not found; cast to uint gives 0xFFFFFFFF == UINT_MAX.
   gridCellIndex[targetCellId] = static_cast<uint>(cellIndex);
+}
+
+inline int getMaxIndex(thread const float *values) {
+  int result = 0;
+  float maxValue = -1.0f;
+  for (int i = 0; i < kMaxNeighborCount; ++i) {
+    if (values[i] > maxValue) {
+      maxValue = values[i];
+      result = i;
+    }
+  }
+  return result;
+}
+
+inline int searchForNeighbors_b(
+    int searchCell, const device uint *gridCellIndex, float4 position,
+    int myParticleId, const device float4 *sortedPosition, device float2 *neighborMap,
+    thread int *closestIndexes, thread float *closestDistances, int lastFarthest,
+    thread int &foundCount) {
+  const int baseParticleId = static_cast<int>(gridCellIndex[searchCell]);
+  const int nextParticleId = static_cast<int>(gridCellIndex[searchCell + 1]);
+  const int particleCountThisCell = nextParticleId - baseParticleId;
+
+  int farthestNeighbor = lastFarthest;
+  for (int i = 0; i < particleCountThisCell; ++i) {
+    const int neighborParticleId = baseParticleId + i;
+    if (myParticleId == neighborParticleId) {
+      continue;
+    }
+
+    const float4 d = position - sortedPosition[neighborParticleId];
+    const float distanceSquared = d.x * d.x + d.y * d.y + d.z * d.z;
+    if (distanceSquared <= closestDistances[farthestNeighbor]) {
+      closestDistances[farthestNeighbor] = distanceSquared;
+      closestIndexes[farthestNeighbor] = neighborParticleId;
+      if (foundCount < kMaxNeighborCount - 1) {
+        ++foundCount;
+        farthestNeighbor = foundCount;
+      } else {
+        farthestNeighbor = getMaxIndex(closestDistances);
+      }
+    }
+  }
+  return farthestNeighbor;
+}
+
+inline int searchCell(int cell, int deltaX, int deltaY, int deltaZ,
+                      uint gridCellsX, uint gridCellsY, uint gridCellCount) {
+  const int dx = deltaX;
+  const int dy = deltaY * static_cast<int>(gridCellsX);
+  const int dz = deltaZ * static_cast<int>(gridCellsX) *
+                 static_cast<int>(gridCellsY);
+  int newCell = cell + dx + dy + dz;
+  const int gridCellCountInt = static_cast<int>(gridCellCount);
+  newCell = (newCell < 0) ? (newCell + gridCellCountInt) : newCell;
+  newCell = (newCell >= gridCellCountInt) ? (newCell - gridCellCountInt) : newCell;
+  return newCell;
+}
+
+kernel void findNeighbors(const device uint *gridCellIndexFixedUp [[buffer(0)]],
+                          const device float4 *sortedPosition [[buffer(1)]],
+                          constant uint &gridCellCount [[buffer(2)]],
+                          constant uint &gridCellsX [[buffer(3)]],
+                          constant uint &gridCellsY [[buffer(4)]],
+                          constant uint &gridCellsZ [[buffer(5)]],
+                          constant float &h [[buffer(6)]],
+                          constant float &hashGridCellSize [[buffer(7)]],
+                          constant float &hashGridCellSizeInv [[buffer(8)]],
+                          constant float &simulationScale [[buffer(9)]],
+                          constant float &xmin [[buffer(10)]],
+                          constant float &ymin [[buffer(11)]],
+                          constant float &zmin [[buffer(12)]],
+                          device float2 *neighborMap [[buffer(13)]],
+                          constant uint &particleCount [[buffer(14)]],
+                          uint id [[thread_position_in_grid]]) {
+  if (id >= particleCount) {
+    return;
+  }
+
+  (void)gridCellsZ;
+
+  const device uint *gridCellIndex = gridCellIndexFixedUp;
+  const float4 position = sortedPosition[id];
+  const int myCellId = static_cast<int>(position.w) & 0x00ffffff;
+
+  int searchCells[8];
+  searchCells[0] = myCellId;
+
+  const float rThresholdSquared = h * h;
+  float closestDistances[kMaxNeighborCount];
+  int closestIndexes[kMaxNeighborCount];
+  int foundCount = 0;
+  for (int k = 0; k < kMaxNeighborCount; ++k) {
+    closestDistances[k] = rThresholdSquared;
+    closestIndexes[k] = kNoParticleId;
+  }
+
+  // Determine which neighboring cells to probe based on position inside cell.
+  const float4 p = position - float4(xmin, ymin, zmin, 0.0f);
+  const int3 cf = cellFactors(position, hashGridCellSizeInv);
+  const float3 cfCorner =
+      float3(cf.x * hashGridCellSize, cf.y * hashGridCellSize,
+             cf.z * hashGridCellSize);
+  const bool3 lowHalf =
+      bool3((p.x - cfCorner.x) < h, (p.y - cfCorner.y) < h, (p.z - cfCorner.z) < h);
+  const int3 delta = int3(1 + 2 * static_cast<int>(lowHalf.x),
+                          1 + 2 * static_cast<int>(lowHalf.y),
+                          1 + 2 * static_cast<int>(lowHalf.z));
+
+  searchCells[1] = searchCell(myCellId, delta.x, 0, 0, gridCellsX, gridCellsY,
+                              gridCellCount);
+  searchCells[2] = searchCell(myCellId, 0, delta.y, 0, gridCellsX, gridCellsY,
+                              gridCellCount);
+  searchCells[3] = searchCell(myCellId, 0, 0, delta.z, gridCellsX, gridCellsY,
+                              gridCellCount);
+  searchCells[4] = searchCell(myCellId, delta.x, delta.y, 0, gridCellsX,
+                              gridCellsY, gridCellCount);
+  searchCells[5] = searchCell(myCellId, delta.x, 0, delta.z, gridCellsX,
+                              gridCellsY, gridCellCount);
+  searchCells[6] = searchCell(myCellId, 0, delta.y, delta.z, gridCellsX,
+                              gridCellsY, gridCellCount);
+  searchCells[7] = searchCell(myCellId, delta.x, delta.y, delta.z, gridCellsX,
+                              gridCellsY, gridCellCount);
+
+  int lastFarthest = 0;
+  for (int i = 0; i < 8; ++i) {
+    lastFarthest =
+        searchForNeighbors_b(searchCells[i], gridCellIndex, position,
+                             static_cast<int>(id), sortedPosition, neighborMap,
+                             closestIndexes, closestDistances, lastFarthest,
+                             foundCount);
+  }
+
+  for (int j = 0; j < kMaxNeighborCount; ++j) {
+    float2 neighborData;
+    neighborData.x = static_cast<float>(closestIndexes[j]);
+    if (closestIndexes[j] >= 0) {
+      neighborData.y = sqrt(closestDistances[j]) * simulationScale;
+    } else {
+      neighborData.y = -1.0f;
+    }
+    neighborMap[id * kMaxNeighborCount + static_cast<uint>(j)] = neighborData;
+  }
 }

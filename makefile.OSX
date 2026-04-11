@@ -39,6 +39,7 @@ LIBS := -framework OpenGL -framework GLUT -framework OpenCL
 
 OPENCL_TEST_SRC := tests/metal_private_impl.cpp \
 				   tests/hash_particles/hash_particles_gtest.cpp \
+				   tests/find_neighbors/find_neighbors_gtest.cpp \
 				   tests/indexx/indexx_gtest.cpp \
 				   tests/sort_post_pass/sort_post_pass_gtest.cpp
 OPENCL_TEST_HDRS := $(shell find tests -type f -name '*.h')

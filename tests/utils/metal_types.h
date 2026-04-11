@@ -4,6 +4,10 @@
 
 namespace SiberneticTest {
 
+struct MetalFloat2 {
+  float s[2];
+};
+
 struct MetalFloat4 {
   float s[4];
 };
