@@ -20,7 +20,7 @@ namespace SiberneticTest {
 class MetalHashParticlesRunner : public HashParticlesRunner {
 public:
   HashParticlesResult run(const HashParticlesCase &tc) override {
-    MetalKernelContext metal;
+    MetalKernelContext metal("hashParticlesMetal");
     const NS::SharedPtr<MTL::Device> &device = metal.device();
     const NS::SharedPtr<MTL::ComputePipelineState> &pipeline = metal.pipeline();
     const NS::SharedPtr<MTL::CommandQueue> &queue = metal.queue();

@@ -124,10 +124,8 @@ public:
 } // namespace SiberneticTest
 ```
 
-> **`MetalKernelContext` kernel name:** `MetalKernelContext` currently hardcodes
-> `"hashParticlesMetal"` via `defaultKernelFunctionName()`. Before writing a
-> Metal runner for a new kernel you will need to add a constructor overload that
-> accepts the function name as a parameter.
+> **`MetalKernelContext` kernel name:** Pass the Metal function name as the
+> constructor argument: `MetalKernelContext metal("myMetalFunctionName")`.
 
 ### 5. Write `my_kernel_gtest.cpp`
 

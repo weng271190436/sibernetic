@@ -29,11 +29,7 @@ public:
     return "src/metal/sphFluid.metal";
   }
 
-  static constexpr const char *defaultKernelFunctionName() {
-    return "hashParticlesMetal";
-  }
-
-  MetalKernelContext() {
+  explicit MetalKernelContext(const char *kernelFunctionName) {
     autoreleasePool_ = NS::AutoreleasePool::alloc()->init();
     device_ = NS::TransferPtr(MTL::CreateSystemDefaultDevice());
     if (device_.get() == nullptr) {
@@ -45,7 +41,7 @@ public:
     }
 
     library_ = compileLibraryFromSourceFile(defaultLibrarySourcePath());
-    function_ = createFunction(defaultKernelFunctionName());
+    function_ = createFunction(kernelFunctionName);
     pipeline_ = createComputePipeline(function_);
     queue_ = createCommandQueue();
   }

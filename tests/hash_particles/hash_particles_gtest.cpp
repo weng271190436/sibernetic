@@ -1,6 +1,3 @@
-#define NS_PRIVATE_IMPLEMENTATION
-#define MTL_PRIVATE_IMPLEMENTATION
-
 #define CL_TARGET_OPENCL_VERSION 120
 
 #include <gtest/gtest.h>
