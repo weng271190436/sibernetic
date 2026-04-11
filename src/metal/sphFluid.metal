@@ -79,6 +79,12 @@ kernel void sortPostPass(const device uint2 *particleIndex [[buffer(0)]],
 // For each cell id, finds the first index in sorted particleIndex whose
 // particle belongs to that cell. Empty cells get UINT_MAX; slot gridCellCount
 // stores PARTICLE_COUNT as the end sentinel.
+// TODO(weiweng): Revisit this after full Metal kernel port. Consider replacing
+// per-cell binary search with a linear boundary-scan build:
+// 1) initialize gridCellIndex to UINT_MAX,
+// 2) launch one thread per sorted particle index,
+// 3) write start index when cell id changes,
+// 4) set gridCellIndex[gridCellCount] = particleCount.
 kernel void indexx(const device uint2 *particleIndex [[buffer(0)]],
                    constant uint &gridCellCount [[buffer(1)]],
                    device uint *gridCellIndex [[buffer(2)]],
