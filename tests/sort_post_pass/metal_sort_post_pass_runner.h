@@ -16,7 +16,8 @@ public:
     auto *dev = metal.device().get();
     const uint32_t n = static_cast<uint32_t>(tc.particleIndex.size());
 
-    std::vector<MetalUInt2> particleIndex = toMetalUInt2Vector(tc.particleIndex);
+    std::vector<MetalUInt2> particleIndex =
+        toMetalUInt2Vector(tc.particleIndex);
     std::vector<MetalFloat4> position = toMetalFloat4Vector(tc.position);
     std::vector<MetalFloat4> velocity = toMetalFloat4Vector(tc.velocity);
 

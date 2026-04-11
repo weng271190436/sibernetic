@@ -7,6 +7,7 @@
 
 using namespace SiberneticTest;
 
-SIB_DEFINE_BACKEND_PARAM_TEST(
-    SortPostPassBackendParamTest, SortPostPassTestCommon, SortPostPassRunner,
-    OpenCLSortPostPassRunner, MetalSortPostPassRunner);
+SIB_DEFINE_BACKEND_PARAM_TEST(SortPostPassBackendParamTest,
+                              SortPostPassTestCommon, SortPostPassRunner,
+                              OpenCLSortPostPassRunner,
+                              MetalSortPostPassRunner);

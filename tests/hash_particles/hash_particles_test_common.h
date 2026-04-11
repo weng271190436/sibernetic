@@ -85,8 +85,7 @@ struct HashParticlesTestCommon {
     return kCases;
   }
 
-  static std::string
-  caseName(const ::testing::TestParamInfo<Case> &info) {
+  static std::string caseName(const ::testing::TestParamInfo<Case> &info) {
     return info.param.name;
   }
 
@@ -103,6 +102,7 @@ struct HashParticlesTestCommon {
   }
 };
 
-static_assert(SiberneticTest::SibTestCommon<SiberneticTest::HashParticlesTestCommon>);
+static_assert(
+    SiberneticTest::SibTestCommon<SiberneticTest::HashParticlesTestCommon>);
 
 } // namespace SiberneticTest

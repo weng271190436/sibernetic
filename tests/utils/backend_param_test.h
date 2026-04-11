@@ -1,9 +1,9 @@
 #pragma once
 
 #include <concepts>
-#include <memory>  // IWYU pragma: keep
+#include <memory> // IWYU pragma: keep
 #include <string>
-#include <vector>  // IWYU pragma: keep
+#include <vector> // IWYU pragma: keep
 
 #include <gtest/gtest.h>
 
@@ -26,13 +26,12 @@ concept SibTestCommon = requires {
 
 } // namespace SiberneticTest
 
-#define SIB_DEFINE_BACKEND_PARAM_TEST(                                        \
-    SuiteName, TestCommon, RunnerBaseType, OpenCLRunnerType, MetalRunnerType) \
-  static_assert(SiberneticTest::SibTestCommon<TestCommon>,                    \
+#define SIB_DEFINE_BACKEND_PARAM_TEST(SuiteName, TestCommon, RunnerBaseType,   \
+                                      OpenCLRunnerType, MetalRunnerType)       \
+  static_assert(SiberneticTest::SibTestCommon<TestCommon>,                     \
                 #TestCommon " does not satisfy SibTestCommon");                \
-  class SuiteName : public ::testing::Test,                                   \
-                    public ::testing::WithParamInterface<                      \
-                        TestCommon::Case> {};                                  \
+  class SuiteName : public ::testing::Test,                                    \
+                    public ::testing::WithParamInterface<TestCommon::Case> {}; \
                                                                                \
   TEST_P(SuiteName, AllBackends) {                                             \
     const TestCommon::Case &tc = GetParam();                                   \

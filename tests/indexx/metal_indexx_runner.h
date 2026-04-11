@@ -15,10 +15,12 @@ public:
     MetalKernelContext metal("indexx");
     auto *dev = metal.device().get();
 
-    std::vector<MetalUInt2> particleIndex = toMetalUInt2Vector(tc.particleIndex);
+    std::vector<MetalUInt2> particleIndex =
+        toMetalUInt2Vector(tc.particleIndex);
 
     const uint32_t gridCellCount = tc.gridCellCount;
-    const uint32_t particleCount = static_cast<uint32_t>(tc.particleIndex.size());
+    const uint32_t particleCount =
+        static_cast<uint32_t>(tc.particleIndex.size());
     const uint32_t threadCount = gridCellCount + 1u;
 
     auto particleIndexBuf = makeMetalInputBuffer(dev, particleIndex);
@@ -34,7 +36,8 @@ public:
 
     IndexxResult result;
     result.gridCellIndex.resize(threadCount);
-    const auto *out = reinterpret_cast<const uint32_t *>(gridCellIndexBuf->contents());
+    const auto *out =
+        reinterpret_cast<const uint32_t *>(gridCellIndexBuf->contents());
     for (size_t i = 0; i < threadCount; ++i) {
       result.gridCellIndex[i] = out[i];
     }

@@ -85,9 +85,8 @@ struct FindNeighborsTestCommon {
             /*ymin=*/0.0f,
             /*zmin=*/0.0f,
             /*expectedPrimaryNeighborIds=*/{{{1, 2}}, {{0, 2}}, {{0, 1}}},
-            /*expectedPrimaryNeighborDistances=*/{{{0.1f, 0.1f}},
-                                                  {{0.1f, 0.14142136f}},
-                                                  {{0.1f, 0.14142136f}}},
+            /*expectedPrimaryNeighborDistances=*/
+            {{{0.1f, 0.1f}}, {{0.1f, 0.14142136f}}, {{0.1f, 0.14142136f}}},
         },
     };
     return kCases;

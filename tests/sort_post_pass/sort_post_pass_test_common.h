@@ -125,6 +125,7 @@ struct SortPostPassTestCommon {
   }
 };
 
-static_assert(SiberneticTest::SibTestCommon<SiberneticTest::SortPostPassTestCommon>);
+static_assert(
+    SiberneticTest::SibTestCommon<SiberneticTest::SortPostPassTestCommon>);
 
 } // namespace SiberneticTest

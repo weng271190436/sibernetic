@@ -15,15 +15,18 @@ public:
     MetalKernelContext metal("findNeighbors");
     auto *dev = metal.device().get();
 
-    const uint32_t particleCount = static_cast<uint32_t>(tc.sortedPosition.size());
+    const uint32_t particleCount =
+        static_cast<uint32_t>(tc.sortedPosition.size());
     const size_t neighborCount = static_cast<size_t>(particleCount) * 32u;
 
     std::vector<uint32_t> gridCellIndex = tc.gridCellIndexFixedUp;
-    std::vector<MetalFloat4> sortedPosition = toMetalFloat4Vector(tc.sortedPosition);
+    std::vector<MetalFloat4> sortedPosition =
+        toMetalFloat4Vector(tc.sortedPosition);
 
     auto gridCellIndexBuf = makeMetalInputBuffer(dev, gridCellIndex);
     auto sortedPositionBuf = makeMetalInputBuffer(dev, sortedPosition);
-    auto neighborMapBuf = makeMetalOutputBuffer(dev, sizeof(MetalFloat2) * neighborCount);
+    auto neighborMapBuf =
+        makeMetalOutputBuffer(dev, sizeof(MetalFloat2) * neighborCount);
 
     const uint32_t gridCellCount = tc.gridCellCount;
     const uint32_t gridCellsX = tc.gridCellsX;
@@ -57,7 +60,8 @@ public:
 
     FindNeighborsResult result;
     result.neighborMap.resize(neighborCount);
-    const auto *out = reinterpret_cast<const MetalFloat2 *>(neighborMapBuf->contents());
+    const auto *out =
+        reinterpret_cast<const MetalFloat2 *>(neighborMapBuf->contents());
     for (size_t i = 0; i < neighborCount; ++i) {
       result.neighborMap[i] = {out[i].s[0], out[i].s[1]};
     }

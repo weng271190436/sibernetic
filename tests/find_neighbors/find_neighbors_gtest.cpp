@@ -7,6 +7,7 @@
 
 using namespace SiberneticTest;
 
-SIB_DEFINE_BACKEND_PARAM_TEST(
-    FindNeighborsBackendParamTest, FindNeighborsTestCommon, FindNeighborsRunner,
-    OpenCLFindNeighborsRunner, MetalFindNeighborsRunner);
+SIB_DEFINE_BACKEND_PARAM_TEST(FindNeighborsBackendParamTest,
+                              FindNeighborsTestCommon, FindNeighborsRunner,
+                              OpenCLFindNeighborsRunner,
+                              MetalFindNeighborsRunner);

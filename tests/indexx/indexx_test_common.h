@@ -15,7 +15,8 @@ using IndexxParticleIndexEntry = HostUInt2; // [cellId, serialId]
 
 struct IndexxCase : public TestCase {
   const char *name;
-  std::vector<IndexxParticleIndexEntry> particleIndex; // already sorted by cellId
+  std::vector<IndexxParticleIndexEntry>
+      particleIndex; // already sorted by cellId
   uint32_t gridCellCount;
   std::vector<uint32_t> expectedGridCellIndex; // size gridCellCount + 1
 };
@@ -69,10 +70,10 @@ struct IndexxTestCommon {
                    5u,
                    {0u, UINT32_MAX, 0u, UINT32_MAX, UINT32_MAX, 4u}},
         IndexxCase{{},
-             "NoMatchForMostCells_NonEmptyInput",
-             {{3u, 21u}, {3u, 22u}},
-             5u,
-             {0u, UINT32_MAX, UINT32_MAX, 0u, UINT32_MAX, 2u}},
+                   "NoMatchForMostCells_NonEmptyInput",
+                   {{3u, 21u}, {3u, 22u}},
+                   5u,
+                   {0u, UINT32_MAX, UINT32_MAX, 0u, UINT32_MAX, 2u}},
         IndexxCase{{},
                    "CellZeroForcedToZeroEvenWhenEmpty",
                    {{2u, 10u}, {2u, 11u}, {3u, 12u}},
