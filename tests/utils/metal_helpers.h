@@ -3,9 +3,9 @@
 #include <stdexcept>
 #include <vector>
 
+#include "../../metal-cpp/Foundation/NSSharedPtr.hpp"
 #include "../../metal-cpp/Metal/MTLBuffer.hpp"
-
-#include "metal_context.h"
+#include "../../metal-cpp/Metal/MTLDevice.hpp"
 
 namespace SiberneticTest {
 

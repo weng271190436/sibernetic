@@ -2,7 +2,7 @@
 
 #include <fstream>
 #include <iostream>
-#include <sstream>
+#include <sstream> // IWYU pragma: keep
 #include <stdexcept>
 #include <string>
 
