@@ -10,12 +10,13 @@ and are run with `make test` from the repo root.
 tests/
   metal_private_impl.cpp      # Owns NS/MTL_PRIVATE_IMPLEMENTATION (one per binary)
   utils/
-    types.h                   # Base structs: TestCase, TestResult, TestRunner<>
+    types.h                   # Host aliases + base structs: TestCase/TestResult/TestRunner<>
     test_utils.h              # readTextFile(), logging macros
+    backend_param_test.h      # SibTestCommon concept + SIB_DEFINE_BACKEND_PARAM_TEST
     opencl_context.h          # pickDevice(), OpenCLKernelContext
-    opencl_helpers.h          # OpenCL buffer helpers + runOpenCL1DKernel
+    opencl_helpers.h          # OpenCL buffer + conversion helpers + runOpenCL1DKernel
     metal_context.h           # MetalKernelContext (dispatch, pipeline setup)
-    metal_helpers.h           # Metal buffer helpers
+    metal_helpers.h           # Metal buffer + conversion helpers
     metal_types.h             # MetalFloat4, MetalUInt2
   hash_particles/             # One directory per kernel under test
     hash_particles_test_common.h      # Shared: Case/Result types, test data, assertions
@@ -36,11 +37,14 @@ tests/my_kernel/
 
 ### 2. Write `my_kernel_test_common.h`
 
-Define the input/output contract and test data, shared by all backends:
+Define the input/output contract and test data, shared by all backends.
+
+Use a `MyKernelTestCommon` struct that satisfies `SibTestCommon`:
 
 ```cpp
 #pragma once
 #include <gtest/gtest.h>
+#include "../utils/backend_param_test.h"
 #include "../utils/types.h"
 
 namespace SiberneticTest {
@@ -57,23 +61,28 @@ struct MyKernelResult : public TestResult {
 class MyKernelRunner
     : public TestRunner<MyKernelCase, MyKernelResult> {};
 
-inline const std::vector<MyKernelCase> &myKernelCases() {
-  static const std::vector<MyKernelCase> kCases = {
-      // Note: first element must be {} to initialize the TestCase base
-      MyKernelCase{{}, "CaseName", /* inputs */, /* expected */},
-  };
-  return kCases;
-}
+struct MyKernelTestCommon {
+  using Case = MyKernelCase;
+  using Result = MyKernelResult;
 
-inline std::string
-myKernelCaseName(const ::testing::TestParamInfo<MyKernelCase> &info) {
-  return info.param.name;
-}
+  static const std::vector<Case> &cases() {
+    static const std::vector<Case> kCases = {
+        // Note: first element must be {} to initialize the TestCase base
+        MyKernelCase{{}, "CaseName", /* inputs */, /* expected */},
+    };
+    return kCases;
+  }
 
-inline void expectMyKernelResultMatches(const MyKernelCase &tc,
-                                        const MyKernelResult &result) {
-  // EXPECT_EQ / ASSERT_EQ assertions
-}
+  static std::string caseName(const ::testing::TestParamInfo<Case> &info) {
+    return info.param.name;
+  }
+
+  static void expect(const Case &tc, const Result &result) {
+    // EXPECT_EQ / ASSERT_EQ assertions
+  }
+};
+
+static_assert(SiberneticTest::SibTestCommon<SiberneticTest::MyKernelTestCommon>);
 
 } // namespace SiberneticTest
 ```
@@ -99,7 +108,7 @@ public:
     cl_int err = CL_SUCCESS;
     cl::Kernel kernel(opencl.program(), "myKernelFunctionName", &err);
 
-    // 1. Convert input data to CL types
+    // 1. Convert input data to CL types (or use helper converters)
     // 2. Create buffers using helpers:
     auto inputBuf  = makeOpenCLReadBuffer(opencl.context(), clInputData, err);
     auto outputBuf = makeOpenCLWriteBuffer(opencl.context(), outputBytes, err);
@@ -134,7 +143,7 @@ public:
     auto *dev = metal.device().get();
     const uint32_t n = ...;
 
-    // 1. Convert input data to MetalFloat4 / MetalUInt2
+    // 1. Convert input data to MetalFloat4 / MetalUInt2 (or use helper converters)
     // 2. Create buffers using helpers:
     auto inputBuf  = makeMetalInputBuffer(dev, inputVec);
     auto outputBuf = makeMetalOutputBuffer(dev, outputBytes);
@@ -161,35 +170,16 @@ public:
 ```cpp
 #define CL_TARGET_OPENCL_VERSION 120
 
-#include <gtest/gtest.h>
-#include <memory>
-#include <vector>
-
+#include "../utils/backend_param_test.h"
 #include "my_kernel_test_common.h"
 #include "opencl_my_kernel_runner.h"
 #include "metal_my_kernel_runner.h"
 
 using namespace SiberneticTest;
 
-class MyKernelBackendParamTest
-    : public ::testing::Test,
-      public ::testing::WithParamInterface<MyKernelCase> {};
-
-TEST_P(MyKernelBackendParamTest, AllBackends) {
-  const MyKernelCase &tc = GetParam();
-  std::vector<std::unique_ptr<MyKernelRunner>> runners;
-  runners.push_back(std::make_unique<OpenCLMyKernelRunner>());
-  runners.push_back(std::make_unique<MetalMyKernelRunner>());
-  for (auto &runner : runners) {
-    MyKernelResult result;
-    ASSERT_NO_THROW(result = runner->run(tc));
-    expectMyKernelResultMatches(tc, result);
-  }
-}
-
-INSTANTIATE_TEST_SUITE_P(MyKernelCases, MyKernelBackendParamTest,
-                         ::testing::ValuesIn(myKernelCases()),
-                         myKernelCaseName);
+SIB_DEFINE_BACKEND_PARAM_TEST(MyKernelBackendParamTest, MyKernelTestCommon,
+                              MyKernelRunner, OpenCLMyKernelRunner,
+                              MetalMyKernelRunner);
 ```
 
 ### 6. Register the new `.cpp` in the build
@@ -197,8 +187,8 @@ INSTANTIATE_TEST_SUITE_P(MyKernelCases, MyKernelBackendParamTest,
 In `makefile.OSX`, append the new source file to `OPENCL_TEST_SRC`:
 
 ```makefile
-OPENCL_TEST_SRC  := tests/hash_particles/hash_particles_gtest.cpp \
-                    tests/my_kernel/my_kernel_gtest.cpp
+OPENCL_TEST_SRC := tests/hash_particles/hash_particles_gtest.cpp \
+                   tests/my_kernel/my_kernel_gtest.cpp
 ```
 
 The pattern rule `$(OPENCL_TEST_OBJDIR)/%.o: tests/%.cpp` picks up any `.cpp`
@@ -213,3 +203,8 @@ brew install googletest
 # Build and run all kernel tests
 make test
 ```
+
+## Notes
+
+- Tests now build with C++20 (`CXX_STANDARD ?= c++20` in `makefile.OSX`) to
+  support concept-based `SibTestCommon` checks.
