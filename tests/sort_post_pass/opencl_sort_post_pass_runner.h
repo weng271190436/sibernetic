@@ -3,6 +3,7 @@
 #include <stdexcept>
 #include <vector>
 
+#include "../utils/opencl_context.h"
 #include "../utils/opencl_helpers.h"
 #include "sort_post_pass_test_common.h"
 

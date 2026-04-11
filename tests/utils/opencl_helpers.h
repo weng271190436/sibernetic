@@ -1,9 +1,16 @@
 #pragma once
 
 #include <stdexcept>
+#include <string>
 #include <vector>
 
-#include "opencl_context.h"
+// macOS defines err_local as a macro in <err.h>; it collides with
+// the local variable name used inside OpenCL C++ headers.
+#ifdef err_local
+#undef err_local
+#endif
+
+#include "../../inc/OpenCL/cl.hpp"
 #include "types.h"
 
 namespace SiberneticTest {
