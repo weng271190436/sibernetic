@@ -8,21 +8,17 @@
 
 namespace SiberneticTest {
 
-inline std::vector<HostUInt2>
-convertHashParticleIndex(const std::vector<cl_uint2> &src) {
-  return toHostUInt2Vector(src);
-}
-
 class OpenCLHashParticlesRunner : public HashParticlesRunner {
 public:
   HashParticlesResult run(const HashParticlesCase &tc) override {
     std::vector<cl_float4> clPositions = toCLFloat4Vector(tc.positions);
     const cl_uint particleCount = static_cast<cl_uint>(clPositions.size());
     HashParticlesResult result;
-    auto outParticleIndex =
-        makeCLOutputFieldBinding<HashParticlesResult, cl_uint2, HostUInt2>(
-            8, particleCount, &HashParticlesResult::particleIndex,
-            convertHashParticleIndex);
+    auto outParticleIndex = makeCLOutputFieldBinding<HashParticlesResult,
+                                                     cl_uint2, HostUInt2>(
+        8, particleCount, &HashParticlesResult::particleIndex,
+        static_cast<std::vector<HostUInt2> (*)(const std::vector<cl_uint2> &)>(
+            toHostUInt2Vector));
 
     runCLKernelSpecAndStore(
         "hashParticles", particleCount,

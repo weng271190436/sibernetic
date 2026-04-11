@@ -8,16 +8,6 @@
 
 namespace SiberneticTest {
 
-inline std::vector<uint32_t>
-convertSortPostPassIndexBack(const std::vector<cl_uint> &src) {
-  return toHostUInt32Vector(src);
-}
-
-inline std::vector<HostFloat4>
-convertSortPostPassFloat4(const std::vector<cl_float4> &src) {
-  return toHostFloat4Vector(src);
-}
-
 class OpenCLSortPostPassRunner : public SortPostPassRunner {
 public:
   SortPostPassResult run(const SortPostPassCase &tc) override {
@@ -31,15 +21,17 @@ public:
     auto outIndexBack =
         makeCLOutputFieldBinding<SortPostPassResult, cl_uint, uint32_t>(
             1, particleCount, &SortPostPassResult::particleIndexBack,
-            convertSortPostPassIndexBack);
+            toHostUInt32Vector);
     auto outSortedPos =
         makeCLOutputFieldBinding<SortPostPassResult, cl_float4, HostFloat4>(
             4, particleCount, &SortPostPassResult::sortedPosition,
-            convertSortPostPassFloat4);
+            static_cast<std::vector<HostFloat4> (*)(
+                const std::vector<cl_float4> &)>(toHostFloat4Vector));
     auto outSortedVel =
         makeCLOutputFieldBinding<SortPostPassResult, cl_float4, HostFloat4>(
             5, particleCount, &SortPostPassResult::sortedVelocity,
-            convertSortPostPassFloat4);
+            static_cast<std::vector<HostFloat4> (*)(
+                const std::vector<cl_float4> &)>(toHostFloat4Vector));
 
     runCLKernelSpecAndStore(
         "sortPostPass", particleCount,

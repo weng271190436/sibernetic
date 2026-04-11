@@ -13,7 +13,6 @@
 namespace SiberneticTest {
 
 using FindNeighborsFloat4 = HostFloat4;
-using FindNeighborsEntry = std::array<float, 2>; // [neighborId, distance]
 
 struct FindNeighborsCase : public TestCase {
   const char *name;
@@ -35,7 +34,7 @@ struct FindNeighborsCase : public TestCase {
 };
 
 struct FindNeighborsResult : public TestResult {
-  std::vector<FindNeighborsEntry> neighborMap; // size particleCount * 32
+  std::vector<std::array<float, 2>> neighborMap; // size particleCount * 32
 };
 
 class FindNeighborsRunner

@@ -7,10 +7,6 @@
 #include "indexx_test_common.h"
 
 namespace SiberneticTest {
-inline std::vector<uint32_t>
-convertIndexxGridCellIndex(const std::vector<cl_uint> &src) {
-  return toHostUInt32Vector(src);
-}
 
 class OpenCLIndexxRunner : public IndexxRunner {
 public:
@@ -26,7 +22,7 @@ public:
     auto outGridCellIndex =
         makeCLOutputFieldBinding<IndexxResult, cl_uint, uint32_t>(
             2, gridCellIndexCount, &IndexxResult::gridCellIndex,
-            convertIndexxGridCellIndex);
+            toHostUInt32Vector);
 
     runCLKernelSpecAndStore(
         "indexx", threadCount,

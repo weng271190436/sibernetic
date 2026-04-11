@@ -7,14 +7,6 @@
 #include "find_neighbors_test_common.h"
 
 namespace SiberneticTest {
-inline std::vector<FindNeighborsEntry>
-convertFindNeighborsMap(const std::vector<cl_float2> &src) {
-  std::vector<FindNeighborsEntry> out(src.size());
-  for (size_t i = 0; i < src.size(); ++i) {
-    out[i] = {src[i].s[0], src[i].s[1]};
-  }
-  return out;
-}
 
 class OpenCLFindNeighborsRunner : public FindNeighborsRunner {
 public:
@@ -30,10 +22,10 @@ public:
     FindNeighborsResult result;
     auto outNeighborMap =
         makeCLOutputFieldBinding<FindNeighborsResult, cl_float2,
-                                 FindNeighborsEntry>(
+                                 std::array<float, 2>>(
             13, neighborCount, &FindNeighborsResult::neighborMap,
-            convertFindNeighborsMap);
-
+            static_cast<std::vector<std::array<float, 2>> (*)(
+                const std::vector<cl_float2> &)>(toHostFloat2ArrayVector));
     runCLKernelSpecAndStore(
         "findNeighbors", particleCount,
         {

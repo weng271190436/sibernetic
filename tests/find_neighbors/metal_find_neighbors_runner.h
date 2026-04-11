@@ -9,20 +9,13 @@
 
 namespace SiberneticTest {
 
-inline std::vector<FindNeighborsEntry>
-convertMetalFindNeighborsMap(const MetalFloat2 *src, size_t n) {
-  std::vector<FindNeighborsEntry> out(n);
-  for (size_t i = 0; i < n; ++i) {
-    out[i] = {src[i].s[0], src[i].s[1]};
-  }
-  return out;
-}
-
 class MetalFindNeighborsRunner : public FindNeighborsRunner {
 public:
   FindNeighborsResult run(const FindNeighborsCase &tc) override {
     const uint32_t particleCount =
         static_cast<uint32_t>(tc.sortedPosition.size());
+    // findNeighbors writes a fixed-width neighbor table: 32 float2 entries per
+    // particle (kMaxNeighborCount in the kernel).
     const size_t neighborCount = static_cast<size_t>(particleCount) * 32u;
 
     std::vector<uint32_t> gridCellIndex = tc.gridCellIndexFixedUp;
@@ -32,9 +25,9 @@ public:
     FindNeighborsResult result;
     auto outNeighborMap =
         makeMetalOutputFieldSpec<FindNeighborsResult, MetalFloat2,
-                                 FindNeighborsEntry>(
+                                 std::array<float, 2>>(
             13, neighborCount, &FindNeighborsResult::neighborMap,
-            convertMetalFindNeighborsMap);
+            toHostFloat2ArrayVector);
 
     runMetalKernelSpecAndStore(
         "findNeighbors", particleCount,

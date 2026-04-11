@@ -9,16 +9,6 @@
 
 namespace SiberneticTest {
 
-inline std::vector<uint32_t>
-convertMetalSortPostPassIndexBack(const uint32_t *src, size_t n) {
-  return std::vector<uint32_t>(src, src + n);
-}
-
-inline std::vector<HostFloat4>
-convertMetalSortPostPassFloat4(const MetalFloat4 *src, size_t n) {
-  return toHostFloat4Vector(src, n);
-}
-
 class MetalSortPostPassRunner : public SortPostPassRunner {
 public:
   SortPostPassResult run(const SortPostPassCase &tc) override {
@@ -34,15 +24,15 @@ public:
     auto outIndexBack =
         makeMetalOutputFieldSpec<SortPostPassResult, uint32_t, uint32_t>(
             1, particleCount, &SortPostPassResult::particleIndexBack,
-            convertMetalSortPostPassIndexBack);
+            toHostVector<uint32_t>);
     auto outSortedPosition =
         makeMetalOutputFieldSpec<SortPostPassResult, MetalFloat4, HostFloat4>(
             4, particleCount, &SortPostPassResult::sortedPosition,
-            convertMetalSortPostPassFloat4);
+            toHostFloat4Vector);
     auto outSortedVelocity =
         makeMetalOutputFieldSpec<SortPostPassResult, MetalFloat4, HostFloat4>(
             5, particleCount, &SortPostPassResult::sortedVelocity,
-            convertMetalSortPostPassFloat4);
+            toHostFloat4Vector);
 
     runMetalKernelSpecAndStore("sortPostPass", particleCount,
                                {

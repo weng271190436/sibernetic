@@ -9,11 +9,6 @@
 
 namespace SiberneticTest {
 
-inline std::vector<HostUInt2>
-convertMetalHashParticleIndex(const MetalUInt2 *src, size_t n) {
-  return toHostUInt2Vector(src, n);
-}
-
 class MetalHashParticlesRunner : public HashParticlesRunner {
 public:
   HashParticlesResult run(const HashParticlesCase &tc) override {
@@ -25,7 +20,7 @@ public:
     auto outParticleIndex =
         makeMetalOutputFieldSpec<HashParticlesResult, MetalUInt2, HostUInt2>(
             8, particleCount, &HashParticlesResult::particleIndex,
-            convertMetalHashParticleIndex);
+            toHostUInt2Vector);
 
     runMetalKernelSpecAndStore(
         "hashParticles", particleCount,

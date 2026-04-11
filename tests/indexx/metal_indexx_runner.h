@@ -9,11 +9,6 @@
 
 namespace SiberneticTest {
 
-inline std::vector<uint32_t>
-convertMetalIndexxGridCellIndex(const uint32_t *src, size_t n) {
-  return std::vector<uint32_t>(src, src + n);
-}
-
 class MetalIndexxRunner : public IndexxRunner {
 public:
   IndexxResult run(const IndexxCase &tc) override {
@@ -30,7 +25,7 @@ public:
     auto outGridCellIndex =
         makeMetalOutputFieldSpec<IndexxResult, uint32_t, uint32_t>(
             2, gridCellIndexCount, &IndexxResult::gridCellIndex,
-            convertMetalIndexxGridCellIndex);
+            toHostVector<uint32_t>);
 
     runMetalKernelSpecAndStore("indexx", threadCount,
                                {

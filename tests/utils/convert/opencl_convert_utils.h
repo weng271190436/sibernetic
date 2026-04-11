@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <vector>
@@ -62,6 +63,23 @@ toHostUInt32Vector(const std::vector<cl_uint> &src) {
     out[i] = src[i];
   }
   return out;
+}
+
+template <typename TVec, size_t N>
+inline std::vector<std::array<float, N>>
+toHostFloatArrayVector(const std::vector<TVec> &src) {
+  std::vector<std::array<float, N>> out(src.size());
+  for (size_t i = 0; i < src.size(); ++i) {
+    for (size_t j = 0; j < N; ++j) {
+      out[i][j] = src[i].s[j];
+    }
+  }
+  return out;
+}
+
+inline std::vector<std::array<float, 2>>
+toHostFloat2ArrayVector(const std::vector<cl_float2> &src) {
+  return toHostFloatArrayVector<cl_float2, 2>(src);
 }
 
 } // namespace SiberneticTest

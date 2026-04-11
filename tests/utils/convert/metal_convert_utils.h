@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstddef>
 #include <vector>
 
@@ -46,6 +47,28 @@ inline std::vector<HostUInt2> toHostUInt2Vector(const MetalUInt2 *src,
     out[i] = {src[i].s[0], src[i].s[1]};
   }
   return out;
+}
+
+template <typename T>
+inline std::vector<T> toHostVector(const T *src, size_t n) {
+  return std::vector<T>(src, src + n);
+}
+
+template <typename TVec, size_t N>
+inline std::vector<std::array<float, N>> toHostFloatArrayVector(const TVec *src,
+                                                                size_t n) {
+  std::vector<std::array<float, N>> out(n);
+  for (size_t i = 0; i < n; ++i) {
+    for (size_t j = 0; j < N; ++j) {
+      out[i][j] = src[i].s[j];
+    }
+  }
+  return out;
+}
+
+inline std::vector<std::array<float, 2>>
+toHostFloat2ArrayVector(const MetalFloat2 *src, size_t n) {
+  return toHostFloatArrayVector<MetalFloat2, 2>(src, n);
 }
 
 } // namespace SiberneticTest
