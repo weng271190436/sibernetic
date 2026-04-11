@@ -7,12 +7,14 @@
 
 #include <gtest/gtest.h>
 
+#include "../utils/types.h"
+
 namespace SiberneticTest {
 
 using HashParticlesPosition = std::array<float, 4>;
 using HashParticlesIndexEntry = std::array<uint32_t, 2>;
 
-struct HashParticlesCase {
+struct HashParticlesCase : public TestCase {
   const char *name;
   std::vector<HashParticlesPosition> positions;
   uint32_t gridCellsX;
@@ -25,16 +27,12 @@ struct HashParticlesCase {
   std::vector<uint32_t> expectedCellIds;
 };
 
-struct HashParticlesResult {
+struct HashParticlesResult : public TestResult {
   std::vector<HashParticlesIndexEntry> particleIndex;
 };
 
-class HashParticlesRunner {
-public:
-  HashParticlesRunner() = default;
-  virtual ~HashParticlesRunner() = default;
-  virtual HashParticlesResult run(const HashParticlesCase &tc) = 0;
-};
+class HashParticlesRunner
+    : public TestRunner<HashParticlesCase, HashParticlesResult> {};
 
 inline HashParticlesPosition makeFloat4(float x, float y, float z,
                                         float w = 0.0f) {
@@ -58,6 +56,7 @@ expectHashParticlesResultMatches(const HashParticlesCase &tc,
 inline const std::vector<HashParticlesCase> &hashParticlesCases() {
   static const std::vector<HashParticlesCase> kCases = {
       HashParticlesCase{
+          {},
           "UnitCellSize_4x4x4",
           {makeFloat4(0.1f, 0.1f, 0.1f), makeFloat4(1.2f, 0.1f, 0.1f),
            makeFloat4(0.2f, 1.7f, 0.1f), makeFloat4(2.8f, 3.1f, 1.0f)},
@@ -75,6 +74,7 @@ inline const std::vector<HashParticlesCase> &hashParticlesCases() {
               30 // p3 -> cell (2,3,1)
           }},
       HashParticlesCase{
+          {},
           "HalfCellSize_8x8x8",
           {makeFloat4(0.1f, 0.1f, 0.1f), makeFloat4(0.6f, 0.1f, 0.1f),
            makeFloat4(0.1f, 0.6f, 0.1f), makeFloat4(1.1f, 1.1f, 0.6f)},
