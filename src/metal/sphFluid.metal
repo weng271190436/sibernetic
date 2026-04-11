@@ -72,3 +72,55 @@ kernel void sortPostPass(const device uint2 *particleIndex [[buffer(0)]],
   sortedVelocity[id] = velocity[serialId];
   particleIndexBack[serialId] = id;
 }
+
+// For each cell id, finds the first index in sorted particleIndex whose
+// particle belongs to that cell. Empty cells get UINT_MAX; slot gridCellCount
+// stores PARTICLE_COUNT as the end sentinel.
+kernel void indexx(const device uint2 *particleIndex [[buffer(0)]],
+                   constant uint &gridCellCount [[buffer(1)]],
+                   device uint *gridCellIndex [[buffer(2)]],
+                   constant uint &particleCount [[buffer(3)]],
+                   uint id [[thread_position_in_grid]]) {
+  if (id > gridCellCount) {
+    return;
+  }
+  if (id == gridCellCount) {
+    gridCellIndex[id] = particleCount;
+    return;
+  }
+  if (id == 0) {
+    gridCellIndex[id] = 0;
+    return;
+  }
+
+  int low = 0;
+  int high = static_cast<int>(particleCount) - 1;
+  bool converged = false;
+  int cellIndex = -1;
+  while (!converged) {
+    if (low > high) {
+      converged = true;
+      cellIndex = -1;
+      continue;
+    }
+
+    const int idx = ((high - low) >> 1) + low;
+    const uint2 sample = particleIndex[idx];
+    const int sampleCellId = static_cast<int>(sample.x);
+    const bool isHigh = (sampleCellId > static_cast<int>(id));
+    const bool isLow = (sampleCellId < static_cast<int>(id));
+    const bool isMiddle = !(isHigh || isLow);
+
+    high = isHigh ? idx - 1 : high;
+    low = isLow ? idx + 1 : low;
+
+    const bool zeroCase = (idx == 0 && isMiddle);
+    const int sampleM1CellId =
+        zeroCase ? -1 : static_cast<int>(particleIndex[idx - 1].x);
+    converged = isMiddle && (zeroCase || sampleM1CellId < sampleCellId);
+    cellIndex = converged ? idx : cellIndex;
+    high = (isMiddle && !converged) ? idx - 1 : high;
+  }
+
+  gridCellIndex[id] = static_cast<uint>(cellIndex);
+}
