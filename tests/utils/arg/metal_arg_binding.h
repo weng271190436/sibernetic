@@ -7,12 +7,15 @@
 #include <functional>
 #include <optional>
 #include <stdexcept>
+#include <string>
+#include <utility>
 #include <vector>
 
 #include "../../../metal-cpp/Foundation/NSSharedPtr.hpp"
 #include "../../../metal-cpp/Metal/MTLBuffer.hpp"
 #include "../../../metal-cpp/Metal/MTLComputeCommandEncoder.hpp"
 
+#include "../buffer/metal_buffer_utils.h"
 #include "../context/metal_context.h"
 
 namespace SiberneticTest {
@@ -24,6 +27,39 @@ struct MetalKernelArg {
   MetalKernelArgKind kind;
   std::optional<std::vector<uint8_t>> scalarBytes;
   std::optional<NS::SharedPtr<MTL::Buffer>> buffer;
+};
+
+struct MetalScalarArg {
+  uint32_t argIndex;
+  std::vector<uint8_t> bytes;
+
+  template <typename T>
+  static MetalScalarArg make(uint32_t idx, const T &value) {
+    MetalScalarArg arg{};
+    arg.argIndex = idx;
+    arg.bytes.resize(sizeof(T));
+    std::memcpy(arg.bytes.data(), &value, sizeof(T));
+    return arg;
+  }
+};
+
+struct MetalInputBufferArg {
+  uint32_t argIndex;
+  NS::SharedPtr<MTL::Buffer> buffer;
+};
+
+struct MetalInputHostBuffer {
+  uint32_t argIndex;
+  std::vector<std::byte> bytes;
+
+  template <typename T>
+  static MetalInputHostBuffer make(uint32_t idx, const std::vector<T> &data) {
+    MetalInputHostBuffer input{};
+    input.argIndex = idx;
+    input.bytes.resize(sizeof(T) * data.size());
+    std::memcpy(input.bytes.data(), data.data(), input.bytes.size());
+    return input;
+  }
 };
 
 template <typename T>
@@ -97,6 +133,22 @@ struct MetalOutputFieldBinding {
   }
 };
 
+template <typename TResult, typename TDevice, typename THost>
+struct MetalOutputFieldSpec {
+  uint32_t argIndex;
+  size_t elementCount;
+  std::vector<THost> TResult::*resultField;
+  std::function<std::vector<THost>(const TDevice *, size_t)> convert;
+
+  MetalOutputFieldBinding<TResult, TDevice, THost>
+  makeBinding(MTL::Device *device) const {
+    NS::SharedPtr<MTL::Buffer> buffer =
+        makeMetalOutputBuffer(device, sizeof(TDevice) * elementCount);
+    return makeMetalOutputFieldBinding<TResult, TDevice, THost>(
+        argIndex, std::move(buffer), elementCount, resultField, convert);
+  }
+};
+
 template <typename TResult, typename TDevice, typename THost,
           typename TConvertFn>
 inline MetalOutputFieldBinding<TResult, TDevice, THost>
@@ -107,6 +159,15 @@ makeMetalOutputFieldBinding(uint32_t argIndex,
                             TConvertFn convert) {
   return {argIndex, std::move(buffer), elementCount, resultField,
           std::move(convert)};
+}
+
+template <typename TResult, typename TDevice, typename THost,
+          typename TConvertFn>
+inline MetalOutputFieldSpec<TResult, TDevice, THost>
+makeMetalOutputFieldSpec(uint32_t argIndex, size_t elementCount,
+                         std::vector<THost> TResult::*resultField,
+                         TConvertFn convert) {
+  return {argIndex, elementCount, resultField, std::move(convert)};
 }
 
 template <typename TResult, typename TBinding>
@@ -148,6 +209,65 @@ runMetalKernelSpecAndStore(MetalKernelContext &metal, uint32_t threadCount,
   });
 
   commitMetalOutputs(result, outputs...);
+}
+
+template <typename TResult, typename... TOutputBindings>
+inline void
+runMetalKernelSpecAndStore(MetalKernelContext &metal, uint32_t threadCount,
+                           std::vector<MetalScalarArg> scalarArgs,
+                           std::vector<MetalInputBufferArg> inputArgs,
+                           TResult &result, const TOutputBindings &...outputs) {
+  std::vector<MetalKernelArg> args;
+  args.reserve(scalarArgs.size() + inputArgs.size());
+
+  for (auto &s : scalarArgs) {
+    MetalKernelArg arg{};
+    arg.argIndex = s.argIndex;
+    arg.kind = MetalKernelArgKind::Scalar;
+    arg.scalarBytes = std::move(s.bytes);
+    args.push_back(std::move(arg));
+  }
+
+  for (auto &in : inputArgs) {
+    args.push_back(makeMetalInputArg(in.argIndex, std::move(in.buffer)));
+  }
+
+  runMetalKernelSpecAndStore(metal, threadCount, std::move(args), result,
+                             outputs...);
+}
+
+inline std::vector<MetalInputBufferArg>
+makeMetalInputBufferArgs(MTL::Device *device,
+                         std::vector<MetalInputHostBuffer> inputBuffers) {
+  std::vector<MetalInputBufferArg> inputArgs;
+  inputArgs.reserve(inputBuffers.size());
+  for (const auto &input : inputBuffers) {
+    NS::SharedPtr<MTL::Buffer> buffer = NS::TransferPtr(
+        device->newBuffer(input.bytes.data(), input.bytes.size(),
+                          MTL::ResourceStorageModeShared));
+    if (!buffer.get()) {
+      throw std::runtime_error("Failed to create Metal input buffer");
+    }
+    inputArgs.push_back({input.argIndex, std::move(buffer)});
+  }
+  return inputArgs;
+}
+
+template <typename TResult, typename... TOutputSpecs>
+inline void
+runMetalKernelSpecAndStore(const std::string &kernelName, uint32_t threadCount,
+                           std::vector<MetalScalarArg> scalarArgs,
+                           std::vector<MetalInputHostBuffer> inputBuffers,
+                           TResult &result,
+                           const TOutputSpecs &...outputSpecs) {
+  MetalKernelContext metal(kernelName.c_str());
+  auto *device = metal.device().get();
+  std::vector<MetalInputBufferArg> inputArgs =
+      makeMetalInputBufferArgs(device, std::move(inputBuffers));
+
+  runMetalKernelSpecAndStore(metal, threadCount, std::move(scalarArgs),
+                             std::move(inputArgs), result,
+                             outputSpecs.makeBinding(device)...);
 }
 
 } // namespace SiberneticTest

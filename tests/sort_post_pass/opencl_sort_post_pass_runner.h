@@ -21,7 +21,7 @@ convertSortPostPassFloat4(const std::vector<cl_float4> &src) {
 class OpenCLSortPostPassRunner : public SortPostPassRunner {
 public:
   SortPostPassResult run(const SortPostPassCase &tc) override {
-    const cl_uint n = static_cast<cl_uint>(tc.particleIndex.size());
+    const cl_uint particleCount = static_cast<cl_uint>(tc.particleIndex.size());
 
     std::vector<cl_uint2> clParticleIndex = toCLUInt2Vector(tc.particleIndex);
     std::vector<cl_float4> clPosition = toCLFloat4Vector(tc.position);
@@ -30,21 +30,21 @@ public:
     SortPostPassResult result;
     auto outIndexBack =
         makeCLOutputFieldBinding<SortPostPassResult, cl_uint, uint32_t>(
-            1, n, &SortPostPassResult::particleIndexBack,
+            1, particleCount, &SortPostPassResult::particleIndexBack,
             convertSortPostPassIndexBack);
     auto outSortedPos =
         makeCLOutputFieldBinding<SortPostPassResult, cl_float4, HostFloat4>(
-            4, n, &SortPostPassResult::sortedPosition,
+            4, particleCount, &SortPostPassResult::sortedPosition,
             convertSortPostPassFloat4);
     auto outSortedVel =
         makeCLOutputFieldBinding<SortPostPassResult, cl_float4, HostFloat4>(
-            5, n, &SortPostPassResult::sortedVelocity,
+            5, particleCount, &SortPostPassResult::sortedVelocity,
             convertSortPostPassFloat4);
 
     runCLKernelSpecAndStore(
-        "sortPostPass", n,
+        "sortPostPass", particleCount,
         {
-            CLScalarArg::make<cl_uint>(6, n),
+            CLScalarArg::make<cl_uint>(6, particleCount),
         },
         {
             CLInputBuffer::make<cl_uint2>(0, clParticleIndex),

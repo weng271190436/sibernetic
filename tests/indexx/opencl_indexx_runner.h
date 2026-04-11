@@ -19,16 +19,17 @@ public:
 
     const cl_uint gridCellCount = tc.gridCellCount;
     const cl_uint particleCount = static_cast<cl_uint>(tc.particleIndex.size());
-    const size_t outputCount = static_cast<size_t>(gridCellCount) + 1u;
+    const size_t gridCellIndexCount = static_cast<size_t>(gridCellCount) + 1u;
+    const size_t threadCount = gridCellIndexCount;
 
     IndexxResult result;
     auto outGridCellIndex =
         makeCLOutputFieldBinding<IndexxResult, cl_uint, uint32_t>(
-            2, outputCount, &IndexxResult::gridCellIndex,
+            2, gridCellIndexCount, &IndexxResult::gridCellIndex,
             convertIndexxGridCellIndex);
 
     runCLKernelSpecAndStore(
-        "indexx", outputCount,
+        "indexx", threadCount,
         {
             CLScalarArg::make<cl_uint>(1, gridCellCount),
             CLScalarArg::make<cl_uint>(3, particleCount),
