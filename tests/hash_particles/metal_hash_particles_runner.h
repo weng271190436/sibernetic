@@ -10,7 +10,7 @@ namespace SiberneticTest {
 class MetalHashParticlesRunner : public HashParticlesRunner {
 public:
   HashParticlesResult run(const HashParticlesCase &tc) override {
-    MetalKernelContext metal("hashParticlesMetal");
+    MetalKernelContext metal("hashParticles");
     auto *dev = metal.device().get();
 
     std::vector<MetalFloat4> positions(tc.positions.size());

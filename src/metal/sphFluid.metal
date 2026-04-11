@@ -6,7 +6,7 @@ inline int cellId(int3 cellFactors, uint gridCellsX, uint gridCellsY) {
          cellFactors.z * static_cast<int>(gridCellsX) * static_cast<int>(gridCellsY);
 }
 
-kernel void hashParticlesMetal(const device float4 *position [[buffer(0)]],
+kernel void hashParticles(const device float4 *position [[buffer(0)]],
                                constant uint &gridCellsX [[buffer(1)]],
                                constant uint &gridCellsY [[buffer(2)]],
                                constant uint &gridCellsZ [[buffer(3)]],
@@ -36,7 +36,7 @@ kernel void hashParticlesMetal(const device float4 *position [[buffer(0)]],
   particleIndex[id] = uint2(static_cast<uint>(cell), id);
 }
 
-kernel void sortPostPassMetal(const device uint2 *particleIndex [[buffer(0)]],
+kernel void sortPostPass(const device uint2 *particleIndex [[buffer(0)]],
                               device uint *particleIndexBack [[buffer(1)]],
                               const device float4 *position [[buffer(2)]],
                               const device float4 *velocity [[buffer(3)]],

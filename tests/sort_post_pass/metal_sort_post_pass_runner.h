@@ -10,7 +10,7 @@ namespace SiberneticTest {
 class MetalSortPostPassRunner : public SortPostPassRunner {
 public:
   SortPostPassResult run(const SortPostPassCase &tc) override {
-    MetalKernelContext metal("sortPostPassMetal");
+    MetalKernelContext metal("sortPostPass");
     auto *dev = metal.device().get();
     const uint32_t n = static_cast<uint32_t>(tc.particleIndex.size());
 
