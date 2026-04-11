@@ -1,6 +1,5 @@
 #pragma once
 
-#include <array>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -12,8 +11,8 @@
 
 namespace SiberneticTest {
 
-using HashParticlesPosition = std::array<float, 4>;
-using HashParticlesIndexEntry = std::array<uint32_t, 2>;
+using HashParticlesPosition = HostFloat4;
+using HashParticlesIndexEntry = HostUInt2;
 
 struct HashParticlesCase : public TestCase {
   const char *name;

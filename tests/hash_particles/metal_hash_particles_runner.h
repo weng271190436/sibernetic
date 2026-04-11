@@ -15,13 +15,7 @@ public:
     MetalKernelContext metal("hashParticles");
     auto *dev = metal.device().get();
 
-    std::vector<MetalFloat4> positions(tc.positions.size());
-    for (size_t i = 0; i < tc.positions.size(); ++i) {
-      positions[i].s[0] = tc.positions[i][0];
-      positions[i].s[1] = tc.positions[i][1];
-      positions[i].s[2] = tc.positions[i][2];
-      positions[i].s[3] = tc.positions[i][3];
-    }
+    std::vector<MetalFloat4> positions = toMetalFloat4Vector(tc.positions);
 
     const uint32_t particleCount = static_cast<uint32_t>(positions.size());
     auto positionBuf = makeMetalInputBuffer(dev, positions);
@@ -50,13 +44,9 @@ public:
     });
 
     HashParticlesResult result;
-    result.particleIndex.resize(particleCount);
     const auto *out =
         reinterpret_cast<const MetalUInt2 *>(particleIndexBuf->contents());
-    for (size_t i = 0; i < result.particleIndex.size(); ++i) {
-      result.particleIndex[i][0] = out[i].s[0];
-      result.particleIndex[i][1] = out[i].s[1];
-    }
+    result.particleIndex = toHostUInt2Vector(out, particleCount);
     return result;
   }
 };

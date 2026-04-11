@@ -1,6 +1,5 @@
 #pragma once
 
-#include <array>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -12,8 +11,8 @@
 
 namespace SiberneticTest {
 
-using SortPostPassFloat4 = std::array<float, 4>;
-using SortPostPassParticleIndex = std::array<uint32_t, 2>; // [cellId, serialId]
+using SortPostPassFloat4 = HostFloat4;
+using SortPostPassParticleIndex = HostUInt2; // [cellId, serialId]
 
 struct SortPostPassCase : public TestCase {
   const char *name;

@@ -1,6 +1,5 @@
 #pragma once
 
-#include <array>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -12,7 +11,7 @@
 
 namespace SiberneticTest {
 
-using IndexxParticleIndexEntry = std::array<uint32_t, 2>; // [cellId, serialId]
+using IndexxParticleIndexEntry = HostUInt2; // [cellId, serialId]
 
 struct IndexxCase : public TestCase {
   const char *name;

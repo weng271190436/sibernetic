@@ -16,20 +16,9 @@ public:
     auto *dev = metal.device().get();
     const uint32_t n = static_cast<uint32_t>(tc.particleIndex.size());
 
-    std::vector<MetalUInt2> particleIndex(n);
-    std::vector<MetalFloat4> position(n), velocity(n);
-    for (size_t i = 0; i < n; ++i) {
-      particleIndex[i].s[0] = tc.particleIndex[i][0];
-      particleIndex[i].s[1] = tc.particleIndex[i][1];
-      position[i].s[0] = tc.position[i][0];
-      position[i].s[1] = tc.position[i][1];
-      position[i].s[2] = tc.position[i][2];
-      position[i].s[3] = tc.position[i][3];
-      velocity[i].s[0] = tc.velocity[i][0];
-      velocity[i].s[1] = tc.velocity[i][1];
-      velocity[i].s[2] = tc.velocity[i][2];
-      velocity[i].s[3] = tc.velocity[i][3];
-    }
+    std::vector<MetalUInt2> particleIndex = toMetalUInt2Vector(tc.particleIndex);
+    std::vector<MetalFloat4> position = toMetalFloat4Vector(tc.position);
+    std::vector<MetalFloat4> velocity = toMetalFloat4Vector(tc.velocity);
 
     auto particleIndexBuf = makeMetalInputBuffer(dev, particleIndex);
     auto particleIndexBackBuf =
@@ -52,8 +41,6 @@ public:
     });
 
     SortPostPassResult result;
-    result.sortedPosition.resize(n);
-    result.sortedVelocity.resize(n);
     result.particleIndexBack.resize(n);
     const auto *outPos =
         reinterpret_cast<const MetalFloat4 *>(sortedPositionBuf->contents());
@@ -61,11 +48,9 @@ public:
         reinterpret_cast<const MetalFloat4 *>(sortedVelocityBuf->contents());
     const auto *outBack =
         reinterpret_cast<const uint32_t *>(particleIndexBackBuf->contents());
+    result.sortedPosition = toHostFloat4Vector(outPos, n);
+    result.sortedVelocity = toHostFloat4Vector(outVel, n);
     for (size_t i = 0; i < n; ++i) {
-      result.sortedPosition[i] = {outPos[i].s[0], outPos[i].s[1],
-                                  outPos[i].s[2], outPos[i].s[3]};
-      result.sortedVelocity[i] = {outVel[i].s[0], outVel[i].s[1],
-                                  outVel[i].s[2], outVel[i].s[3]};
       result.particleIndexBack[i] = outBack[i];
     }
     return result;

@@ -3,7 +3,6 @@
 #include <stdexcept>
 #include <vector>
 
-#include "../utils/opencl_context.h"
 #include "../utils/opencl_helpers.h"
 #include "indexx_test_common.h"
 
@@ -20,11 +19,7 @@ public:
       throw std::runtime_error("Failed to create kernel: indexx");
     }
 
-    std::vector<cl_uint2> clParticleIndex(tc.particleIndex.size());
-    for (size_t i = 0; i < tc.particleIndex.size(); ++i) {
-      clParticleIndex[i].s[0] = tc.particleIndex[i][0];
-      clParticleIndex[i].s[1] = tc.particleIndex[i][1];
-    }
+    std::vector<cl_uint2> clParticleIndex = toCLUInt2Vector(tc.particleIndex);
 
     const cl_uint gridCellCount = tc.gridCellCount;
     const cl_uint particleCount = static_cast<cl_uint>(tc.particleIndex.size());

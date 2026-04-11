@@ -3,7 +3,6 @@
 #include <stdexcept>
 #include <vector>
 
-#include "../utils/opencl_context.h"
 #include "../utils/opencl_helpers.h"
 #include "sort_post_pass_test_common.h"
 
@@ -22,20 +21,9 @@ public:
 
     const cl_uint n = static_cast<cl_uint>(tc.particleIndex.size());
 
-    std::vector<cl_uint2> clParticleIndex(n);
-    std::vector<cl_float4> clPosition(n), clVelocity(n);
-    for (size_t i = 0; i < n; ++i) {
-      clParticleIndex[i].s[0] = tc.particleIndex[i][0];
-      clParticleIndex[i].s[1] = tc.particleIndex[i][1];
-      clPosition[i].s[0] = tc.position[i][0];
-      clPosition[i].s[1] = tc.position[i][1];
-      clPosition[i].s[2] = tc.position[i][2];
-      clPosition[i].s[3] = tc.position[i][3];
-      clVelocity[i].s[0] = tc.velocity[i][0];
-      clVelocity[i].s[1] = tc.velocity[i][1];
-      clVelocity[i].s[2] = tc.velocity[i][2];
-      clVelocity[i].s[3] = tc.velocity[i][3];
-    }
+    std::vector<cl_uint2> clParticleIndex = toCLUInt2Vector(tc.particleIndex);
+    std::vector<cl_float4> clPosition = toCLFloat4Vector(tc.position);
+    std::vector<cl_float4> clVelocity = toCLFloat4Vector(tc.velocity);
 
     auto particleIndexBuf =
         makeOpenCLReadBuffer(opencl.context(), clParticleIndex, err);
@@ -73,8 +61,6 @@ public:
     runOpenCL1DKernel(opencl.queue(), kernel, n, "sortPostPass");
 
     SortPostPassResult result;
-    result.sortedPosition.resize(n);
-    result.sortedVelocity.resize(n);
     result.particleIndexBack.resize(n);
     std::vector<cl_float4> clSortedPos(n), clSortedVel(n);
     std::vector<cl_uint> clIndexBack(n);
@@ -89,11 +75,9 @@ public:
                                          clIndexBack.data()) != CL_SUCCESS) {
       throw std::runtime_error("Failed to read sortPostPass output buffers");
     }
+    result.sortedPosition = toHostFloat4Vector(clSortedPos);
+    result.sortedVelocity = toHostFloat4Vector(clSortedVel);
     for (size_t i = 0; i < n; ++i) {
-      result.sortedPosition[i] = {clSortedPos[i].s[0], clSortedPos[i].s[1],
-                                  clSortedPos[i].s[2], clSortedPos[i].s[3]};
-      result.sortedVelocity[i] = {clSortedVel[i].s[0], clSortedVel[i].s[1],
-                                  clSortedVel[i].s[2], clSortedVel[i].s[3]};
       result.particleIndexBack[i] = clIndexBack[i];
     }
     return result;

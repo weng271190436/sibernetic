@@ -3,7 +3,6 @@
 #include <stdexcept>
 #include <vector>
 
-#include "../utils/opencl_context.h"
 #include "../utils/opencl_helpers.h"
 #include "hash_particles_test_common.h"
 
@@ -20,13 +19,7 @@ public:
       throw std::runtime_error("Failed to create kernel: hashParticles");
     }
 
-    std::vector<cl_float4> positions(tc.positions.size());
-    for (size_t i = 0; i < tc.positions.size(); ++i) {
-      positions[i].s[0] = tc.positions[i][0];
-      positions[i].s[1] = tc.positions[i][1];
-      positions[i].s[2] = tc.positions[i][2];
-      positions[i].s[3] = tc.positions[i][3];
-    }
+    std::vector<cl_float4> positions = toCLFloat4Vector(tc.positions);
 
     const cl_uint particleCount = static_cast<cl_uint>(positions.size());
     auto positionBuf = makeOpenCLReadBuffer(opencl.context(), positions, err);
@@ -64,17 +57,13 @@ public:
     runOpenCL1DKernel(opencl.queue(), kernel, particleCount, "hashParticles");
 
     HashParticlesResult result;
-    result.particleIndex.resize(particleCount);
     std::vector<cl_uint2> clResult(particleCount);
     if (opencl.queue().enqueueReadBuffer(particleIndexBuf, CL_TRUE, 0,
                                          sizeof(cl_uint2) * particleCount,
                                          clResult.data()) != CL_SUCCESS) {
       throw std::runtime_error("Failed to read particleIndex buffer");
     }
-    for (size_t i = 0; i < clResult.size(); ++i) {
-      result.particleIndex[i][0] = clResult[i].s[0];
-      result.particleIndex[i][1] = clResult[i].s[1];
-    }
+    result.particleIndex = toHostUInt2Vector(clResult);
     return result;
   }
 };

@@ -15,11 +15,7 @@ public:
     MetalKernelContext metal("indexx");
     auto *dev = metal.device().get();
 
-    std::vector<MetalUInt2> particleIndex(tc.particleIndex.size());
-    for (size_t i = 0; i < tc.particleIndex.size(); ++i) {
-      particleIndex[i].s[0] = tc.particleIndex[i][0];
-      particleIndex[i].s[1] = tc.particleIndex[i][1];
-    }
+    std::vector<MetalUInt2> particleIndex = toMetalUInt2Vector(tc.particleIndex);
 
     const uint32_t gridCellCount = tc.gridCellCount;
     const uint32_t particleCount = static_cast<uint32_t>(tc.particleIndex.size());
