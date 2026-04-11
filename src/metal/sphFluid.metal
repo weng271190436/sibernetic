@@ -3,15 +3,20 @@ using namespace metal;
 
 constant int kMaxNeighborCount = 32;
 constant int kNoParticleId = -1;
+// Each particle probes the 2×2×2 octant of cells overlapping its h-radius ball.
+constant int kNeighborCellCount = 8;
 
 // Flattens 3D grid coordinates (x,y,z) into a linear cell id.
-inline int cellId(int3 cellFactors, uint gridCellsX, uint gridCellsY) {
-  return cellFactors.x + cellFactors.y * static_cast<int>(gridCellsX) +
-         cellFactors.z * static_cast<int>(gridCellsX) *
+inline int cellId(int3 cellCoordinates, uint gridCellsX, uint gridCellsY) {
+  return cellCoordinates.x + cellCoordinates.y * static_cast<int>(gridCellsX) +
+         cellCoordinates.z * static_cast<int>(gridCellsX) *
              static_cast<int>(gridCellsY);
 }
 
-inline int3 cellFactors(float4 position, float hashGridCellSizeInv) {
+// Converts a particle's world position into 3D grid cell coordinates.
+// Divides each position component by the inverse cell size (effectively scaling
+// by 1/cellSize to get which cell the particle belongs to).
+inline int3 cellCoordinates(float4 position, float hashGridCellSizeInv) {
   return int3(static_cast<int>(position.x * hashGridCellSizeInv),
               static_cast<int>(position.y * hashGridCellSizeInv),
               static_cast<int>(position.z * hashGridCellSizeInv));
@@ -29,8 +34,8 @@ kernel void hashParticles(const device float4 *position [[buffer(0)]],
                           constant float &zmin [[buffer(7)]],
                           device uint2 *particleIndex [[buffer(8)]],
                           constant uint &particleCount [[buffer(9)]],
-                          uint id [[thread_position_in_grid]]) {
-  if (id >= particleCount) {
+                          uint particleId [[thread_position_in_grid]]) {
+  if (particleId >= particleCount) {
     return;
   }
 
@@ -39,18 +44,18 @@ kernel void hashParticles(const device float4 *position [[buffer(0)]],
   (void)ymin;
   (void)zmin;
 
-  const float4 p = position[id];
-  int3 cellFactors;
-  cellFactors.x = static_cast<int>(p.x * hashGridCellSizeInv);
-  cellFactors.y = static_cast<int>(p.y * hashGridCellSizeInv);
-  cellFactors.z = static_cast<int>(p.z * hashGridCellSizeInv);
+  const float4 p = position[particleId];
+  int3 cellCoordinates;
+  cellCoordinates.x = static_cast<int>(p.x * hashGridCellSizeInv);
+  cellCoordinates.y = static_cast<int>(p.y * hashGridCellSizeInv);
+  cellCoordinates.z = static_cast<int>(p.z * hashGridCellSizeInv);
 
   // Keep low 24 bits to match existing OpenCL behavior.
   // This limits the simulation to at most 2^24 = 16,777,216 grid cells
   // (e.g. a 256x256x256 grid). Typical Sibernetic runs use ~32^3-64^3
   // cells, so this ceiling is never approached in practice.
-  const int cell = cellId(cellFactors, gridCellsX, gridCellsY) & 0x00ffffff;
-  particleIndex[id] = uint2(static_cast<uint>(cell), id);
+  const int cell = cellId(cellCoordinates, gridCellsX, gridCellsY) & 0x00ffffff;
+  particleIndex[particleId] = uint2(static_cast<uint>(cell), particleId);
 }
 
 // After particleIndex is sorted by cell id, position/velocity are still in
@@ -68,21 +73,21 @@ kernel void sortPostPass(const device uint2 *particleIndex [[buffer(0)]],
                          device float4 *sortedPosition [[buffer(4)]],
                          device float4 *sortedVelocity [[buffer(5)]],
                          constant uint &particleCount [[buffer(6)]],
-                         uint id [[thread_position_in_grid]]) {
-  if (id >= particleCount) {
+                         uint particleId [[thread_position_in_grid]]) {
+  if (particleId >= particleCount) {
     return;
   }
 
-  const uint2 spi = particleIndex[id];
+  const uint2 spi = particleIndex[particleId];
   const uint serialId = spi.y; // PI_SERIAL_ID
   const uint cellId = spi.x;   // PI_CELL_ID
 
   float4 pos = position[serialId];
   pos.w = float(cellId); // POSITION_CELL_ID
 
-  sortedPosition[id] = pos;
-  sortedVelocity[id] = velocity[serialId];
-  particleIndexBack[serialId] = id;
+  sortedPosition[particleId] = pos;
+  sortedVelocity[particleId] = velocity[serialId];
+  particleIndexBack[serialId] = particleId;
 }
 
 // For each cell id, finds the first index in sorted particleIndex whose
@@ -141,64 +146,85 @@ kernel void indexx(const device uint2 *particleIndex [[buffer(0)]],
   gridCellIndex[targetCellId] = static_cast<uint>(cellIndex);
 }
 
-inline int getMaxIndex(thread const float *values) {
-  int result = 0;
-  float maxValue = -1.0f;
-  for (int i = 0; i < kMaxNeighborCount; ++i) {
-    if (values[i] > maxValue) {
-      maxValue = values[i];
-      result = i;
+// Sifts the element at index i downward to restore the max-heap property.
+// closestDistances is the key; larger = farther = worse.
+inline void heapSiftDown(thread int *closestIndexes,
+                         thread float *closestDistances, int i) {
+  while (true) {
+    int largest = i;
+    const int left = 2 * i + 1;
+    const int right = 2 * i + 2;
+    if (left < kMaxNeighborCount &&
+        closestDistances[left] > closestDistances[largest]) {
+      largest = left;
     }
+    if (right < kMaxNeighborCount &&
+        closestDistances[right] > closestDistances[largest]) {
+      largest = right;
+    }
+    if (largest == i)
+      break;
+    const int tmpIdx = closestIndexes[i];
+    const float tmpDist = closestDistances[i];
+    closestIndexes[i] = closestIndexes[largest];
+    closestDistances[i] = closestDistances[largest];
+    closestIndexes[largest] = tmpIdx;
+    closestDistances[largest] = tmpDist;
+    i = largest;
   }
-  return result;
 }
 
-inline int searchForNeighbors_b(
-    int searchCell, const device uint *gridCellIndex, float4 position,
-    int myParticleId, const device float4 *sortedPosition, device float2 *neighborMap,
-    thread int *closestIndexes, thread float *closestDistances, int lastFarthest,
-    thread int &foundCount) {
-  const int baseParticleId = static_cast<int>(gridCellIndex[searchCell]);
-  const int nextParticleId = static_cast<int>(gridCellIndex[searchCell + 1]);
+// Scans all particles in probeCellId and maintains closestDistances/
+// closestIndexes as a max-heap of the kMaxNeighborCount closest neighbors seen
+// so far. The heap root (index 0) always holds the current farthest (worst)
+// neighbor, so a single comparison against it decides whether to admit a
+// candidate; heapSiftDown then restores the invariant in O(log k).
+inline void updateNeighborHeapFromCell(
+    int probeCellId, const device uint *gridCellIndices,
+    float4 myParticlePosition, int myParticleId,
+    const device float4 *sortedPosition, device float2 *neighborMap,
+    thread int *closestIndexes, thread float *closestDistances) {
+  const int baseParticleId = static_cast<int>(gridCellIndices[probeCellId]);
+  const int nextParticleId = static_cast<int>(gridCellIndices[probeCellId + 1]);
   const int particleCountThisCell = nextParticleId - baseParticleId;
 
-  int farthestNeighbor = lastFarthest;
   for (int i = 0; i < particleCountThisCell; ++i) {
     const int neighborParticleId = baseParticleId + i;
     if (myParticleId == neighborParticleId) {
       continue;
     }
 
-    const float4 d = position - sortedPosition[neighborParticleId];
+    const float4 d = myParticlePosition - sortedPosition[neighborParticleId];
     const float distanceSquared = d.x * d.x + d.y * d.y + d.z * d.z;
-    if (distanceSquared <= closestDistances[farthestNeighbor]) {
-      closestDistances[farthestNeighbor] = distanceSquared;
-      closestIndexes[farthestNeighbor] = neighborParticleId;
-      if (foundCount < kMaxNeighborCount - 1) {
-        ++foundCount;
-        farthestNeighbor = foundCount;
-      } else {
-        farthestNeighbor = getMaxIndex(closestDistances);
-      }
+    // The root is always the worst kept neighbor; only admit candidates that
+    // beat it, then sift down to restore the heap invariant.
+    if (distanceSquared <= closestDistances[0]) {
+      closestDistances[0] = distanceSquared;
+      closestIndexes[0] = neighborParticleId;
+      heapSiftDown(closestIndexes, closestDistances, 0);
     }
   }
-  return farthestNeighbor;
 }
 
-inline int searchCell(int cell, int deltaX, int deltaY, int deltaZ,
-                      uint gridCellsX, uint gridCellsY, uint gridCellCount) {
+// Computes the linear cell ID of a neighbor cell by applying (deltaX, deltaY,
+// deltaZ) offsets to the given cell ID, with periodic boundary wrapping.
+inline int neighborCellId(int cell, int deltaX, int deltaY, int deltaZ,
+                          uint gridCellsX, uint gridCellsY,
+                          uint gridCellCount) {
   const int dx = deltaX;
   const int dy = deltaY * static_cast<int>(gridCellsX);
-  const int dz = deltaZ * static_cast<int>(gridCellsX) *
-                 static_cast<int>(gridCellsY);
+  const int dz =
+      deltaZ * static_cast<int>(gridCellsX) * static_cast<int>(gridCellsY);
   int newCell = cell + dx + dy + dz;
   const int gridCellCountInt = static_cast<int>(gridCellCount);
   newCell = (newCell < 0) ? (newCell + gridCellCountInt) : newCell;
-  newCell = (newCell >= gridCellCountInt) ? (newCell - gridCellCountInt) : newCell;
+  newCell =
+      (newCell >= gridCellCountInt) ? (newCell - gridCellCountInt) : newCell;
   return newCell;
 }
 
-kernel void findNeighbors(const device uint *gridCellIndexFixedUp [[buffer(0)]],
+kernel void findNeighbors(const device uint *gridCellIndicesFixedUp
+                          [[buffer(0)]],
                           const device float4 *sortedPosition [[buffer(1)]],
                           constant uint &gridCellCount [[buffer(2)]],
                           constant uint &gridCellsX [[buffer(3)]],
@@ -213,24 +239,26 @@ kernel void findNeighbors(const device uint *gridCellIndexFixedUp [[buffer(0)]],
                           constant float &zmin [[buffer(12)]],
                           device float2 *neighborMap [[buffer(13)]],
                           constant uint &particleCount [[buffer(14)]],
-                          uint id [[thread_position_in_grid]]) {
-  if (id >= particleCount) {
+                          uint particleId [[thread_position_in_grid]]) {
+  if (particleId >= particleCount) {
     return;
   }
 
   (void)gridCellsZ;
 
-  const device uint *gridCellIndex = gridCellIndexFixedUp;
-  const float4 position = sortedPosition[id];
-  const int myCellId = static_cast<int>(position.w) & 0x00ffffff;
-
-  int searchCells[8];
-  searchCells[0] = myCellId;
+  // "FixedUp" means empty-cell holes were filled in a post-pass so each cell
+  // has a valid start pointer. Empty cells satisfy start[c] == start[c + 1],
+  // producing a zero-length [start, end) range during neighbor scans.
+  const device uint *gridCellIndices = gridCellIndicesFixedUp;
+  const float4 position = sortedPosition[particleId];
+  const int particleCellId = static_cast<int>(position.w) & 0x00ffffff;
 
   const float rThresholdSquared = h * h;
   float closestDistances[kMaxNeighborCount];
   int closestIndexes[kMaxNeighborCount];
-  int foundCount = 0;
+  // All slots start at rThresholdSquared, forming a trivial valid max-heap
+  // (all values equal). Empty slots (kNoParticleId) act as sentinels that
+  // accept any particle within the cutoff radius until they are displaced.
   for (int k = 0; k < kMaxNeighborCount; ++k) {
     closestDistances[k] = rThresholdSquared;
     closestIndexes[k] = kNoParticleId;
@@ -238,48 +266,46 @@ kernel void findNeighbors(const device uint *gridCellIndexFixedUp [[buffer(0)]],
 
   // Determine which neighboring cells to probe based on position inside cell.
   const float4 p = position - float4(xmin, ymin, zmin, 0.0f);
-  const int3 cf = cellFactors(position, hashGridCellSizeInv);
-  const float3 cfCorner =
-      float3(cf.x * hashGridCellSize, cf.y * hashGridCellSize,
-             cf.z * hashGridCellSize);
-  const bool3 lowHalf =
-      bool3((p.x - cfCorner.x) < h, (p.y - cfCorner.y) < h, (p.z - cfCorner.z) < h);
-  const int3 delta = int3(1 + 2 * static_cast<int>(lowHalf.x),
-                          1 + 2 * static_cast<int>(lowHalf.y),
-                          1 + 2 * static_cast<int>(lowHalf.z));
+  const int3 cellCoords = cellCoordinates(position, hashGridCellSizeInv);
+  const float3 cellMinCorner =
+      float3(cellCoords.x * hashGridCellSize, cellCoords.y * hashGridCellSize,
+             cellCoords.z * hashGridCellSize);
+  const bool3 isInLowerHalf =
+      bool3((p.x - cellMinCorner.x) < h, (p.y - cellMinCorner.y) < h,
+            (p.z - cellMinCorner.z) < h);
+  const int3 delta = int3(1 + 2 * static_cast<int>(isInLowerHalf.x),
+                          1 + 2 * static_cast<int>(isInLowerHalf.y),
+                          1 + 2 * static_cast<int>(isInLowerHalf.z));
 
-  searchCells[1] = searchCell(myCellId, delta.x, 0, 0, gridCellsX, gridCellsY,
-                              gridCellCount);
-  searchCells[2] = searchCell(myCellId, 0, delta.y, 0, gridCellsX, gridCellsY,
-                              gridCellCount);
-  searchCells[3] = searchCell(myCellId, 0, 0, delta.z, gridCellsX, gridCellsY,
-                              gridCellCount);
-  searchCells[4] = searchCell(myCellId, delta.x, delta.y, 0, gridCellsX,
-                              gridCellsY, gridCellCount);
-  searchCells[5] = searchCell(myCellId, delta.x, 0, delta.z, gridCellsX,
-                              gridCellsY, gridCellCount);
-  searchCells[6] = searchCell(myCellId, 0, delta.y, delta.z, gridCellsX,
-                              gridCellsY, gridCellCount);
-  searchCells[7] = searchCell(myCellId, delta.x, delta.y, delta.z, gridCellsX,
-                              gridCellsY, gridCellCount);
-
-  int lastFarthest = 0;
-  for (int i = 0; i < 8; ++i) {
-    lastFarthest =
-        searchForNeighbors_b(searchCells[i], gridCellIndex, position,
-                             static_cast<int>(id), sortedPosition, neighborMap,
-                             closestIndexes, closestDistances, lastFarthest,
-                             foundCount);
+  // Build the kNeighborCellCount neighbor cell IDs. Each entry covers one
+  // combination of (delta.x or 0, delta.y or 0, delta.z or 0), selected by
+  // the 3 low bits of i: bit 0 → x, bit 1 → y, bit 2 → z.
+  int neighborCellIds[kNeighborCellCount];
+  for (int i = 0; i < kNeighborCellCount; ++i) {
+    const int dx = (i & 1) ? delta.x : 0;
+    const int dy = (i & 2) ? delta.y : 0;
+    const int dz = (i & 4) ? delta.z : 0;
+    neighborCellIds[i] = neighborCellId(particleCellId, dx, dy, dz, gridCellsX,
+                                        gridCellsY, gridCellCount);
   }
 
-  for (int j = 0; j < kMaxNeighborCount; ++j) {
+  for (int i = 0; i < kNeighborCellCount; ++i) {
+    updateNeighborHeapFromCell(neighborCellIds[i], gridCellIndices, position,
+                               static_cast<int>(particleId), sortedPosition,
+                               neighborMap, closestIndexes, closestDistances);
+  }
+
+  for (int i = 0; i < kMaxNeighborCount; ++i) {
     float2 neighborData;
-    neighborData.x = static_cast<float>(closestIndexes[j]);
-    if (closestIndexes[j] >= 0) {
-      neighborData.y = sqrt(closestDistances[j]) * simulationScale;
+    neighborData.x = static_cast<float>(closestIndexes[i]);
+    if (closestIndexes[i] >= 0) {
+      // Positions are in hash-grid space; multiply by simulationScale to
+      // convert the distance into simulation units for the SPH kernels.
+      neighborData.y = sqrt(closestDistances[i]) * simulationScale;
     } else {
       neighborData.y = -1.0f;
     }
-    neighborMap[id * kMaxNeighborCount + static_cast<uint>(j)] = neighborData;
+    neighborMap[particleId * kMaxNeighborCount + static_cast<uint>(i)] =
+        neighborData;
   }
 }

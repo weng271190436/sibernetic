@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <string>
@@ -101,24 +102,39 @@ struct FindNeighborsTestCommon {
     ASSERT_EQ(tc.expectedPrimaryNeighborDistances.size(), particleCount);
     ASSERT_EQ(result.neighborMap.size(), particleCount * 32u);
 
+    using NeighborEntry = std::pair<int, float>; // {id, distance}
+    const auto byId = [](const NeighborEntry &a, const NeighborEntry &b) {
+      return a.first < b.first;
+    };
+
     for (size_t p = 0; p < particleCount; ++p) {
       const size_t base = p * 32u;
-      for (size_t k = 0; k < 2u; ++k) {
-        const int gotId = static_cast<int>(result.neighborMap[base + k][0]);
-        const int expId = tc.expectedPrimaryNeighborIds[p][k];
-        EXPECT_EQ(gotId, expId) << "particle " << p << ", slot " << k;
 
-        const float gotDist = result.neighborMap[base + k][1];
-        const float expDist = tc.expectedPrimaryNeighborDistances[p][k];
-        EXPECT_NEAR(gotDist, expDist, 1e-5f)
-            << "particle " << p << ", slot " << k;
+      // Collect non-sentinel entries from the output.
+      std::vector<NeighborEntry> got;
+      for (size_t s = 0; s < 32u; ++s) {
+        const int id = static_cast<int>(result.neighborMap[base + s][0]);
+        if (id != -1) {
+          got.push_back({id, result.neighborMap[base + s][1]});
+        }
       }
 
-      for (size_t k = 2u; k < 32u; ++k) {
-        const int gotId = static_cast<int>(result.neighborMap[base + k][0]);
-        EXPECT_EQ(gotId, -1) << "particle " << p << ", slot " << k;
-        EXPECT_EQ(result.neighborMap[base + k][1], -1.0f)
-            << "particle " << p << ", slot " << k;
+      // Build expected entries.
+      std::vector<NeighborEntry> expected;
+      for (size_t k = 0; k < tc.expectedPrimaryNeighborIds[p].size(); ++k) {
+        expected.push_back({tc.expectedPrimaryNeighborIds[p][k],
+                            tc.expectedPrimaryNeighborDistances[p][k]});
+      }
+
+      std::sort(got.begin(), got.end(), byId);
+      std::sort(expected.begin(), expected.end(), byId);
+
+      ASSERT_EQ(got.size(), expected.size()) << "particle " << p;
+      for (size_t k = 0; k < expected.size(); ++k) {
+        EXPECT_EQ(got[k].first, expected[k].first)
+            << "particle " << p << ", sorted slot " << k;
+        EXPECT_NEAR(got[k].second, expected[k].second, 1e-5f)
+            << "particle " << p << ", sorted slot " << k;
       }
     }
   }
