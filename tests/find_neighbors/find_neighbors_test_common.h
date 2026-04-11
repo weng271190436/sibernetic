@@ -45,15 +45,30 @@ inline FindNeighborsFloat4 fnPos(float x, float y, float z, float cellId) {
   return {x, y, z, cellId};
 }
 
+inline std::vector<uint32_t> fixedUpFromOccupiedCellCounts(
+    uint32_t gridCellCount,
+    const std::vector<std::pair<uint32_t, uint32_t>> &occupiedCellCounts) {
+  std::vector<uint32_t> counts(gridCellCount, 0u);
+  for (const auto &entry : occupiedCellCounts) {
+    const uint32_t cell = entry.first;
+    const uint32_t count = entry.second;
+    if (cell < gridCellCount) {
+      counts[cell] = count;
+    }
+  }
+
+  std::vector<uint32_t> out(gridCellCount + 1u, 0u);
+  for (uint32_t c = 0; c < gridCellCount; ++c) {
+    out[c + 1u] = out[c] + counts[c];
+  }
+  return out;
+}
+
 inline std::vector<uint32_t> fixedUpSingleOccupiedCell(uint32_t gridCellCount,
                                                        uint32_t occupiedCell,
                                                        uint32_t particleCount) {
-  std::vector<uint32_t> out(gridCellCount + 1u, particleCount);
-  for (uint32_t c = 0; c <= occupiedCell && c < gridCellCount; ++c) {
-    out[c] = 0u;
-  }
-  out[gridCellCount] = particleCount;
-  return out;
+  return fixedUpFromOccupiedCellCounts(gridCellCount,
+                                       {{occupiedCell, particleCount}});
 }
 
 struct FindNeighborsTestCommon {
@@ -87,6 +102,99 @@ struct FindNeighborsTestCommon {
             /*expectedPrimaryNeighborIds=*/{{{1, 2}}, {{0, 2}}, {{0, 1}}},
             /*expectedPrimaryNeighborDistances=*/
             {{{0.1f, 0.1f}}, {{0.1f, 0.14142136f}}, {{0.1f, 0.14142136f}}},
+        },
+        FindNeighborsCase{
+            {},
+            "SameCell_IncludesDistanceNearH",
+            fixedUpSingleOccupiedCell(/*gridCellCount=*/512u,
+                                      /*occupiedCell=*/73u,
+                                      /*particleCount=*/3u),
+            {
+                fnPos(1.00f, 1.00f, 1.00f, 73.0f),
+                fnPos(1.249f, 1.00f, 1.00f, 73.0f),
+                fnPos(1.10f, 1.00f, 1.00f, 73.0f),
+            },
+            /*gridCellCount=*/512u,
+            /*gridCellsX=*/8u,
+            /*gridCellsY=*/8u,
+            /*gridCellsZ=*/8u,
+            /*h=*/0.25f,
+            /*hashGridCellSize=*/1.0f,
+            /*hashGridCellSizeInv=*/1.0f,
+            /*simulationScale=*/1.0f,
+            /*xmin=*/0.0f,
+            /*ymin=*/0.0f,
+            /*zmin=*/0.0f,
+            /*expectedPrimaryNeighborIds=*/{{{1, 2}}, {{0, 2}}, {{0, 1}}},
+            /*expectedPrimaryNeighborDistances=*/
+            {{{0.249f, 0.10f}}, {{0.249f, 0.149f}}, {{0.10f, 0.149f}}},
+        },
+        FindNeighborsCase{
+            {},
+            "TwoClusters_DistantCells_NoCrossTalk",
+            fixedUpFromOccupiedCellCounts(
+                /*gridCellCount=*/512u,
+                {
+                    {73u, 3u},
+                    {310u, 3u},
+                }),
+            {
+                fnPos(1.80f, 1.80f, 1.80f, 73.0f),
+                fnPos(1.90f, 1.80f, 1.80f, 73.0f),
+                fnPos(1.80f, 1.90f, 1.80f, 73.0f),
+                fnPos(6.80f, 6.80f, 4.80f, 310.0f),
+                fnPos(6.90f, 6.80f, 4.80f, 310.0f),
+                fnPos(6.80f, 6.90f, 4.80f, 310.0f),
+            },
+            /*gridCellCount=*/512u,
+            /*gridCellsX=*/8u,
+            /*gridCellsY=*/8u,
+            /*gridCellsZ=*/8u,
+            /*h=*/0.25f,
+            /*hashGridCellSize=*/1.0f,
+            /*hashGridCellSizeInv=*/1.0f,
+            /*simulationScale=*/1.0f,
+            /*xmin=*/0.0f,
+            /*ymin=*/0.0f,
+            /*zmin=*/0.0f,
+            /*expectedPrimaryNeighborIds=*/
+            {{{1, 2}}, {{0, 2}}, {{0, 1}}, {{4, 5}}, {{3, 5}}, {{3, 4}}},
+            /*expectedPrimaryNeighborDistances=*/
+            {{{0.1f, 0.1f}},
+             {{0.1f, 0.14142136f}},
+             {{0.1f, 0.14142136f}},
+             {{0.1f, 0.1f}},
+             {{0.1f, 0.14142136f}},
+             {{0.1f, 0.14142136f}}},
+        },
+        FindNeighborsCase{
+            {},
+            "AdjacentCells_CrossCellNeighborsFound",
+            fixedUpFromOccupiedCellCounts(
+                /*gridCellCount=*/512u,
+                {
+                    {73u, 2u},
+                    {74u, 1u},
+                }),
+            {
+                fnPos(1.95f, 1.80f, 1.80f, 73.0f),
+                fnPos(1.90f, 1.80f, 1.80f, 73.0f),
+                fnPos(2.05f, 1.80f, 1.80f, 74.0f),
+            },
+            /*gridCellCount=*/512u,
+            /*gridCellsX=*/8u,
+            /*gridCellsY=*/8u,
+            /*gridCellsZ=*/8u,
+            /*h=*/0.25f,
+            /*hashGridCellSize=*/1.0f,
+            /*hashGridCellSizeInv=*/1.0f,
+            /*simulationScale=*/1.0f,
+            /*xmin=*/0.0f,
+            /*ymin=*/0.0f,
+            /*zmin=*/0.0f,
+            /*expectedPrimaryNeighborIds=*/{{{1, 2}}, {{0, 2}}, {{0, 1}}},
+            /*expectedPrimaryNeighborDistances=*/
+            {{{0.05f, 0.10f}}, {{0.05f, 0.15f}}, {{0.10f, 0.15f}}},
         },
     };
     return kCases;

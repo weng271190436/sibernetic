@@ -273,9 +273,10 @@ kernel void findNeighbors(const device uint *gridCellIndicesFixedUp
   const bool3 isInLowerHalf =
       bool3((p.x - cellMinCorner.x) < h, (p.y - cellMinCorner.y) < h,
             (p.z - cellMinCorner.z) < h);
-  const int3 delta = int3(1 + 2 * static_cast<int>(isInLowerHalf.x),
-                          1 + 2 * static_cast<int>(isInLowerHalf.y),
-                          1 + 2 * static_cast<int>(isInLowerHalf.z));
+  // Match OpenCL semantics: lower-half probes negative direction (-1),
+  // upper-half probes positive direction (+1).
+  const int3 delta = int3(isInLowerHalf.x ? -1 : 1, isInLowerHalf.y ? -1 : 1,
+                          isInLowerHalf.z ? -1 : 1);
 
   // Build the kNeighborCellCount neighbor cell IDs. Each entry covers one
   // combination of (delta.x or 0, delta.y or 0, delta.z or 0), selected by

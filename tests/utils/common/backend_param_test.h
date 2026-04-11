@@ -2,6 +2,7 @@
 
 #include <concepts>
 #include <memory> // IWYU pragma: keep
+#include <ostream>
 #include <string>
 #include <vector> // IWYU pragma: keep
 
@@ -24,6 +25,18 @@ concept SibTestCommon = requires {
   } -> std::same_as<void>;
 };
 
+template <typename T>
+concept NamedTestCase = requires(const T &tc) {
+  { tc.name } -> std::convertible_to<const char *>;
+};
+
+// GTest pretty-printer for parameterized test case structs that expose a
+// human-readable `name` field.
+template <NamedTestCase T>
+inline void PrintTo(const T &tc, std::ostream *os) {
+  *os << ((tc.name != nullptr) ? tc.name : "<unnamed>");
+}
+
 } // namespace SiberneticTest
 
 #define SIB_DEFINE_BACKEND_PARAM_TEST(SuiteName, TestCommon, RunnerBaseType,   \
@@ -36,13 +49,17 @@ concept SibTestCommon = requires {
   TEST_P(SuiteName, AllBackends) {                                             \
     const TestCommon::Case &tc = GetParam();                                   \
                                                                                \
-    std::vector<std::unique_ptr<RunnerBaseType>> runners;                      \
-    runners.push_back(std::make_unique<OpenCLRunnerType>());                   \
-    runners.push_back(std::make_unique<MetalRunnerType>());                    \
+    std::vector<std::pair<const char *, std::unique_ptr<RunnerBaseType>>>      \
+        runners;                                                               \
+    runners.emplace_back(#OpenCLRunnerType,                                    \
+                         std::make_unique<OpenCLRunnerType>());                \
+    runners.emplace_back(#MetalRunnerType,                                     \
+                         std::make_unique<MetalRunnerType>());                 \
                                                                                \
-    for (auto &runner : runners) {                                             \
+    for (auto &runnerEntry : runners) {                                        \
+      SCOPED_TRACE(std::string("backend=") + runnerEntry.first);               \
       ASSERT_NO_THROW({                                                        \
-        auto result = runner->run(tc);                                         \
+        auto result = runnerEntry.second->run(tc);                             \
         TestCommon::expect(tc, result);                                        \
       });                                                                      \
     }                                                                          \
