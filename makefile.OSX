@@ -91,7 +91,7 @@ $(OPENCL_TEST_BIN): $(OPENCL_TEST_OBJS)
 
 $(OPENCL_TEST_OBJDIR)/%.o: tests/%.cpp $(OPENCL_TEST_HDRS)
 	@mkdir -p $(dir $@)
-	$(CXX) $(OPENCL_TEST_CXXFLAGS) -I$(INCDIR) -I$(GTEST_PREFIX)/include -Imetal-cpp -c $< -o $@
+	$(CXX) $(OPENCL_TEST_CXXFLAGS) -I$(INCDIR) -isystem$(GTEST_PREFIX)/include -isystemmetal-cpp -c $< -o $@
 
 test-opencl: bootstrap-test $(OPENCL_TEST_BIN)
 	$(OPENCL_TEST_BIN)

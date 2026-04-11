@@ -1032,7 +1032,10 @@ namespace detail {
            (long)exchange, 
            (long)comparand));
 #elif defined(__APPLE__) || defined(__MACOSX)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
 		return OSAtomicOr32Orig((uint32_t)exchange, (volatile uint32_t*)dest);
+#pragma clang diagnostic pop
 #else // !_WIN32 || defined(__APPLE__) || defined(__MACOSX)
         return (__sync_val_compare_and_swap(
             dest, 
