@@ -10,8 +10,8 @@
 #undef err_local
 #endif
 
-#include "../../../inc/OpenCL/cl.hpp"
 #include "../types/types.h"
+#include <OpenCL/opencl.h>
 
 namespace SiberneticTest {
 
