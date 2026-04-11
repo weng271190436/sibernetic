@@ -12,8 +12,11 @@ tests/
   utils/
     types.h                   # Base structs: TestCase, TestResult, TestRunner<>
     test_utils.h              # readTextFile(), logging macros
-    opencl_test_utils.h       # OpenCLKernelContext + makeOpenCLReadBuffer/WriteBuffer
-    metal_test_utils.h        # MetalKernelContext (dispatch, makeMetalInputBuffer/OutputBuffer)
+    opencl_context.h          # pickDevice(), OpenCLKernelContext
+    opencl_helpers.h          # OpenCL buffer helpers + runOpenCL1DKernel
+    metal_context.h           # MetalKernelContext (dispatch, pipeline setup)
+    metal_helpers.h           # Metal buffer helpers
+    metal_types.h             # MetalFloat4, MetalUInt2
   hash_particles/             # One directory per kernel under test
     hash_particles_test_common.h      # Shared: Case/Result types, test data, assertions
     opencl_hash_particles_runner.h    # OpenCL backend runner
@@ -83,7 +86,8 @@ inline void expectMyKernelResultMatches(const MyKernelCase &tc,
 
 ```cpp
 #pragma once
-#include "../utils/opencl_test_utils.h"
+#include "../utils/opencl_context.h"
+#include "../utils/opencl_helpers.h"
 #include "my_kernel_test_common.h"
 
 namespace SiberneticTest {
@@ -116,7 +120,9 @@ to `opencl.compileProgramFromSourceFile()` if needed.
 
 ```cpp
 #pragma once
-#include "../utils/metal_test_utils.h"
+#include "../utils/metal_context.h"
+#include "../utils/metal_helpers.h"
+#include "../utils/metal_types.h"
 #include "my_kernel_test_common.h"
 
 namespace SiberneticTest {

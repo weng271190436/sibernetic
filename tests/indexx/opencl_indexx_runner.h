@@ -3,7 +3,8 @@
 #include <stdexcept>
 #include <vector>
 
-#include "../utils/opencl_test_utils.h"
+#include "../utils/opencl_context.h"
+#include "../utils/opencl_helpers.h"
 #include "indexx_test_common.h"
 
 namespace SiberneticTest {
@@ -47,12 +48,7 @@ public:
       throw std::runtime_error("Failed to set kernel args for indexx");
     }
 
-    if (opencl.queue().enqueueNDRangeKernel(kernel, cl::NullRange,
-                                            cl::NDRange(outputCount),
-                                            cl::NullRange) != CL_SUCCESS ||
-        opencl.queue().finish() != CL_SUCCESS) {
-      throw std::runtime_error("Failed to execute indexx kernel");
-    }
+    runOpenCL1DKernel(opencl.queue(), kernel, outputCount, "indexx");
 
     IndexxResult result;
     result.gridCellIndex.resize(outputCount);

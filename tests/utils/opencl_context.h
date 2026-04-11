@@ -4,8 +4,6 @@
 #include <string>
 #include <vector>
 
-#include <gtest/gtest.h>
-
 #include "test_utils.h"
 
 // macOS defines err_local as a macro in <err.h>; it collides with
@@ -112,55 +110,5 @@ private:
   cl::CommandQueue queue_;
   cl::Program program_;
 };
-
-class OpenCLKernelFixture : public ::testing::Test {
-protected:
-  cl::Device device;
-  cl::Context context;
-  cl::CommandQueue queue;
-  cl::Program program;
-
-  virtual const char *kernelSourcePath() const { return "src/sphFluid.cl"; }
-
-  void SetUp() override {
-    ASSERT_NO_THROW(device = pickDevice());
-
-    cl_int err = CL_SUCCESS;
-    context = cl::Context(device, nullptr, nullptr, nullptr, &err);
-    ASSERT_EQ(err, CL_SUCCESS);
-
-    queue = cl::CommandQueue(context, device, 0, &err);
-    ASSERT_EQ(err, CL_SUCCESS);
-
-    const std::string kernelSource = readTextFile(kernelSourcePath());
-    cl::Program::Sources sources;
-    sources.push_back({kernelSource.c_str(), kernelSource.size()});
-
-    program = cl::Program(context, sources, &err);
-    ASSERT_EQ(err, CL_SUCCESS);
-
-    err = program.build({device});
-    if (err != CL_SUCCESS) {
-      const std::string log =
-          program.getBuildInfo<CL_PROGRAM_BUILD_LOG>(device);
-      FAIL() << "OpenCL build failed: " << log;
-    }
-  }
-};
-
-// Creates a CL_MEM_READ_ONLY buffer pre-loaded with `data`.
-template <typename T>
-cl::Buffer makeOpenCLReadBuffer(cl::Context &ctx, const std::vector<T> &data,
-                                cl_int &err) {
-  return cl::Buffer(
-      ctx, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR, sizeof(T) * data.size(),
-      const_cast<void *>(static_cast<const void *>(data.data())), &err);
-}
-
-// Creates a CL_MEM_WRITE_ONLY output buffer of `bytes` bytes.
-inline cl::Buffer makeOpenCLWriteBuffer(cl::Context &ctx, size_t bytes,
-                                        cl_int &err) {
-  return cl::Buffer(ctx, CL_MEM_WRITE_ONLY, bytes, nullptr, &err);
-}
 
 } // namespace SiberneticTest

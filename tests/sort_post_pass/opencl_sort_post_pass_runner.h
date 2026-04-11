@@ -3,7 +3,8 @@
 #include <stdexcept>
 #include <vector>
 
-#include "../utils/opencl_test_utils.h"
+#include "../utils/opencl_context.h"
+#include "../utils/opencl_helpers.h"
 #include "sort_post_pass_test_common.h"
 
 namespace SiberneticTest {
@@ -69,12 +70,7 @@ public:
       throw std::runtime_error("Failed to set kernel args for sortPostPass");
     }
 
-    if (opencl.queue().enqueueNDRangeKernel(kernel, cl::NullRange,
-                                            cl::NDRange(n),
-                                            cl::NullRange) != CL_SUCCESS ||
-        opencl.queue().finish() != CL_SUCCESS) {
-      throw std::runtime_error("Failed to execute sortPostPass kernel");
-    }
+    runOpenCL1DKernel(opencl.queue(), kernel, n, "sortPostPass");
 
     SortPostPassResult result;
     result.sortedPosition.resize(n);
