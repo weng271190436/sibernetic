@@ -2,9 +2,11 @@
 
 #include <vector>
 
-#include "../utils/metal_context.h"
-#include "../utils/metal_helpers.h"
-#include "../utils/metal_types.h"
+#include "../utils/arg/metal_arg_binding.h"
+#include "../utils/buffer/metal_buffer_utils.h"
+#include "../utils/context/metal_context.h"
+#include "../utils/convert/metal_convert_utils.h"
+#include "../utils/types/metal_types.h"
 #include "sort_post_pass_test_common.h"
 
 namespace SiberneticTest {
@@ -43,19 +45,19 @@ public:
 
     SortPostPassResult result;
     auto outIndexBack =
-      makeMetalOutputFieldBinding<SortPostPassResult, uint32_t, uint32_t>(
-        1, particleIndexBackBuf, n, &SortPostPassResult::particleIndexBack,
-        convertMetalSortPostPassIndexBack);
+        makeMetalOutputFieldBinding<SortPostPassResult, uint32_t, uint32_t>(
+            1, particleIndexBackBuf, n, &SortPostPassResult::particleIndexBack,
+            convertMetalSortPostPassIndexBack);
     auto outSortedPosition =
-      makeMetalOutputFieldBinding<SortPostPassResult, MetalFloat4,
-                    HostFloat4>(
-        4, sortedPositionBuf, n, &SortPostPassResult::sortedPosition,
-        convertMetalSortPostPassFloat4);
+        makeMetalOutputFieldBinding<SortPostPassResult, MetalFloat4,
+                                    HostFloat4>(
+            4, sortedPositionBuf, n, &SortPostPassResult::sortedPosition,
+            convertMetalSortPostPassFloat4);
     auto outSortedVelocity =
-      makeMetalOutputFieldBinding<SortPostPassResult, MetalFloat4,
-                    HostFloat4>(
-        5, sortedVelocityBuf, n, &SortPostPassResult::sortedVelocity,
-        convertMetalSortPostPassFloat4);
+        makeMetalOutputFieldBinding<SortPostPassResult, MetalFloat4,
+                                    HostFloat4>(
+            5, sortedVelocityBuf, n, &SortPostPassResult::sortedVelocity,
+            convertMetalSortPostPassFloat4);
 
     std::vector<MetalKernelArg> args = {
         makeMetalInputArg(0, particleIndexBuf),
@@ -65,7 +67,7 @@ public:
     };
 
     runMetalKernelSpecAndStore(metal, n, std::move(args), result, outIndexBack,
-                   outSortedPosition, outSortedVelocity);
+                               outSortedPosition, outSortedVelocity);
     return result;
   }
 };

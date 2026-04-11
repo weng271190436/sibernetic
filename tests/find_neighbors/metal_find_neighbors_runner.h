@@ -2,9 +2,11 @@
 
 #include <vector>
 
-#include "../utils/metal_context.h"
-#include "../utils/metal_helpers.h"
-#include "../utils/metal_types.h"
+#include "../utils/arg/metal_arg_binding.h"
+#include "../utils/buffer/metal_buffer_utils.h"
+#include "../utils/context/metal_context.h"
+#include "../utils/convert/metal_convert_utils.h"
+#include "../utils/types/metal_types.h"
 #include "find_neighbors_test_common.h"
 
 namespace SiberneticTest {
@@ -51,10 +53,10 @@ public:
 
     FindNeighborsResult result;
     auto outNeighborMap =
-      makeMetalOutputFieldBinding<FindNeighborsResult, MetalFloat2,
-                    FindNeighborsEntry>(
-        13, neighborMapBuf, neighborCount, &FindNeighborsResult::neighborMap,
-        convertMetalFindNeighborsMap);
+        makeMetalOutputFieldBinding<FindNeighborsResult, MetalFloat2,
+                                    FindNeighborsEntry>(
+            13, neighborMapBuf, neighborCount,
+            &FindNeighborsResult::neighborMap, convertMetalFindNeighborsMap);
 
     std::vector<MetalKernelArg> args = {
         makeMetalInputArg(0, gridCellIndexBuf),

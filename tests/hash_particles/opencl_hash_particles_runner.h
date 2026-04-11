@@ -2,7 +2,8 @@
 
 #include <vector>
 
-#include "../utils/opencl_helpers.h"
+#include "../utils/arg/opencl_arg_binding.h"
+#include "../utils/convert/opencl_convert_utils.h"
 #include "hash_particles_test_common.h"
 
 namespace SiberneticTest {

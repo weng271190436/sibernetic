@@ -10,14 +10,24 @@ and are run with `make test` from the repo root.
 tests/
   metal_private_impl.cpp      # Owns NS/MTL_PRIVATE_IMPLEMENTATION (one per binary)
   utils/
-    types.h                   # Host aliases + base structs: TestCase/TestResult/TestRunner<>
-    test_utils.h              # readTextFile(), logging macros
-    backend_param_test.h      # SibTestCommon concept + SIB_DEFINE_BACKEND_PARAM_TEST
-    opencl_context.h          # pickDevice(), OpenCLKernelContext
-    opencl_helpers.h          # OpenCL buffer + conversion helpers + runOpenCL1DKernel
-    metal_context.h           # MetalKernelContext (dispatch, pipeline setup)
-    metal_helpers.h           # Metal buffer + conversion helpers
-    metal_types.h             # MetalFloat4, MetalUInt2
+    arg/
+      opencl_arg_binding.h    # OpenCL arg descriptors, binding, and execution helpers
+      metal_arg_binding.h     # Metal arg descriptors + bind + spec-and-store
+    buffer/
+      metal_buffer_utils.h    # Metal buffer creation helpers
+      opencl_buffer_utils.h   # OpenCL buffer creation helpers
+    common/
+      test_utils.h            # readTextFile(), logging macros
+      backend_param_test.h    # SibTestCommon concept + SIB_DEFINE_BACKEND_PARAM_TEST
+    context/
+      opencl_context.h        # pickDevice(), OpenCLKernelContext
+      metal_context.h         # MetalKernelContext (dispatch, pipeline setup)
+    convert/
+      opencl_convert_utils.h  # OpenCL <-> host conversion helpers
+      metal_convert_utils.h   # Metal <-> host conversion helpers
+    types/
+      types.h                 # Host aliases + base structs: TestCase/TestResult/TestRunner<>
+      metal_types.h           # MetalFloat4, MetalUInt2
   hash_particles/             # One directory per kernel under test
     hash_particles_test_common.h      # Shared: Case/Result types, test data, assertions
     opencl_hash_particles_runner.h    # OpenCL backend runner
@@ -44,8 +54,8 @@ Use a `MyKernelTestCommon` struct that satisfies `SibTestCommon`:
 ```cpp
 #pragma once
 #include <gtest/gtest.h>
-#include "../utils/backend_param_test.h"
-#include "../utils/types.h"
+#include "../utils/common/backend_param_test.h"
+#include "../utils/types/types.h"
 
 namespace SiberneticTest {
 
@@ -95,8 +105,9 @@ static_assert(SiberneticTest::SibTestCommon<SiberneticTest::MyKernelTestCommon>)
 
 ```cpp
 #pragma once
-#include "../utils/opencl_context.h"
-#include "../utils/opencl_helpers.h"
+#include "../utils/context/opencl_context.h"
+#include "../utils/arg/opencl_arg_binding.h"
+#include "../utils/convert/opencl_convert_utils.h"
 #include "my_kernel_test_common.h"
 
 namespace SiberneticTest {
@@ -129,9 +140,11 @@ to `opencl.compileProgramFromSourceFile()` if needed.
 
 ```cpp
 #pragma once
-#include "../utils/metal_context.h"
-#include "../utils/metal_helpers.h"
-#include "../utils/metal_types.h"
+#include "../utils/context/metal_context.h"
+#include "../utils/arg/metal_arg_binding.h"
+#include "../utils/buffer/metal_buffer_utils.h"
+#include "../utils/convert/metal_convert_utils.h"
+#include "../utils/types/metal_types.h"
 #include "my_kernel_test_common.h"
 
 namespace SiberneticTest {
@@ -170,7 +183,7 @@ public:
 ```cpp
 #define CL_TARGET_OPENCL_VERSION 120
 
-#include "../utils/backend_param_test.h"
+#include "../utils/common/backend_param_test.h"
 #include "my_kernel_test_common.h"
 #include "opencl_my_kernel_runner.h"
 #include "metal_my_kernel_runner.h"

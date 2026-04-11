@@ -9,7 +9,8 @@
 #include <utility>
 #include <vector>
 
-#include "opencl_context.h"
+#include "../buffer/opencl_buffer_utils.h"
+#include "../context/opencl_context.h"
 
 // macOS defines err_local as a macro in <err.h>; it collides with
 // the local variable name used inside OpenCL C++ headers.
@@ -17,8 +18,7 @@
 #undef err_local
 #endif
 
-#include "../../inc/OpenCL/cl.hpp"
-#include "types.h"
+#include "../../../inc/OpenCL/cl.hpp"
 
 namespace SiberneticTest {
 
@@ -35,28 +35,6 @@ struct CLScalarArg {
     std::memcpy(a.bytes.data(), &val, sizeof(T));
     return a;
   }
-};
-
-// A host buffer uploaded to the GPU as a read-only input.
-struct CLInputBuffer {
-  cl_uint argIndex;
-  std::vector<std::byte> bytes;
-
-  template <typename T>
-  static CLInputBuffer make(cl_uint idx, const std::vector<T> &v) {
-    CLInputBuffer b;
-    b.argIndex = idx;
-    b.bytes.resize(sizeof(T) * v.size());
-    std::memcpy(b.bytes.data(), v.data(), b.bytes.size());
-    return b;
-  }
-};
-
-// A write-only GPU buffer; after dispatch the kernel output is copied to dest.
-struct CLOutputBuffer {
-  cl_uint argIndex;
-  size_t byteSize;
-  void *dest; // caller-owned storage, must be >= byteSize bytes
 };
 
 // All the information needed to dispatch one 1-D kernel.
@@ -97,9 +75,9 @@ makeCLOutputFieldBinding(cl_uint argIndex, size_t elementCount,
           std::move(convert)};
 }
 
-template <typename TResult, typename TBindings>
+template <typename TResult, typename TBinding>
 inline void collectCLOutputBuffers(std::vector<CLOutputBuffer> &outBuffers,
-                                   TBindings &binding) {
+                                   TBinding &binding) {
   outBuffers.push_back(binding.asOutputBuffer());
 }
 
@@ -163,13 +141,9 @@ inline void runCLKernelSpec(const CLKernelSpec &spec) {
   std::vector<cl::Buffer> inputBufs;
   inputBufs.reserve(spec.inputBuffers.size());
   for (const auto &ib : spec.inputBuffers) {
-    cl_int berr = CL_SUCCESS;
-    inputBufs.push_back(cl::Buffer(
-        opencl.context(), CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
-        ib.bytes.size(),
-        const_cast<void *>(static_cast<const void *>(ib.bytes.data())), &berr));
-    if (berr != CL_SUCCESS ||
-        kernel.setArg(ib.argIndex, inputBufs.back()) != CL_SUCCESS) {
+    inputBufs.push_back(
+        makeOpenCLInputBuffer(opencl.context(), ib, spec.kernelName));
+    if (kernel.setArg(ib.argIndex, inputBufs.back()) != CL_SUCCESS) {
       throw std::runtime_error("Failed to set input buffer arg " +
                                std::to_string(ib.argIndex) + " for " +
                                spec.kernelName);
@@ -180,11 +154,9 @@ inline void runCLKernelSpec(const CLKernelSpec &spec) {
   std::vector<cl::Buffer> outputBufs;
   outputBufs.reserve(spec.outputBuffers.size());
   for (const auto &ob : spec.outputBuffers) {
-    cl_int berr = CL_SUCCESS;
-    outputBufs.push_back(cl::Buffer(opencl.context(), CL_MEM_WRITE_ONLY,
-                                    ob.byteSize, nullptr, &berr));
-    if (berr != CL_SUCCESS ||
-        kernel.setArg(ob.argIndex, outputBufs.back()) != CL_SUCCESS) {
+    outputBufs.push_back(
+        makeOpenCLOutputBuffer(opencl.context(), ob, spec.kernelName));
+    if (kernel.setArg(ob.argIndex, outputBufs.back()) != CL_SUCCESS) {
       throw std::runtime_error("Failed to set output buffer arg " +
                                std::to_string(ob.argIndex) + " for " +
                                spec.kernelName);
@@ -210,55 +182,6 @@ inline void runCLKernelSpec(const CLKernelSpec &spec) {
                                " for " + spec.kernelName);
     }
   }
-}
-
-inline std::vector<cl_float4>
-toCLFloat4Vector(const std::vector<HostFloat4> &src) {
-  std::vector<cl_float4> out(src.size());
-  for (size_t i = 0; i < src.size(); ++i) {
-    out[i].s[0] = src[i][0];
-    out[i].s[1] = src[i][1];
-    out[i].s[2] = src[i][2];
-    out[i].s[3] = src[i][3];
-  }
-  return out;
-}
-
-inline std::vector<cl_uint2>
-toCLUInt2Vector(const std::vector<HostUInt2> &src) {
-  std::vector<cl_uint2> out(src.size());
-  for (size_t i = 0; i < src.size(); ++i) {
-    out[i].s[0] = src[i][0];
-    out[i].s[1] = src[i][1];
-  }
-  return out;
-}
-
-inline std::vector<HostFloat4>
-toHostFloat4Vector(const std::vector<cl_float4> &src) {
-  std::vector<HostFloat4> out(src.size());
-  for (size_t i = 0; i < src.size(); ++i) {
-    out[i] = {src[i].s[0], src[i].s[1], src[i].s[2], src[i].s[3]};
-  }
-  return out;
-}
-
-inline std::vector<HostUInt2>
-toHostUInt2Vector(const std::vector<cl_uint2> &src) {
-  std::vector<HostUInt2> out(src.size());
-  for (size_t i = 0; i < src.size(); ++i) {
-    out[i] = {src[i].s[0], src[i].s[1]};
-  }
-  return out;
-}
-
-inline std::vector<uint32_t>
-toHostUInt32Vector(const std::vector<cl_uint> &src) {
-  std::vector<uint32_t> out(src.size());
-  for (size_t i = 0; i < src.size(); ++i) {
-    out[i] = src[i];
-  }
-  return out;
 }
 
 } // namespace SiberneticTest

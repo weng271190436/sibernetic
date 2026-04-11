@@ -2,15 +2,17 @@
 
 #include <vector>
 
-#include "../utils/metal_context.h"
-#include "../utils/metal_helpers.h"
-#include "../utils/metal_types.h"
+#include "../utils/arg/metal_arg_binding.h"
+#include "../utils/buffer/metal_buffer_utils.h"
+#include "../utils/context/metal_context.h"
+#include "../utils/convert/metal_convert_utils.h"
+#include "../utils/types/metal_types.h"
 #include "indexx_test_common.h"
 
 namespace SiberneticTest {
 
-inline std::vector<uint32_t> convertMetalIndexxGridCellIndex(const uint32_t *src,
-                                                             size_t n) {
+inline std::vector<uint32_t>
+convertMetalIndexxGridCellIndex(const uint32_t *src, size_t n) {
   return std::vector<uint32_t>(src, src + n);
 }
 

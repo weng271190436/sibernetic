@@ -5,16 +5,16 @@
 #include <stdexcept>
 #include <string>
 
-#include "test_utils.h"
+#include "../common/test_utils.h"
 
-#include "../../metal-cpp/Foundation/NSSharedPtr.hpp"
-#include "../../metal-cpp/Metal/MTLCommandBuffer.hpp"
-#include "../../metal-cpp/Metal/MTLCommandQueue.hpp"
-#include "../../metal-cpp/Metal/MTLComputeCommandEncoder.hpp"
-#include "../../metal-cpp/Metal/MTLComputePipeline.hpp"
-#include "../../metal-cpp/Metal/MTLDevice.hpp"
-#include "../../metal-cpp/Metal/MTLLibrary.hpp"
-#include "../../metal-cpp/Metal/MTLTypes.hpp"
+#include "../../../metal-cpp/Foundation/NSSharedPtr.hpp"
+#include "../../../metal-cpp/Metal/MTLCommandBuffer.hpp"
+#include "../../../metal-cpp/Metal/MTLCommandQueue.hpp"
+#include "../../../metal-cpp/Metal/MTLComputeCommandEncoder.hpp"
+#include "../../../metal-cpp/Metal/MTLComputePipeline.hpp"
+#include "../../../metal-cpp/Metal/MTLDevice.hpp"
+#include "../../../metal-cpp/Metal/MTLLibrary.hpp"
+#include "../../../metal-cpp/Metal/MTLTypes.hpp"
 
 namespace SiberneticTest {
 

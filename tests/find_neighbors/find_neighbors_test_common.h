@@ -7,8 +7,8 @@
 
 #include <gtest/gtest.h>
 
-#include "../utils/backend_param_test.h"
-#include "../utils/types.h"
+#include "../utils/common/backend_param_test.h"
+#include "../utils/types/types.h"
 
 namespace SiberneticTest {
 

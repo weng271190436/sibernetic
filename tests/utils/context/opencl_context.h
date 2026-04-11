@@ -4,7 +4,7 @@
 #include <string>
 #include <vector>
 
-#include "test_utils.h"
+#include "../common/test_utils.h"
 
 // macOS defines err_local as a macro in <err.h>; it collides with
 // the local variable name used inside OpenCL C++ headers.
@@ -12,7 +12,7 @@
 #undef err_local
 #endif
 
-#include "../../inc/OpenCL/cl.hpp"
+#include "../../../inc/OpenCL/cl.hpp"
 
 namespace SiberneticTest {
 

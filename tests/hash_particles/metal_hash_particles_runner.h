@@ -2,9 +2,11 @@
 
 #include <vector>
 
-#include "../utils/metal_context.h"
-#include "../utils/metal_helpers.h"
-#include "../utils/metal_types.h"
+#include "../utils/arg/metal_arg_binding.h"
+#include "../utils/buffer/metal_buffer_utils.h"
+#include "../utils/context/metal_context.h"
+#include "../utils/convert/metal_convert_utils.h"
+#include "../utils/types/metal_types.h"
 #include "hash_particles_test_common.h"
 
 namespace SiberneticTest {
