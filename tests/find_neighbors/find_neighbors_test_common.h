@@ -9,7 +9,6 @@
 #include <gtest/gtest.h>
 
 #include "../../src/kernels/FindNeighborsKernel.h"
-#include "../../src/types/HostTypes.h"
 #include "../utils/common/backend_param_test.h"
 #include "../utils/types/types.h"
 
