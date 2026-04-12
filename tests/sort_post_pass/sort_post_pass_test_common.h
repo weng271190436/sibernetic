@@ -18,7 +18,7 @@ using SortPostPassParticleIndex = HostUInt2; // [cellId, serialId]
 struct SortPostPassResult {
   std::vector<SortPostPassFloat4> sortedPosition;
   std::vector<SortPostPassFloat4> sortedVelocity;
-  std::vector<uint32_t> particleIndexBack;
+  std::vector<uint32_t> sortedParticleIdBySerialId;
 };
 
 struct SortPostPassCase {
@@ -47,7 +47,7 @@ struct SortPostPassCase {
     const uint32_t n = static_cast<uint32_t>(particleIndex.size());
     ASSERT_EQ(result.sortedPosition.size(), n);
     ASSERT_EQ(result.sortedVelocity.size(), n);
-    ASSERT_EQ(result.particleIndexBack.size(), n);
+    ASSERT_EQ(result.sortedParticleIdBySerialId.size(), n);
 
     for (uint32_t i = 0; i < n; ++i) {
       EXPECT_EQ(result.sortedPosition[i][0], expectedSortedPosition[i][0])
@@ -68,8 +68,9 @@ struct SortPostPassCase {
       EXPECT_EQ(result.sortedVelocity[i][3], expectedSortedVelocity[i][3])
           << "sortedVelocity[" << i << "].w";
 
-      EXPECT_EQ(result.particleIndexBack[i], expectedParticleIndexBack[i])
-          << "particleIndexBack[" << i << "]";
+      EXPECT_EQ(result.sortedParticleIdBySerialId[i],
+                expectedParticleIndexBack[i])
+          << "sortedParticleIdBySerialId[" << i << "]";
     }
   }
 };

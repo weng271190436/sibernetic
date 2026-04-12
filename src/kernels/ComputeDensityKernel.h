@@ -8,7 +8,7 @@
 //       float mass_mult_Wpoly6Coefficient,      // arg 1
 //       float hScaled2,                         // arg 2
 //       __global float *rho,                    // arg 3  (output)
-//       __global uint *particleIndexBack,       // arg 4
+//       __global uint *sortedParticleIdBySerialId,       // arg 4
 //       uint PARTICLE_COUNT                     // arg 5
 //   )
 //
@@ -18,7 +18,7 @@
 //       constant float &massMultWpoly6Coefficient  [[buffer(1)]],
 //       constant float &hScaled2                   [[buffer(2)]],
 //       device float *rho                          [[buffer(3)]],  (output)
-//       const device uint *particleIndexBack       [[buffer(4)]],
+//       const device uint *sortedParticleIdBySerialId       [[buffer(4)]],
 //       constant uint &particleCount               [[buffer(5)]],
 //       uint serialId [[thread_position_in_grid]])
 
@@ -47,7 +47,7 @@ struct ComputeDensityInput {
   Float2Span neighborMap; // size: particleCount * 32
   float massMultWpoly6Coefficient;
   float hScaled2;
-  UInt32Span particleIndexBack; // size: particleCount
+  UInt32Span sortedParticleIdBySerialId; // size: particleCount
   uint32_t particleCount;
 };
 
@@ -59,19 +59,19 @@ struct ComputeDensityOutput {
 #ifdef SIBERNETIC_USE_METAL
 
 struct ComputeDensityMetalArgs {
-  MTL::Buffer *neighborMap;        // [[buffer(0)]]
-  float massMultWpoly6Coefficient; // [[buffer(1)]]
-  float hScaled2;                  // [[buffer(2)]]
-  MTL::Buffer *rho;                // [[buffer(3)]] output
-  MTL::Buffer *particleIndexBack;  // [[buffer(4)]]
-  uint32_t particleCount;          // [[buffer(5)]]
+  MTL::Buffer *neighborMap;                // [[buffer(0)]]
+  float massMultWpoly6Coefficient;         // [[buffer(1)]]
+  float hScaled2;                          // [[buffer(2)]]
+  MTL::Buffer *rho;                        // [[buffer(3)]] output
+  MTL::Buffer *sortedParticleIdBySerialId; // [[buffer(4)]]
+  uint32_t particleCount;                  // [[buffer(5)]]
 
   void bind(MTL::ComputeCommandEncoder *enc) const {
     bindBuffer(enc, neighborMap, 0);
     bindScalar(enc, massMultWpoly6Coefficient, 1);
     bindScalar(enc, hScaled2, 2);
     bindBuffer(enc, rho, 3);
-    bindBuffer(enc, particleIndexBack, 4);
+    bindBuffer(enc, sortedParticleIdBySerialId, 4);
     bindScalar(enc, particleCount, 5);
   }
 };
@@ -86,9 +86,10 @@ inline ComputeDensityMetalArgs toMetalArgs(const ComputeDensityInput &input,
   args.massMultWpoly6Coefficient = input.massMultWpoly6Coefficient;
   args.hScaled2 = input.hScaled2;
   args.rho = outputRho;
-  args.particleIndexBack = device->newBuffer(
-      input.particleIndexBack.data(), input.particleIndexBack.size_bytes(),
-      MTL::ResourceStorageModeShared);
+  args.sortedParticleIdBySerialId =
+      device->newBuffer(input.sortedParticleIdBySerialId.data(),
+                        input.sortedParticleIdBySerialId.size_bytes(),
+                        MTL::ResourceStorageModeShared);
   args.particleCount = input.particleCount;
   return args;
 }
@@ -99,19 +100,19 @@ inline ComputeDensityMetalArgs toMetalArgs(const ComputeDensityInput &input,
 #ifdef SIBERNETIC_USE_OPENCL
 
 struct ComputeDensityOpenCLArgs {
-  cl::Buffer neighborMap;          // arg 0
-  float massMultWpoly6Coefficient; // arg 1
-  float hScaled2;                  // arg 2
-  cl::Buffer rho;                  // arg 3  output
-  cl::Buffer particleIndexBack;    // arg 4
-  uint32_t particleCount;          // arg 5
+  cl::Buffer neighborMap;                // arg 0
+  float massMultWpoly6Coefficient;       // arg 1
+  float hScaled2;                        // arg 2
+  cl::Buffer rho;                        // arg 3  output
+  cl::Buffer sortedParticleIdBySerialId; // arg 4
+  uint32_t particleCount;                // arg 5
 
   void bind(cl::Kernel &kernel) const {
     bindBuffer(kernel, neighborMap, 0);
     bindScalar(kernel, massMultWpoly6Coefficient, 1);
     bindScalar(kernel, hScaled2, 2);
     bindBuffer(kernel, rho, 3);
-    bindBuffer(kernel, particleIndexBack, 4);
+    bindBuffer(kernel, sortedParticleIdBySerialId, 4);
     bindScalar(kernel, particleCount, 5);
   }
 };
@@ -128,10 +129,10 @@ inline ComputeDensityOpenCLArgs toOpenCLArgs(const ComputeDensityInput &input,
   args.massMultWpoly6Coefficient = input.massMultWpoly6Coefficient;
   args.hScaled2 = input.hScaled2;
   args.rho = outputRho;
-  args.particleIndexBack =
-      cl::Buffer(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
-                 input.particleIndexBack.size_bytes(),
-                 const_cast<uint32_t *>(input.particleIndexBack.data()), &err);
+  args.sortedParticleIdBySerialId = cl::Buffer(
+      context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
+      input.sortedParticleIdBySerialId.size_bytes(),
+      const_cast<uint32_t *>(input.sortedParticleIdBySerialId.data()), &err);
   args.particleCount = input.particleCount;
   return args;
 }

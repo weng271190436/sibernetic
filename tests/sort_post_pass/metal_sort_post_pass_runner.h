@@ -37,7 +37,8 @@ public:
     SortPostPassResult result;
     const auto *idxPtr =
         reinterpret_cast<const uint32_t *>(outIndexBack->contents());
-    result.particleIndexBack = Sibernetic::Metal::decode(idxPtr, particleCount);
+    result.sortedParticleIdBySerialId =
+        Sibernetic::Metal::decode(idxPtr, particleCount);
     const auto *posPtr =
         reinterpret_cast<const MetalFloat4 *>(outSortedPosition->contents());
     result.sortedPosition = Sibernetic::Metal::decode(posPtr, particleCount);

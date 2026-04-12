@@ -5,7 +5,7 @@
 // OpenCL signature (sphFluid.cl):
 //   __kernel void sortPostPass(
 //       __global uint2  *particleIndex,     // arg 0
-//       __global uint   *particleIndexBack, // arg 1  (output)
+//       __global uint   *sortedParticleIdBySerialId, // arg 1  (output)
 //       __global float4 *position,          // arg 2
 //       __global float4 *velocity,          // arg 3
 //       __global float4 *sortedPosition,    // arg 4  (output)
@@ -16,7 +16,7 @@
 // Metal signature (sphFluid.metal):
 //   kernel void sortPostPass(
 //       const device uint2 *particleIndex     [[buffer(0)]],
-//       device uint *particleIndexBack        [[buffer(1)]],  (output)
+//       device uint *sortedParticleIdBySerialId        [[buffer(1)]],  (output)
 //       const device float4 *position         [[buffer(2)]],
 //       const device float4 *velocity         [[buffer(3)]],
 //       device float4 *sortedPosition         [[buffer(4)]],  (output)
@@ -53,26 +53,26 @@ struct SortPostPassInput {
 };
 
 struct SortPostPassOutput {
-  uint32_t *particleIndexBack; // size: particleCount
-  float *sortedPosition;       // float4 array, size: particleCount * 4
-  float *sortedVelocity;       // float4 array, size: particleCount * 4
+  uint32_t *sortedParticleIdBySerialId; // size: particleCount
+  float *sortedPosition;                // float4 array, size: particleCount * 4
+  float *sortedVelocity;                // float4 array, size: particleCount * 4
 };
 
 // ============ Metal ============
 #ifdef SIBERNETIC_USE_METAL
 
 struct SortPostPassMetalArgs {
-  MTL::Buffer *particleIndex;     // [[buffer(0)]]
-  MTL::Buffer *particleIndexBack; // [[buffer(1)]] output
-  MTL::Buffer *position;          // [[buffer(2)]]
-  MTL::Buffer *velocity;          // [[buffer(3)]]
-  MTL::Buffer *sortedPosition;    // [[buffer(4)]] output
-  MTL::Buffer *sortedVelocity;    // [[buffer(5)]] output
-  uint32_t particleCount;         // [[buffer(6)]]
+  MTL::Buffer *particleIndex;              // [[buffer(0)]]
+  MTL::Buffer *sortedParticleIdBySerialId; // [[buffer(1)]] output
+  MTL::Buffer *position;                   // [[buffer(2)]]
+  MTL::Buffer *velocity;                   // [[buffer(3)]]
+  MTL::Buffer *sortedPosition;             // [[buffer(4)]] output
+  MTL::Buffer *sortedVelocity;             // [[buffer(5)]] output
+  uint32_t particleCount;                  // [[buffer(6)]]
 
   void bind(MTL::ComputeCommandEncoder *enc) const {
     bindBuffer(enc, particleIndex, 0);
-    bindBuffer(enc, particleIndexBack, 1);
+    bindBuffer(enc, sortedParticleIdBySerialId, 1);
     bindBuffer(enc, position, 2);
     bindBuffer(enc, velocity, 3);
     bindBuffer(enc, sortedPosition, 4);
@@ -90,7 +90,7 @@ inline SortPostPassMetalArgs toMetalArgs(const SortPostPassInput &input,
   args.particleIndex = device->newBuffer(input.particleIndex.data(),
                                          input.particleIndex.size_bytes(),
                                          MTL::ResourceStorageModeShared);
-  args.particleIndexBack = outputParticleIndexBack;
+  args.sortedParticleIdBySerialId = outputParticleIndexBack;
   args.position =
       device->newBuffer(input.position.data(), input.position.size_bytes(),
                         MTL::ResourceStorageModeShared);
@@ -109,17 +109,17 @@ inline SortPostPassMetalArgs toMetalArgs(const SortPostPassInput &input,
 #ifdef SIBERNETIC_USE_OPENCL
 
 struct SortPostPassOpenCLArgs {
-  cl::Buffer particleIndex;     // arg 0
-  cl::Buffer particleIndexBack; // arg 1  output
-  cl::Buffer position;          // arg 2
-  cl::Buffer velocity;          // arg 3
-  cl::Buffer sortedPosition;    // arg 4  output
-  cl::Buffer sortedVelocity;    // arg 5  output
-  uint32_t particleCount;       // arg 6
+  cl::Buffer particleIndex;              // arg 0
+  cl::Buffer sortedParticleIdBySerialId; // arg 1  output
+  cl::Buffer position;                   // arg 2
+  cl::Buffer velocity;                   // arg 3
+  cl::Buffer sortedPosition;             // arg 4  output
+  cl::Buffer sortedVelocity;             // arg 5  output
+  uint32_t particleCount;                // arg 6
 
   void bind(cl::Kernel &kernel) const {
     bindBuffer(kernel, particleIndex, 0);
-    bindBuffer(kernel, particleIndexBack, 1);
+    bindBuffer(kernel, sortedParticleIdBySerialId, 1);
     bindBuffer(kernel, position, 2);
     bindBuffer(kernel, velocity, 3);
     bindBuffer(kernel, sortedPosition, 4);
@@ -139,7 +139,7 @@ inline SortPostPassOpenCLArgs toOpenCLArgs(const SortPostPassInput &input,
       cl::Buffer(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
                  input.particleIndex.size_bytes(),
                  const_cast<HostUInt2 *>(input.particleIndex.data()), &err);
-  args.particleIndexBack = outputParticleIndexBack;
+  args.sortedParticleIdBySerialId = outputParticleIndexBack;
   args.position =
       cl::Buffer(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
                  input.position.size_bytes(),

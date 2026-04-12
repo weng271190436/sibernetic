@@ -46,10 +46,10 @@ public:
     }
 
     SortPostPassResult result;
-    result.particleIndexBack.resize(particleCount);
+    result.sortedParticleIdBySerialId.resize(particleCount);
     opencl.queue().enqueueReadBuffer(outIndexBack, CL_TRUE, 0,
                                      sizeof(uint32_t) * particleCount,
-                                     result.particleIndexBack.data());
+                                     result.sortedParticleIdBySerialId.data());
 
     std::vector<cl_float4> clSortedPos(particleCount);
     opencl.queue().enqueueReadBuffer(outSortedPos, CL_TRUE, 0,

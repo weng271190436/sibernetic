@@ -5,6 +5,26 @@ constant int kMaxNeighborCount = 32;
 constant int kNoParticleId = -1;
 // Each particle probes the 2×2×2 octant of cells overlapping its h-radius ball.
 constant int kNeighborCellCount = 8;
+constant int kBoundaryParticle = 3;
+
+// neighborMap: A packed table of neighbor information for SPH force kernels.
+// Structure: float2 array with kMaxNeighborCount entries per particle.
+//   Indexing: neighborMap[sortedParticleId * kMaxNeighborCount + slotIndex]
+//   Each float2 tuple is:
+//     .x = neighbor sorted particle ID (or kNoParticleId=-1 if empty)
+//     .y = distance to neighbor in simulation units (or -1.0f if empty)
+//
+// Built by findNeighbors kernel:
+//   - Probes neighboring spatial hash cells to find particles within h-radius
+//   - Maintains a max-heap of kMaxNeighborCount closest neighbors
+//   - Empty slots at the end have .x = kNoParticleId, .y = -1.0f
+//
+// Consumed by SPH kernels (pcisph_computeDensity,
+// pcisph_computeForcesAndInitPressure):
+//   - Iterate over slots; skip when .x == kNoParticleId
+//   - Use .x to index into sorted position/velocity/density buffers
+//   - Use .y for distance-dependent kernel evaluations (cutoff check at
+//   hScaled)
 
 // Flattens 3D grid coordinates (x,y,z) into a linear cell id.
 inline int cellId(int3 cellCoordinates, uint gridCellsX, uint gridCellsY) {
@@ -23,7 +43,8 @@ inline int3 cellCoordinates(float4 position, float hashGridCellSizeInv) {
 }
 
 // Computes each particle's spatial hash cell and writes (cellId, serialId)
-// into particleIndex. serialId is the original particle index in position[].
+// into sortedCellAndSerialId. serialId is the original particle index in
+// position[].
 kernel void hashParticles(const device float4 *position [[buffer(0)]],
                           constant uint &gridCellsX [[buffer(1)]],
                           constant uint &gridCellsY [[buffer(2)]],
@@ -32,10 +53,10 @@ kernel void hashParticles(const device float4 *position [[buffer(0)]],
                           constant float &xmin [[buffer(5)]],
                           constant float &ymin [[buffer(6)]],
                           constant float &zmin [[buffer(7)]],
-                          device uint2 *particleIndex [[buffer(8)]],
+                          device uint2 *sortedCellAndSerialId [[buffer(8)]],
                           constant uint &particleCount [[buffer(9)]],
-                          uint particleId [[thread_position_in_grid]]) {
-  if (particleId >= particleCount) {
+                          uint serialId [[thread_position_in_grid]]) {
+  if (serialId >= particleCount) {
     return;
   }
 
@@ -44,7 +65,7 @@ kernel void hashParticles(const device float4 *position [[buffer(0)]],
   (void)ymin;
   (void)zmin;
 
-  const float4 p = position[particleId];
+  const float4 p = position[serialId];
   int3 cellCoordinates;
   cellCoordinates.x = static_cast<int>(p.x * hashGridCellSizeInv);
   cellCoordinates.y = static_cast<int>(p.y * hashGridCellSizeInv);
@@ -55,42 +76,46 @@ kernel void hashParticles(const device float4 *position [[buffer(0)]],
   // (e.g. a 256x256x256 grid). Typical Sibernetic runs use ~32^3-64^3
   // cells, so this ceiling is never approached in practice.
   const int cell = cellId(cellCoordinates, gridCellsX, gridCellsY) & 0x00ffffff;
-  particleIndex[particleId] = uint2(static_cast<uint>(cell), particleId);
+  sortedCellAndSerialId[serialId] = uint2(static_cast<uint>(cell), serialId);
 }
 
-// After particleIndex is sorted by cell id, position/velocity are still in
-// original serial order. This pass gathers them into sortedPosition/
+// After sortedCellAndSerialId is sorted by cell id, position/velocity are still
+// in original serial order. This pass gathers them into sortedPosition/
 // sortedVelocity and builds a reverse map (serialId -> sorted index).
 //
 // Example:
-//   sorted particleIndex: [(1,1), (1,2), (2,3), (3,0), ...]
+//   sorted sortedCellAndSerialId: [(1,1), (1,2), (2,3), (3,0), ...]
 //   position:             [pos_0, pos_1, pos_2, pos_3, ...]
 //   sortedPosition:       [pos_1, pos_2, pos_3, pos_0, ...]
-kernel void sortPostPass(const device uint2 *particleIndex [[buffer(0)]],
-                         device uint *particleIndexBack [[buffer(1)]],
-                         const device float4 *position [[buffer(2)]],
+kernel void sortPostPass(const device uint2 *sortedCellAndSerialId
+                         [[buffer(0)]],
+                         device uint *sortedParticleIdBySerialId [[buffer(1)]],
+                         const device float4 *originalPosition [[buffer(2)]],
                          const device float4 *velocity [[buffer(3)]],
                          device float4 *sortedPosition [[buffer(4)]],
                          device float4 *sortedVelocity [[buffer(5)]],
                          constant uint &particleCount [[buffer(6)]],
-                         uint particleId [[thread_position_in_grid]]) {
-  if (particleId >= particleCount) {
+                         uint sortedParticleId [[thread_position_in_grid]]) {
+  if (sortedParticleId >= particleCount) {
     return;
   }
 
-  const uint2 spi = particleIndex[particleId];
+  const uint2 spi = sortedCellAndSerialId[sortedParticleId];
   const uint serialId = spi.y; // PI_SERIAL_ID
   const uint cellId = spi.x;   // PI_CELL_ID
 
-  float4 pos = position[serialId];
+  float4 pos = originalPosition[serialId];
+  // Store cell ID in sorted position's .w component for neighbor lookups.
+  // (Original position[].w still holds particle type; only sortedPosition[]
+  // gets cell ID overwritten here.)
   pos.w = float(cellId); // POSITION_CELL_ID
 
-  sortedPosition[particleId] = pos;
-  sortedVelocity[particleId] = velocity[serialId];
-  particleIndexBack[serialId] = particleId;
+  sortedPosition[sortedParticleId] = pos;
+  sortedVelocity[sortedParticleId] = velocity[serialId];
+  sortedParticleIdBySerialId[serialId] = sortedParticleId;
 }
 
-// For each cell id, finds the first index in sorted particleIndex whose
+// For each cell id, finds the first index in sorted sortedCellAndSerialId whose
 // particle belongs to that cell. Empty cells get UINT_MAX; slot gridCellCount
 // stores PARTICLE_COUNT as the end sentinel.
 // TODO(weiweng): Revisit this after full Metal kernel port. Consider replacing
@@ -99,7 +124,7 @@ kernel void sortPostPass(const device uint2 *particleIndex [[buffer(0)]],
 // 2) launch one thread per sorted particle index,
 // 3) write start index when cell id changes,
 // 4) set gridCellIndex[gridCellCount] = particleCount.
-kernel void indexx(const device uint2 *particleIndex [[buffer(0)]],
+kernel void indexx(const device uint2 *sortedCellAndSerialId [[buffer(0)]],
                    constant uint &gridCellCount [[buffer(1)]],
                    device uint *gridCellIndex [[buffer(2)]],
                    constant uint &particleCount [[buffer(3)]],
@@ -121,7 +146,7 @@ kernel void indexx(const device uint2 *particleIndex [[buffer(0)]],
   int cellIndex = -1;
   while (low <= high) {
     const int idx = low + (high - low) / 2;
-    const int sampleCellId = static_cast<int>(particleIndex[idx].x);
+    const int sampleCellId = static_cast<int>(sortedCellAndSerialId[idx].x);
 
     if (sampleCellId < static_cast<int>(targetCellId)) {
       low = idx + 1;
@@ -133,7 +158,7 @@ kernel void indexx(const device uint2 *particleIndex [[buffer(0)]],
       // so this is trivially the left boundary.
       const bool isLeftBoundary =
           (idx == 0) ||
-          (static_cast<int>(particleIndex[idx - 1].x) < sampleCellId);
+          (static_cast<int>(sortedCellAndSerialId[idx - 1].x) < sampleCellId);
       if (isLeftBoundary) {
         cellIndex = idx;
         break;
@@ -181,26 +206,29 @@ inline void heapSiftDown(thread int *closestIndexes,
 // candidate; heapSiftDown then restores the invariant in O(log k).
 inline void updateNeighborHeapFromCell(
     int probeCellId, const device uint *gridCellIndices,
-    float4 myParticlePosition, int myParticleId,
+    float4 myParticlePosition, int mySortedParticleId,
     const device float4 *sortedPosition, device float2 *neighborMap,
     thread int *closestIndexes, thread float *closestDistances) {
-  const int baseParticleId = static_cast<int>(gridCellIndices[probeCellId]);
-  const int nextParticleId = static_cast<int>(gridCellIndices[probeCellId + 1]);
-  const int particleCountThisCell = nextParticleId - baseParticleId;
+  const int baseSortedParticleId =
+      static_cast<int>(gridCellIndices[probeCellId]);
+  const int nextSortedParticleId =
+      static_cast<int>(gridCellIndices[probeCellId + 1]);
+  const int particleCountThisCell = nextSortedParticleId - baseSortedParticleId;
 
   for (int i = 0; i < particleCountThisCell; ++i) {
-    const int neighborParticleId = baseParticleId + i;
-    if (myParticleId == neighborParticleId) {
+    const int neighborSortedParticleId = baseSortedParticleId + i;
+    if (mySortedParticleId == neighborSortedParticleId) {
       continue;
     }
 
-    const float4 d = myParticlePosition - sortedPosition[neighborParticleId];
+    const float4 d =
+        myParticlePosition - sortedPosition[neighborSortedParticleId];
     const float distanceSquared = d.x * d.x + d.y * d.y + d.z * d.z;
     // The root is always the worst kept neighbor; only admit candidates that
     // beat it, then sift down to restore the heap invariant.
     if (distanceSquared <= closestDistances[0]) {
       closestDistances[0] = distanceSquared;
-      closestIndexes[0] = neighborParticleId;
+      closestIndexes[0] = neighborSortedParticleId;
       heapSiftDown(closestIndexes, closestDistances, 0);
     }
   }
@@ -239,8 +267,8 @@ kernel void findNeighbors(const device uint *gridCellIndicesFixedUp
                           constant float &zmin [[buffer(12)]],
                           device float2 *neighborMap [[buffer(13)]],
                           constant uint &particleCount [[buffer(14)]],
-                          uint particleId [[thread_position_in_grid]]) {
-  if (particleId >= particleCount) {
+                          uint sortedParticleId [[thread_position_in_grid]]) {
+  if (sortedParticleId >= particleCount) {
     return;
   }
 
@@ -250,7 +278,7 @@ kernel void findNeighbors(const device uint *gridCellIndicesFixedUp
   // has a valid start pointer. Empty cells satisfy start[c] == start[c + 1],
   // producing a zero-length [start, end) range during neighbor scans.
   const device uint *gridCellIndices = gridCellIndicesFixedUp;
-  const float4 position = sortedPosition[particleId];
+  const float4 position = sortedPosition[sortedParticleId];
   const int particleCellId = static_cast<int>(position.w) & 0x00ffffff;
 
   const float rThresholdSquared = h * h;
@@ -292,8 +320,9 @@ kernel void findNeighbors(const device uint *gridCellIndicesFixedUp
 
   for (int i = 0; i < kNeighborCellCount; ++i) {
     updateNeighborHeapFromCell(neighborCellIds[i], gridCellIndices, position,
-                               static_cast<int>(particleId), sortedPosition,
-                               neighborMap, closestIndexes, closestDistances);
+                               static_cast<int>(sortedParticleId),
+                               sortedPosition, neighborMap, closestIndexes,
+                               closestDistances);
   }
 
   for (int i = 0; i < kMaxNeighborCount; ++i) {
@@ -306,7 +335,7 @@ kernel void findNeighbors(const device uint *gridCellIndicesFixedUp
     } else {
       neighborData.y = -1.0f;
     }
-    neighborMap[particleId * kMaxNeighborCount + static_cast<uint>(i)] =
+    neighborMap[sortedParticleId * kMaxNeighborCount + static_cast<uint>(i)] =
         neighborData;
   }
 }
@@ -316,32 +345,30 @@ kernel void findNeighbors(const device uint *gridCellIndicesFixedUp
 //
 // Arguments:
 // buffer(0) neighborMap: packed table of 32 float2 entries per particle.
-//   x = neighbor particle id (or -1 sentinel), y = neighbor distance.
+//   x = neighbor sorted particle id (or -1 sentinel), y = neighbor distance.
 // buffer(1) massMultWpoly6Coefficient: mass * 315 / (64 * pi * hScaled^9),
 //   where hScaled = h * simulationScale. Multiplying poly6Sum by this converts
 //   the raw kernel sum into density (mass/volume).
 // buffer(2) hScaled2: (h * simulationScale)^2, matching the scale of distances
 // in neighborMap.
 // buffer(3) rho: output density array, indexed by sorted particle id.
-// buffer(4) particleIndexBack: map from serial (original) particle id -> sorted
-// index.
-// buffer(5) particleCount: number of particles to process.
+// buffer(4) sortedParticleIdBySerialId: map from serial (original) particle id
+// -> sorted index. buffer(5) particleCount: number of particles to process.
 // thread_position_in_grid serialId: serial (original) particle index for this
 // thread.
-kernel void
-pcisph_computeDensity(const device float2 *neighborMap [[buffer(0)]],
-                      constant float &massMultWpoly6Coefficient [[buffer(1)]],
-                      constant float &hScaled2 [[buffer(2)]],
-                      device float *rho [[buffer(3)]],
-                      const device uint *particleIndexBack [[buffer(4)]],
-                      constant uint &particleCount [[buffer(5)]],
-                      uint serialId [[thread_position_in_grid]]) {
+kernel void pcisph_computeDensity(
+    const device float2 *neighborMap [[buffer(0)]],
+    constant float &massMultWpoly6Coefficient [[buffer(1)]],
+    constant float &hScaled2 [[buffer(2)]], device float *rho [[buffer(3)]],
+    const device uint *sortedParticleIdBySerialId [[buffer(4)]],
+    constant uint &particleCount [[buffer(5)]],
+    uint serialId [[thread_position_in_grid]]) {
   if (serialId >= particleCount) {
     return;
   }
 
-  const uint particleId = particleIndexBack[serialId];
-  const uint idx = particleId * static_cast<uint>(kMaxNeighborCount);
+  const uint sortedParticleId = sortedParticleIdBySerialId[serialId];
+  const uint idx = sortedParticleId * static_cast<uint>(kMaxNeighborCount);
   // poly6Sum = sum_j (hScaled2 - r_j^2)^3  for all neighbors j with r_j <
   // hScaled. Floored to hScaled^6 = (hScaled2)^3, which equals the poly6
   // self-contribution at r=0. This prevents poly6Sum from being zero when a
@@ -365,5 +392,119 @@ pcisph_computeDensity(const device float2 *neighborMap [[buffer(0)]],
   if (poly6Sum < hScaled6) {
     poly6Sum = hScaled6;
   }
-  rho[particleId] = poly6Sum * massMultWpoly6Coefficient;
+  rho[sortedParticleId] = poly6Sum * massMultWpoly6Coefficient;
+}
+
+/// PCISPH: Compute viscosity + surface tension + gravity forces.
+/// Initializes pressure to 0 and acceleration[N..2N] to 0.
+kernel void pcisph_computeForcesAndInitPressure(
+    const device float2 *neighborMap [[buffer(0)]],
+    const device float *rho [[buffer(1)]], device float *pressure [[buffer(2)]],
+    const device float4 *sortedPosition [[buffer(3)]],
+    const device float4 *sortedVelocity [[buffer(4)]],
+    device float4 *acceleration [[buffer(5)]],
+    const device uint *sortedParticleIdBySerialId [[buffer(6)]],
+    constant float &surfTensCoeff [[buffer(7)]],
+    constant float &mass_mult_divgradWviscosityCoeff [[buffer(8)]],
+    constant float &hScaled [[buffer(9)]], constant float &mu [[buffer(10)]],
+    constant float &gravity_x [[buffer(11)]],
+    constant float &gravity_y [[buffer(12)]],
+    constant float &gravity_z [[buffer(13)]],
+    const device float4 *position [[buffer(14)]],
+    const device uint2 *sortedCellAndSerialId [[buffer(15)]],
+    constant uint &particleCount [[buffer(16)]],
+    constant float &mass [[buffer(17)]],
+    uint serialId [[thread_position_in_grid]]) {
+  if (serialId >= particleCount)
+    return;
+
+  uint sortedParticleId = sortedParticleIdBySerialId[serialId];
+
+  // Boundary particles don't move.
+  // Note: position[].w still holds the original particle type;
+  // sortedPosition[].w was overwritten with cell ID in sortPostPass. We check
+  // the original type here. Safe float comparison: particle types are discrete
+  // flags (0, 1, 2, 3, ...) stored exactly in position[].w as floats. Since 3.0
+  // is exactly representable in IEEE 754 and never computed/rounded, equality
+  // comparison is reliable (unlike comparisons of computed floating-point
+  // values).
+  if (position[serialId].w == float(kBoundaryParticle)) {
+    acceleration[sortedParticleId] = float4(0.0f);
+    acceleration[particleCount + sortedParticleId] = float4(0.0f);
+    pressure[sortedParticleId] = 0.0f;
+    return;
+  }
+
+  int idx = sortedParticleId * kMaxNeighborCount;
+  float hScaled2 = hScaled * hScaled;
+
+  float4 accel_viscosity = float4(0.0f);
+  float4 accel_surfTens = float4(0.0f);
+
+  // Loop through neighbors
+  for (int nc = 0; nc < kMaxNeighborCount; ++nc) {
+    float2 nm = neighborMap[idx + nc];
+    int jd = int(nm.x); // NEIGHBOR_MAP_ID
+    if (jd == kNoParticleId)
+      continue;
+
+    float r_ij = nm.y; // NEIGHBOR_MAP_DISTANCE
+    if (r_ij >= hScaled)
+      continue;
+
+    float r_ij2 = r_ij * r_ij;
+
+    uint jd_source_particle = sortedCellAndSerialId[jd].y;
+    float not_bp = (int(position[jd_source_particle].w) != kBoundaryParticle)
+                       ? 1.0f
+                       : 0.0f;
+
+    float4 vi = sortedVelocity[sortedParticleId];
+    float4 vj = sortedVelocity[jd];
+    float4 pi_pos = position[serialId];
+    float4 pj_pos = position[jd_source_particle];
+    // Viscosity coefficient based on particle types
+    float viscCoeff = 1.0e-4f; // default
+
+    float pi_w = pi_pos.w;
+    float pj_w = pj_pos.w;
+
+    // Worm body (2.05-2.25) <-> Agar (2.25-2.35): very low viscosity
+    bool worm_i = (pi_w > 2.05f && pi_w < 2.25f);
+    bool worm_j = (pj_w > 2.05f && pj_w < 2.25f);
+    bool agar_i = (pi_w > 2.25f && pi_w < 2.35f);
+    bool agar_j = (pj_w > 2.25f && pj_w < 2.35f);
+
+    if ((worm_i && agar_j) || (agar_i && worm_j)) {
+      viscCoeff = 1.0e-5f;
+    }
+
+    // Viscosity force: (v_j - v_i) * (h - r) / 1000
+    accel_viscosity +=
+        viscCoeff * (vj * not_bp - vi) * (hScaled - r_ij) / 1000.0f;
+
+    // Surface tension force
+    float surfKern = (hScaled2 - r_ij2);
+    surfKern = surfKern * surfKern * surfKern; // (h² - r²)³
+    accel_surfTens += -1.7e-09f * surfTensCoeff * surfKern *
+                      (sortedPosition[sortedParticleId] - sortedPosition[jd]);
+  }
+
+  // Finalize surface tension
+  accel_surfTens.w = 0.0f;
+  accel_surfTens /= mass;
+  // Finalize viscosity
+  accel_viscosity *=
+      1.5f * mass_mult_divgradWviscosityCoeff / rho[sortedParticleId];
+
+  // Total acceleration = viscosity + gravity + surface tension
+  float4 total_accel = accel_viscosity;
+  total_accel += float4(gravity_x, gravity_y, gravity_z, 0.0f);
+  total_accel += accel_surfTens;
+
+  // Output
+  acceleration[sortedParticleId] = total_accel;
+  acceleration[particleCount + sortedParticleId] =
+      float4(0.0f); // Pressure force (init to 0)
+  pressure[sortedParticleId] = 0.0f;
 }
