@@ -228,8 +228,11 @@ inline void updateNeighborHeapFromCell(
         myParticlePosition - sortedPosition[neighborSortedParticleId];
     const float distanceSquared = d.x * d.x + d.y * d.y + d.z * d.z;
     // The root is always the worst kept neighbor; only admit candidates that
-    // beat it, then sift down to restore the heap invariant.
-    if (distanceSquared <= closestDistances[0]) {
+    // beat it strictly (< not <=) so exact-boundary particles at
+    // distanceSquared == rThresholdSquared are excluded: both the viscosity
+    // and surface tension kernels evaluate to zero at that distance, so they
+    // contribute nothing and would waste a neighbor slot.
+    if (distanceSquared < closestDistances[0]) {
       closestDistances[0] = distanceSquared;
       closestIndexes[0] = neighborSortedParticleId;
       heapSiftDown(closestIndexes, closestDistances, 0);
@@ -380,8 +383,8 @@ kernel void pcisph_computeDensity(
   float poly6Sum = 0.0f;
   const float hScaled6 = hScaled2 * hScaled2 * hScaled2;
 
-  for (int nc = 0; nc < kMaxNeighborCount; ++nc) {
-    const float2 neighbor = neighborMap[idx + static_cast<uint>(nc)];
+  for (int neighborSlot = 0; neighborSlot < kMaxNeighborCount; ++neighborSlot) {
+    const float2 neighbor = neighborMap[idx + static_cast<uint>(neighborSlot)];
     if (static_cast<int>(neighbor.x) != kNoParticleId) {
       float r2 = neighbor.y;
       r2 *= r2;
@@ -398,6 +401,29 @@ kernel void pcisph_computeDensity(
   rho[sortedParticleId] = poly6Sum * massMultWpoly6Coefficient;
 }
 
+// Writes the non-pressure acceleration and zeros the pressure-force slot and
+// pressure scalar for sortedParticleId.
+//
+// The acceleration buffer is a single allocation of 2*particleCount entries
+// split into two logical halves:
+//   [0 .. N-1]   non-pressure acceleration (viscosity + gravity + surface
+//                tension) — written as nonPressureAccel (float4(0) for
+//                boundary particles, total_accel for fluid particles).
+//   [N .. 2N-1]  pressure acceleration accumulated by the PCISPH
+//                predict/correct iterations that follow this kernel — zeroed
+//                here so each timestep starts from a clean slate.
+// Both are written unconditionally because sorted slots are reassigned every
+// timestep and may have held a different particle's data in the prior step.
+inline void writeAccelerationAndInitPressure(device float4 *acceleration,
+                                             device float *pressure,
+                                             uint particleCount,
+                                             uint sortedParticleId,
+                                             float4 nonPressureAccel) {
+  acceleration[sortedParticleId] = nonPressureAccel;
+  acceleration[particleCount + sortedParticleId] = float4(0.0f);
+  pressure[sortedParticleId] = 0.0f;
+}
+
 /// PCISPH: Compute viscosity + surface tension + gravity forces.
 /// Initializes pressure to 0 and acceleration[N..2N] to 0.
 kernel void pcisph_computeForcesAndInitPressure(
@@ -408,11 +434,11 @@ kernel void pcisph_computeForcesAndInitPressure(
     device float4 *acceleration [[buffer(5)]],
     const device uint *sortedParticleIdBySerialId [[buffer(6)]],
     constant float &surfTensCoeff [[buffer(7)]],
-    constant float &mass_mult_divgradWviscosityCoeff [[buffer(8)]],
+    constant float &massMultLaplacianWviscosityCoeff [[buffer(8)]],
     constant float &hScaled [[buffer(9)]], constant float &mu [[buffer(10)]],
-    constant float &gravity_x [[buffer(11)]],
-    constant float &gravity_y [[buffer(12)]],
-    constant float &gravity_z [[buffer(13)]],
+    constant float &gravitationalAccelerationX [[buffer(11)]],
+    constant float &gravitationalAccelerationY [[buffer(12)]],
+    constant float &gravitationalAccelerationZ [[buffer(13)]],
     const device float4 *originalPosition [[buffer(14)]],
     const device uint2 *sortedCellAndSerialId [[buffer(15)]],
     constant uint &particleCount [[buffer(16)]],
@@ -432,83 +458,103 @@ kernel void pcisph_computeForcesAndInitPressure(
   // equality comparison is reliable (unlike comparisons of computed
   // floating-point values).
   if (originalPosition[serialId].w == float(kBoundaryParticle)) {
-    acceleration[sortedParticleId] = float4(0.0f);
-    acceleration[particleCount + sortedParticleId] = float4(0.0f);
-    pressure[sortedParticleId] = 0.0f;
+    // Boundary particles never move, but sortedParticleId changes every
+    // timestep as the sort reassigns sorted slots. The slot this particle
+    // occupies now may have held a non-boundary particle last timestep, so
+    // its acceleration entry could contain stale non-zero values. Write zeros
+    // unconditionally to own the output slot cleanly.
+    writeAccelerationAndInitPressure(acceleration, pressure, particleCount,
+                                     sortedParticleId, float4(0.0f));
     return;
   }
 
-  int idx = sortedParticleId * kMaxNeighborCount;
+  int neighborMapOffset = sortedParticleId * kMaxNeighborCount;
   float hScaled2 = hScaled * hScaled;
 
-  float4 accel_viscosity = float4(0.0f);
-  float4 accel_surfTens = float4(0.0f);
+  float4 accelViscosity = float4(0.0f);
+  float4 accelSurfaceTension = float4(0.0f);
 
   // Loop through neighbors
-  for (int nc = 0; nc < kMaxNeighborCount; ++nc) {
-    float2 nm = neighborMap[idx + nc];
-    int jd = int(nm.x); // NEIGHBOR_MAP_ID
-    if (jd == kNoParticleId)
+  for (int neighborSlot = 0; neighborSlot < kMaxNeighborCount; ++neighborSlot) {
+    float2 neighborEntry = neighborMap[neighborMapOffset + neighborSlot];
+    int neighborSortedParticleId = int(neighborEntry.x);
+    if (neighborSortedParticleId == kNoParticleId)
       continue;
 
-    float r_ij = nm.y; // NEIGHBOR_MAP_DISTANCE
-    if (r_ij >= hScaled)
+    float distanceToNeighbor = neighborEntry.y;
+    // findNeighbors admits only neighbors with distanceSquared <= h*h, so
+    // distanceToNeighbor <= hScaled is guaranteed. The >= check handles the
+    // exact-equality boundary case: at distanceToNeighbor == hScaled both
+    // the viscosity term (hScaled - distanceToNeighbor = 0) and the surface
+    // tension kernel ((hScaled2 - distanceToNeighbor2) = 0) contribute
+    // nothing, so skipping saves the work.
+    if (distanceToNeighbor >= hScaled)
       continue;
 
-    float r_ij2 = r_ij * r_ij;
+    float distanceToNeighbor2 = distanceToNeighbor * distanceToNeighbor;
 
-    uint jd_source_particle = sortedCellAndSerialId[jd].y;
-    float not_bp =
-        (int(originalPosition[jd_source_particle].w) != kBoundaryParticle)
-            ? 1.0f
-            : 0.0f;
+    uint neighborSerialId = sortedCellAndSerialId[neighborSortedParticleId].y;
+    // 1.0 for fluid neighbors, 0.0 for boundary neighbors. Boundary particles
+    // are stationary walls whose velocity contribution to viscosity is zeroed
+    // out by multiplying vj by this mask.
+    float neighborFluidMask =
+        (int(originalPosition[neighborSerialId].w) != kBoundaryParticle) ? 1.0f
+                                                                         : 0.0f;
 
-    float4 vi = sortedVelocity[sortedParticleId];
-    float4 vj = sortedVelocity[jd];
-    float4 pi_pos = originalPosition[serialId];
-    float4 pj_pos = originalPosition[jd_source_particle];
-    // Viscosity coefficient based on particle types
-    float viscCoeff = 1.0e-4f; // default
-
-    float pi_w = pi_pos.w;
-    float pj_w = pj_pos.w;
+    float4 particleVelocity = sortedVelocity[sortedParticleId];
+    float4 neighborVelocity = sortedVelocity[neighborSortedParticleId];
+    // originalPosition[].w holds the particle type (unchanged by sortPostPass).
+    float particleType = originalPosition[serialId].w;
+    float neighborType = originalPosition[neighborSerialId].w;
+    // Müller et al. (2003) viscosity acceleration contribution from neighbor j:
+    //   a_i += (mu / rho_j) * (m_j / rho_i) * (v_j - v_i) * laplacian_W_visc
+    // where laplacian_W_visc(r, h) = (45 / (pi * h^6)) * (h - r).
+    // The (m_j / rho_i) * (45 / (pi * h^6)) factor is folded into
+    // massMultLaplacianWviscosityCoeff and applied after the loop.
+    //
+    // Here viscCoeff replaces mu / rho_j: mu (the true dynamic viscosity,
+    // Pa·s) is passed as buffer(10) but is not used. Instead, viscCoeff is
+    // an empirical per-interaction-type tuning constant that lumps together
+    // mu and the neighbor density rho_j into a single scalar.
+    float viscCoeff = 1.0e-4f; // default (fluid–fluid or fluid–boundary)
 
     // Worm body (2.05-2.25) <-> Agar (2.25-2.35): very low viscosity
-    bool worm_i = (pi_w > 2.05f && pi_w < 2.25f);
-    bool worm_j = (pj_w > 2.05f && pj_w < 2.25f);
-    bool agar_i = (pi_w > 2.25f && pi_w < 2.35f);
-    bool agar_j = (pj_w > 2.25f && pj_w < 2.35f);
+    bool worm_i = (particleType > 2.05f && particleType < 2.25f);
+    bool worm_j = (neighborType > 2.05f && neighborType < 2.25f);
+    bool agar_i = (particleType > 2.25f && particleType < 2.35f);
+    bool agar_j = (neighborType > 2.25f && neighborType < 2.35f);
 
     if ((worm_i && agar_j) || (agar_i && worm_j)) {
-      viscCoeff = 1.0e-5f;
+      viscCoeff = 1.0e-5f; // worm–agar interface: 10× lower viscosity
     }
 
-    // Viscosity force: (v_j - v_i) * (h - r) / 1000
-    accel_viscosity +=
-        viscCoeff * (vj * not_bp - vi) * (hScaled - r_ij) / 1000.0f;
+    // Viscosity force: viscCoeff * (v_j - v_i) * (h - r) / 1000
+    accelViscosity +=
+        viscCoeff * (neighborVelocity * neighborFluidMask - particleVelocity) *
+        (hScaled - distanceToNeighbor) / 1000.0f;
 
     // Surface tension force
-    float surfKern = (hScaled2 - r_ij2);
+    float surfKern = (hScaled2 - distanceToNeighbor2);
     surfKern = surfKern * surfKern * surfKern; // (h² - r²)³
-    accel_surfTens += -1.7e-09f * surfTensCoeff * surfKern *
-                      (sortedPosition[sortedParticleId] - sortedPosition[jd]);
+    accelSurfaceTension += -1.7e-09f * surfTensCoeff * surfKern *
+                           (sortedPosition[sortedParticleId] -
+                            sortedPosition[neighborSortedParticleId]);
   }
 
   // Finalize surface tension
-  accel_surfTens.w = 0.0f;
-  accel_surfTens /= mass;
+  accelSurfaceTension.w = 0.0f;
+  accelSurfaceTension /= mass;
   // Finalize viscosity
-  accel_viscosity *=
-      1.5f * mass_mult_divgradWviscosityCoeff / rho[sortedParticleId];
+  accelViscosity *=
+      1.5f * massMultLaplacianWviscosityCoeff / rho[sortedParticleId];
 
-  // Total acceleration = viscosity + gravity + surface tension
-  float4 total_accel = accel_viscosity;
-  total_accel += float4(gravity_x, gravity_y, gravity_z, 0.0f);
-  total_accel += accel_surfTens;
+  // Total acceleration = viscosity + gravitational acceleration +
+  // surface tension
+  float4 total_accel = accelViscosity;
+  total_accel += float4(gravitationalAccelerationX, gravitationalAccelerationY,
+                        gravitationalAccelerationZ, 0.0f);
+  total_accel += accelSurfaceTension;
 
-  // Output
-  acceleration[sortedParticleId] = total_accel;
-  acceleration[particleCount + sortedParticleId] =
-      float4(0.0f); // Pressure force (init to 0)
-  pressure[sortedParticleId] = 0.0f;
+  writeAccelerationAndInitPressure(acceleration, pressure, particleCount,
+                                   sortedParticleId, total_accel);
 }

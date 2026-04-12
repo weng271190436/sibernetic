@@ -35,7 +35,7 @@
 //       device float4 *acceleration               [[buffer(5)]],  (output)
 //       const device uint *sortedParticleIdBySerialId      [[buffer(6)]],
 //       constant float &surfTensCoeff             [[buffer(7)]],
-//       constant float &mass_mult_divgradWviscosityCoeff [[buffer(8)]],
+//       constant float &massMultLaplacianWviscosityCoeff [[buffer(8)]],
 //       constant float &hScaled                   [[buffer(9)]],
 //       constant float &mu                        [[buffer(10)]],
 //       constant float &gravity_x                 [[buffer(11)]],
@@ -77,7 +77,7 @@ struct PcisphComputeForcesInput {
   Float4Span position;     // size: particleCount (original, unsorted)
   UInt2Span particleIndex; // size: particleCount
   float surfTensCoeff;
-  float mass_mult_divgradWviscosityCoeff;
+  float massMultLaplacianWviscosityCoeff;
   float hScaled;
   float mu;
   float gravity_x;
@@ -99,7 +99,7 @@ struct PcisphComputeForcesMetalArgs {
   MTL::Buffer *acceleration;               // [[buffer(5)]] output
   MTL::Buffer *sortedParticleIdBySerialId; // [[buffer(6)]]
   float surfTensCoeff;                     // [[buffer(7)]]
-  float mass_mult_divgradWviscosityCoeff;  // [[buffer(8)]]
+  float massMultLaplacianWviscosityCoeff;  // [[buffer(8)]]
   float hScaled;                           // [[buffer(9)]]
   float mu;                                // [[buffer(10)]]
   float gravity_x;                         // [[buffer(11)]]
@@ -119,7 +119,7 @@ struct PcisphComputeForcesMetalArgs {
     bindBuffer(enc, acceleration, 5);
     bindBuffer(enc, sortedParticleIdBySerialId, 6);
     bindScalar(enc, surfTensCoeff, 7);
-    bindScalar(enc, mass_mult_divgradWviscosityCoeff, 8);
+    bindScalar(enc, massMultLaplacianWviscosityCoeff, 8);
     bindScalar(enc, hScaled, 9);
     bindScalar(enc, mu, 10);
     bindScalar(enc, gravity_x, 11);
@@ -154,8 +154,8 @@ toMetalArgs(const PcisphComputeForcesInput &input, MTL::Device *device,
                         input.sortedParticleIdBySerialId.size_bytes(),
                         MTL::ResourceStorageModeShared);
   args.surfTensCoeff = input.surfTensCoeff;
-  args.mass_mult_divgradWviscosityCoeff =
-      input.mass_mult_divgradWviscosityCoeff;
+  args.massMultLaplacianWviscosityCoeff =
+      input.massMultLaplacianWviscosityCoeff;
   args.hScaled = input.hScaled;
   args.mu = input.mu;
   args.gravity_x = input.gravity_x;
@@ -186,7 +186,7 @@ struct PcisphComputeForcesOpenCLArgs {
   cl::Buffer acceleration;                // arg 5  output
   cl::Buffer sortedParticleIdBySerialId;  // arg 6
   float surfTensCoeff;                    // arg 7
-  float mass_mult_divgradWviscosityCoeff; // arg 8
+  float massMultLaplacianWviscosityCoeff; // arg 8
   float hScaled;                          // arg 9
   float mu;                               // arg 10
   float gravity_x;                        // arg 11
@@ -206,7 +206,7 @@ struct PcisphComputeForcesOpenCLArgs {
     bindBuffer(kernel, acceleration, 5);
     bindBuffer(kernel, sortedParticleIdBySerialId, 6);
     bindScalar(kernel, surfTensCoeff, 7);
-    bindScalar(kernel, mass_mult_divgradWviscosityCoeff, 8);
+    bindScalar(kernel, massMultLaplacianWviscosityCoeff, 8);
     bindScalar(kernel, hScaled, 9);
     bindScalar(kernel, mu, 10);
     bindScalar(kernel, gravity_x, 11);
@@ -246,8 +246,8 @@ toOpenCLArgs(const PcisphComputeForcesInput &input, cl::Context &context,
       input.sortedParticleIdBySerialId.size_bytes(),
       const_cast<uint32_t *>(input.sortedParticleIdBySerialId.data()), &err);
   args.surfTensCoeff = input.surfTensCoeff;
-  args.mass_mult_divgradWviscosityCoeff =
-      input.mass_mult_divgradWviscosityCoeff;
+  args.massMultLaplacianWviscosityCoeff =
+      input.massMultLaplacianWviscosityCoeff;
   args.hScaled = input.hScaled;
   args.mu = input.mu;
   args.gravity_x = input.gravity_x;

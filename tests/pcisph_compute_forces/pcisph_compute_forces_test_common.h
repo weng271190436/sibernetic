@@ -32,7 +32,7 @@ struct PcisphComputeForcesCase {
   std::vector<Sibernetic::HostFloat4> position;
   std::vector<Sibernetic::HostUInt2> particleIndex;
   float surfTensCoeff;
-  float mass_mult_divgradWviscosityCoeff;
+  float massMultLaplacianWviscosityCoeff;
   float hScaled;
   float mu;
   float gravity_x;
@@ -54,7 +54,7 @@ struct PcisphComputeForcesCase {
         .position = position,
         .particleIndex = particleIndex,
         .surfTensCoeff = surfTensCoeff,
-        .mass_mult_divgradWviscosityCoeff = mass_mult_divgradWviscosityCoeff,
+        .massMultLaplacianWviscosityCoeff = massMultLaplacianWviscosityCoeff,
         .hScaled = hScaled,
         .mu = mu,
         .gravity_x = gravity_x,
@@ -115,7 +115,7 @@ struct PcisphComputeForcesTestCommon {
             .position = {{0, 0, 0, 3}}, // .w = 3 = BOUNDARY
             .particleIndex = {{0, 0}},
             .surfTensCoeff = 0.1f,
-            .mass_mult_divgradWviscosityCoeff = 1.0f,
+            .massMultLaplacianWviscosityCoeff = 1.0f,
             .hScaled = 0.1f,
             .mu = 0.01f,
             .gravity_x = 0.0f,
@@ -142,7 +142,7 @@ struct PcisphComputeForcesTestCommon {
             .position = {{0, 0, 0, 1}}, // .w = 1 = LIQUID
             .particleIndex = {{0, 0}},
             .surfTensCoeff = 0.1f,
-            .mass_mult_divgradWviscosityCoeff = 1.0f,
+            .massMultLaplacianWviscosityCoeff = 1.0f,
             .hScaled = 0.1f,
             .mu = 0.01f,
             .gravity_x = 0.0f,
@@ -171,7 +171,7 @@ struct PcisphComputeForcesTestCommon {
             .position = {{0, 0, 0, 1}, {1, 0, 0, 1}},
             .particleIndex = {{0, 1}, {0, 0}},
             .surfTensCoeff = 0.1f,
-            .mass_mult_divgradWviscosityCoeff = 1.0f,
+            .massMultLaplacianWviscosityCoeff = 1.0f,
             .hScaled = 0.1f,
             .mu = 0.01f,
             .gravity_x = 0.0f,
@@ -206,7 +206,7 @@ struct PcisphComputeForcesTestCommon {
             .position = {{0, 0, 0, 3}, {1, 0, 0, 1}},
             .particleIndex = {{0, 1}, {0, 0}},
             .surfTensCoeff = 0.1f,
-            .mass_mult_divgradWviscosityCoeff = 1.0f,
+            .massMultLaplacianWviscosityCoeff = 1.0f,
             .hScaled = 0.1f,
             .mu = 0.01f,
             .gravity_x = 0.0f,
@@ -242,7 +242,7 @@ struct PcisphComputeForcesTestCommon {
             .position = {{0, 0, 0, 1}, {1, 0, 0, 1}},
             .particleIndex = {{0, 0}, {0, 1}},
             .surfTensCoeff = 0.0f,
-            .mass_mult_divgradWviscosityCoeff = 100000.0f,
+            .massMultLaplacianWviscosityCoeff = 100000.0f,
             .hScaled = 1.0f,
             .mu = 0.01f,
             .gravity_x = 0.0f,
@@ -277,7 +277,7 @@ struct PcisphComputeForcesTestCommon {
             .position = {{0, 0, 0, 1}, {1, 0, 0, 1}},
             .particleIndex = {{0, 0}, {0, 1}},
             .surfTensCoeff = 0.0f,
-            .mass_mult_divgradWviscosityCoeff = 100000.0f,
+            .massMultLaplacianWviscosityCoeff = 100000.0f,
             .hScaled = 1.0f,
             .mu = 0.01f,
             .gravity_x = 0.0f,
@@ -313,7 +313,7 @@ struct PcisphComputeForcesTestCommon {
             .position = {{0, 0, 0, 2.1f}, {1, 0, 0, 2.3f}},
             .particleIndex = {{0, 0}, {0, 1}},
             .surfTensCoeff = 0.0f,
-            .mass_mult_divgradWviscosityCoeff = 100000.0f,
+            .massMultLaplacianWviscosityCoeff = 100000.0f,
             .hScaled = 1.0f,
             .mu = 0.01f,
             .gravity_x = 0.0f,
@@ -348,7 +348,7 @@ struct PcisphComputeForcesTestCommon {
             .position = {{0, 0, 0, 1}, {1, 0, 0, 1}},
             .particleIndex = {{0, 0}, {0, 1}},
             .surfTensCoeff = 1.0f,
-            .mass_mult_divgradWviscosityCoeff = 0.0f,
+            .massMultLaplacianWviscosityCoeff = 0.0f,
             .hScaled = 1.0f,
             .mu = 0.01f,
             .gravity_x = 0.0f,
