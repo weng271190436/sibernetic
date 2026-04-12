@@ -3,7 +3,6 @@
 #include <vector>
 
 #include "../../src/kernels/SortPostPassKernel.h"
-#include "../utils/buffer/opencl_buffer_utils.h"
 #include "../utils/context/opencl_context.h"
 #include "../utils/convert/opencl_convert_utils.h"
 #include "sort_post_pass_test_common.h"
