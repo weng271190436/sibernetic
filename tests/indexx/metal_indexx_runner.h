@@ -14,7 +14,6 @@ class MetalIndexxRunner : public IndexxRunner {
 public:
   IndexxResult run(const IndexxCase &tc) override {
     auto input = tc.toInput();
-    const uint32_t particleCount = input.particleCount;
     const uint32_t gridCellIndexCount = input.gridCellCount + 1u;
     const uint32_t threadCount = gridCellIndexCount;
 

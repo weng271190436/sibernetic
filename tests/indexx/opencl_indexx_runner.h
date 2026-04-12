@@ -12,7 +12,6 @@ class OpenCLIndexxRunner : public IndexxRunner {
 public:
   IndexxResult run(const IndexxCase &tc) override {
     auto input = tc.toInput();
-    const cl_uint particleCount = static_cast<cl_uint>(input.particleCount);
     const size_t gridCellIndexCount =
         static_cast<size_t>(input.gridCellCount) + 1u;
     const size_t threadCount = gridCellIndexCount;
