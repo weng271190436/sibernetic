@@ -3,9 +3,9 @@
 #include <vector>
 
 #include "../../src/kernels/FindNeighborsKernel.h"
+#include "../../src/convert/MetalConvert.h"
 #include "../utils/buffer/metal_buffer_utils.h"
 #include "../utils/context/metal_context.h"
-#include "../../src/convert/MetalConvert.h"
 #include "../utils/types/metal_types.h"
 #include "find_neighbors_test_common.h"
 
@@ -18,12 +18,9 @@ public:
         static_cast<uint32_t>(tc.sortedPosition.size());
     const size_t neighborCount = static_cast<size_t>(particleCount) * 32u;
 
-    auto sortedPosition = Sibernetic::Metal::encode(tc.sortedPosition);
-
     Sibernetic::FindNeighborsInput input{};
-    input.gridCellIndexFixedUp = tc.gridCellIndexFixedUp.data();
-    input.sortedPosition =
-        reinterpret_cast<const float *>(sortedPosition.data());
+    input.gridCellIndexFixedUp = tc.gridCellIndexFixedUp;
+    input.sortedPosition = tc.sortedPosition;
     input.gridCellCount = tc.gridCellCount;
     input.gridCellsX = tc.gridCellsX;
     input.gridCellsY = tc.gridCellsY;

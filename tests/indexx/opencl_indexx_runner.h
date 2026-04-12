@@ -4,7 +4,6 @@
 
 #include "../../src/kernels/IndexxKernel.h"
 #include "../utils/context/opencl_context.h"
-#include "../../src/convert/OpenCLConvert.h"
 #include "indexx_test_common.h"
 
 namespace SiberneticTest {
@@ -16,11 +15,8 @@ public:
     const size_t gridCellIndexCount = static_cast<size_t>(tc.gridCellCount) + 1u;
     const size_t threadCount = gridCellIndexCount;
 
-    auto clParticleIndex = Sibernetic::OpenCL::encode(tc.particleIndex);
-
     Sibernetic::IndexxInput input{};
-    input.particleIndex =
-        reinterpret_cast<const uint32_t *>(clParticleIndex.data());
+    input.particleIndex = tc.particleIndex;
     input.particleCount = particleCount;
     input.gridCellCount = tc.gridCellCount;
 

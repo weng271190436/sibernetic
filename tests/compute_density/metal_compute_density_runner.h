@@ -3,10 +3,9 @@
 #include <vector>
 
 #include "../../src/kernels/ComputeDensityKernel.h"
+#include "../../src/convert/MetalConvert.h"
 #include "../utils/buffer/metal_buffer_utils.h"
 #include "../utils/context/metal_context.h"
-#include "../../src/convert/MetalConvert.h"
-#include "../utils/types/metal_types.h"
 #include "compute_density_test_common.h"
 
 namespace SiberneticTest {
@@ -20,18 +19,15 @@ public:
       throw std::runtime_error("neighborMap size must be particleCount * 32");
     }
 
-    auto neighborMap = Sibernetic::Metal::encode(tc.neighborMap);
-
     MetalKernelContext metal(Sibernetic::kComputeDensityKernelName);
     auto *device = metal.device();
 
     // Build backend-agnostic input.
     Sibernetic::ComputeDensityInput input{};
-    input.neighborMap =
-        reinterpret_cast<const float *>(neighborMap.data());
+    input.neighborMap = tc.neighborMap;
     input.massMultWpoly6Coefficient = tc.massMultWpoly6Coefficient;
     input.hScaled2 = tc.hScaled2;
-    input.particleIndexBack = tc.particleIndexBack.data();
+    input.particleIndexBack = tc.particleIndexBack;
     input.particleCount = particleCount;
 
     // Create output buffer.

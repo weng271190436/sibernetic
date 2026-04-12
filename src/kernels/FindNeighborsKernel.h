@@ -42,6 +42,7 @@
 
 #include <cstdint>
 
+#include "../types/HostTypes.h"
 #include "common/KernelArgs.h"
 
 #ifdef SIBERNETIC_USE_METAL
@@ -62,8 +63,8 @@ namespace Sibernetic {
 
 // ============ Backend-agnostic input ============
 struct FindNeighborsInput {
-  const uint32_t *gridCellIndexFixedUp; // size: gridCellCount + 1
-  const float *sortedPosition;          // float4 array, size: particleCount * 4
+  UInt32Span gridCellIndexFixedUp; // size: gridCellCount + 1
+  Float4Span sortedPosition;       // size: particleCount
   uint32_t gridCellCount;
   uint32_t gridCellsX;
   uint32_t gridCellsY;
@@ -126,11 +127,12 @@ toMetalArgs(const FindNeighborsInput &input, MTL::Device *device,
             MTL::Buffer *outputNeighborMap) {
   FindNeighborsMetalArgs args{};
   args.gridCellIndexFixedUp = device->newBuffer(
-      input.gridCellIndexFixedUp,
-      sizeof(uint32_t) * (input.gridCellCount + 1),
+      input.gridCellIndexFixedUp.data(),
+      input.gridCellIndexFixedUp.size_bytes(),
       MTL::ResourceStorageModeShared);
   args.sortedPosition = device->newBuffer(
-      input.sortedPosition, sizeof(float) * 4 * input.particleCount,
+      input.sortedPosition.data(),
+      input.sortedPosition.size_bytes(),
       MTL::ResourceStorageModeShared);
   args.gridCellCount = input.gridCellCount;
   args.gridCellsX = input.gridCellsX;
@@ -196,12 +198,12 @@ toOpenCLArgs(const FindNeighborsInput &input, cl::Context &context,
   FindNeighborsOpenCLArgs args{};
   args.gridCellIndexFixedUp = cl::Buffer(
       context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
-      sizeof(uint32_t) * (input.gridCellCount + 1),
-      const_cast<uint32_t *>(input.gridCellIndexFixedUp), &err);
+      input.gridCellIndexFixedUp.size_bytes(),
+      const_cast<uint32_t *>(input.gridCellIndexFixedUp.data()), &err);
   args.sortedPosition = cl::Buffer(
       context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
-      sizeof(float) * 4 * input.particleCount,
-      const_cast<float *>(input.sortedPosition), &err);
+      input.sortedPosition.size_bytes(),
+      const_cast<HostFloat4 *>(input.sortedPosition.data()), &err);
   args.gridCellCount = input.gridCellCount;
   args.gridCellsX = input.gridCellsX;
   args.gridCellsY = input.gridCellsY;

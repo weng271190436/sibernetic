@@ -3,8 +3,8 @@
 #include <vector>
 
 #include "../../src/kernels/FindNeighborsKernel.h"
-#include "../utils/context/opencl_context.h"
 #include "../../src/convert/OpenCLConvert.h"
+#include "../utils/context/opencl_context.h"
 #include "find_neighbors_test_common.h"
 
 namespace SiberneticTest {
@@ -16,12 +16,9 @@ public:
         static_cast<cl_uint>(tc.sortedPosition.size());
     const size_t neighborCount = static_cast<size_t>(particleCount) * 32u;
 
-    auto clSortedPosition = Sibernetic::OpenCL::encode(tc.sortedPosition);
-
     Sibernetic::FindNeighborsInput input{};
-    input.gridCellIndexFixedUp = tc.gridCellIndexFixedUp.data();
-    input.sortedPosition =
-        reinterpret_cast<const float *>(clSortedPosition.data());
+    input.gridCellIndexFixedUp = tc.gridCellIndexFixedUp;
+    input.sortedPosition = tc.sortedPosition;
     input.gridCellCount = tc.gridCellCount;
     input.gridCellsX = tc.gridCellsX;
     input.gridCellsY = tc.gridCellsY;

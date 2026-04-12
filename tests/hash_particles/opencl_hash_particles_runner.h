@@ -3,8 +3,8 @@
 #include <vector>
 
 #include "../../src/kernels/HashParticlesKernel.h"
-#include "../utils/context/opencl_context.h"
 #include "../../src/convert/OpenCLConvert.h"
+#include "../utils/context/opencl_context.h"
 #include "hash_particles_test_common.h"
 
 namespace SiberneticTest {
@@ -12,11 +12,10 @@ namespace SiberneticTest {
 class OpenCLHashParticlesRunner : public HashParticlesRunner {
 public:
   HashParticlesResult run(const HashParticlesCase &tc) override {
-    auto clPositions = Sibernetic::OpenCL::encode(tc.positions);
-    const cl_uint particleCount = static_cast<cl_uint>(clPositions.size());
+    const cl_uint particleCount = static_cast<cl_uint>(tc.positions.size());
 
     Sibernetic::HashParticlesInput input{};
-    input.position = reinterpret_cast<const float *>(clPositions.data());
+    input.position = tc.positions;
     input.gridCellsX = tc.gridCellsX;
     input.gridCellsY = tc.gridCellsY;
     input.gridCellsZ = tc.gridCellsZ;

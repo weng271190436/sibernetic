@@ -26,6 +26,7 @@
 
 #include <cstdint>
 
+#include "../types/HostTypes.h"
 #include "common/KernelArgs.h"
 
 #ifdef SIBERNETIC_USE_METAL
@@ -46,9 +47,9 @@ namespace Sibernetic {
 
 // ============ Backend-agnostic input ============
 struct SortPostPassInput {
-  const uint32_t *particleIndex; // uint2 array, size: particleCount * 2
-  const float *position;         // float4 array, size: particleCount * 4
-  const float *velocity;         // float4 array, size: particleCount * 4
+  UInt2Span particleIndex; // size: particleCount
+  Float4Span position;     // size: particleCount
+  Float4Span velocity;     // size: particleCount
   uint32_t particleCount;
 };
 
@@ -88,14 +89,14 @@ toMetalArgs(const SortPostPassInput &input, MTL::Device *device,
             MTL::Buffer *outputSortedVelocity) {
   SortPostPassMetalArgs args{};
   args.particleIndex = device->newBuffer(
-      input.particleIndex, sizeof(uint32_t) * 2 * input.particleCount,
+      input.particleIndex.data(), input.particleIndex.size_bytes(),
       MTL::ResourceStorageModeShared);
   args.particleIndexBack = outputParticleIndexBack;
-  args.position = device->newBuffer(input.position,
-                                    sizeof(float) * 4 * input.particleCount,
+  args.position = device->newBuffer(input.position.data(),
+                                    input.position.size_bytes(),
                                     MTL::ResourceStorageModeShared);
-  args.velocity = device->newBuffer(input.velocity,
-                                    sizeof(float) * 4 * input.particleCount,
+  args.velocity = device->newBuffer(input.velocity.data(),
+                                    input.velocity.size_bytes(),
                                     MTL::ResourceStorageModeShared);
   args.sortedPosition = outputSortedPosition;
   args.sortedVelocity = outputSortedVelocity;
@@ -137,17 +138,17 @@ toOpenCLArgs(const SortPostPassInput &input, cl::Context &context,
   SortPostPassOpenCLArgs args{};
   args.particleIndex =
       cl::Buffer(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
-                 sizeof(uint32_t) * 2 * input.particleCount,
-                 const_cast<uint32_t *>(input.particleIndex), &err);
+                 input.particleIndex.size_bytes(),
+                 const_cast<HostUInt2 *>(input.particleIndex.data()), &err);
   args.particleIndexBack = outputParticleIndexBack;
   args.position =
       cl::Buffer(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
-                 sizeof(float) * 4 * input.particleCount,
-                 const_cast<float *>(input.position), &err);
+                 input.position.size_bytes(),
+                 const_cast<HostFloat4 *>(input.position.data()), &err);
   args.velocity =
       cl::Buffer(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
-                 sizeof(float) * 4 * input.particleCount,
-                 const_cast<float *>(input.velocity), &err);
+                 input.velocity.size_bytes(),
+                 const_cast<HostFloat4 *>(input.velocity.data()), &err);
   args.sortedPosition = outputSortedPosition;
   args.sortedVelocity = outputSortedVelocity;
   args.particleCount = input.particleCount;

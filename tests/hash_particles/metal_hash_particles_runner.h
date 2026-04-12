@@ -3,9 +3,9 @@
 #include <vector>
 
 #include "../../src/kernels/HashParticlesKernel.h"
+#include "../../src/convert/MetalConvert.h"
 #include "../utils/buffer/metal_buffer_utils.h"
 #include "../utils/context/metal_context.h"
-#include "../../src/convert/MetalConvert.h"
 #include "../utils/types/metal_types.h"
 #include "hash_particles_test_common.h"
 
@@ -14,11 +14,10 @@ namespace SiberneticTest {
 class MetalHashParticlesRunner : public HashParticlesRunner {
 public:
   HashParticlesResult run(const HashParticlesCase &tc) override {
-    auto positions = Sibernetic::Metal::encode(tc.positions);
-    const uint32_t particleCount = static_cast<uint32_t>(positions.size());
+    const uint32_t particleCount = static_cast<uint32_t>(tc.positions.size());
 
     Sibernetic::HashParticlesInput input{};
-    input.position = reinterpret_cast<const float *>(positions.data());
+    input.position = tc.positions;
     input.gridCellsX = tc.gridCellsX;
     input.gridCellsY = tc.gridCellsY;
     input.gridCellsZ = tc.gridCellsZ;

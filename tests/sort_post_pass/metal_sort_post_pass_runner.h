@@ -3,9 +3,9 @@
 #include <vector>
 
 #include "../../src/kernels/SortPostPassKernel.h"
+#include "../../src/convert/MetalConvert.h"
 #include "../utils/buffer/metal_buffer_utils.h"
 #include "../utils/context/metal_context.h"
-#include "../../src/convert/MetalConvert.h"
 #include "../utils/types/metal_types.h"
 #include "sort_post_pass_test_common.h"
 
@@ -17,15 +17,10 @@ public:
     const uint32_t particleCount =
         static_cast<uint32_t>(tc.particleIndex.size());
 
-    auto particleIndex = Sibernetic::Metal::encode(tc.particleIndex);
-    auto position = Sibernetic::Metal::encode(tc.position);
-    auto velocity = Sibernetic::Metal::encode(tc.velocity);
-
     Sibernetic::SortPostPassInput input{};
-    input.particleIndex =
-        reinterpret_cast<const uint32_t *>(particleIndex.data());
-    input.position = reinterpret_cast<const float *>(position.data());
-    input.velocity = reinterpret_cast<const float *>(velocity.data());
+    input.particleIndex = tc.particleIndex;
+    input.position = tc.position;
+    input.velocity = tc.velocity;
     input.particleCount = particleCount;
 
     MetalKernelContext metal(Sibernetic::kSortPostPassKernelName);

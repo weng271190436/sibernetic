@@ -32,6 +32,7 @@
 
 #include <cstdint>
 
+#include "../types/HostTypes.h"
 #include "common/KernelArgs.h"
 
 #ifdef SIBERNETIC_USE_METAL
@@ -52,7 +53,7 @@ namespace Sibernetic {
 
 // ============ Backend-agnostic input ============
 struct HashParticlesInput {
-  const float *position;   // float4 array, size: particleCount * 4
+  Float4Span position; // size: particleCount
   uint32_t gridCellsX;
   uint32_t gridCellsY;
   uint32_t gridCellsZ;
@@ -100,8 +101,8 @@ inline HashParticlesMetalArgs
 toMetalArgs(const HashParticlesInput &input, MTL::Device *device,
             MTL::Buffer *outputParticleIndex) {
   HashParticlesMetalArgs args{};
-  args.position = device->newBuffer(input.position,
-                                    sizeof(float) * 4 * input.particleCount,
+  args.position = device->newBuffer(input.position.data(),
+                                    input.position.size_bytes(),
                                     MTL::ResourceStorageModeShared);
   args.gridCellsX = input.gridCellsX;
   args.gridCellsY = input.gridCellsY;
@@ -153,8 +154,8 @@ toOpenCLArgs(const HashParticlesInput &input, cl::Context &context,
   HashParticlesOpenCLArgs args{};
   args.position =
       cl::Buffer(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
-                 sizeof(float) * 4 * input.particleCount,
-                 const_cast<float *>(input.position), &err);
+                 input.position.size_bytes(),
+                 const_cast<HostFloat4 *>(input.position.data()), &err);
   args.gridCellsX = input.gridCellsX;
   args.gridCellsY = input.gridCellsY;
   args.gridCellsZ = input.gridCellsZ;

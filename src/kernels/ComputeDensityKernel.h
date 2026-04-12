@@ -24,6 +24,7 @@
 
 #include <cstdint>
 
+#include "../types/HostTypes.h"
 #include "common/KernelArgs.h"
 
 #ifdef SIBERNETIC_USE_METAL
@@ -44,10 +45,10 @@ namespace Sibernetic {
 
 // ============ Backend-agnostic input ============
 struct ComputeDensityInput {
-  const float *neighborMap;           // float2 array, size: particleCount * 32 * 2
+  Float2Span neighborMap;            // size: particleCount * 32
   float massMultWpoly6Coefficient;
   float hScaled2;
-  const uint32_t *particleIndexBack;  // size: particleCount
+  UInt32Span particleIndexBack;      // size: particleCount
   uint32_t particleCount;
 };
 
@@ -81,14 +82,14 @@ toMetalArgs(const ComputeDensityInput &input, MTL::Device *device,
             MTL::Buffer *outputRho) {
   ComputeDensityMetalArgs args{};
   args.neighborMap = device->newBuffer(
-      input.neighborMap,
-      sizeof(float) * 2 * static_cast<size_t>(input.particleCount) * 32,
+      input.neighborMap.data(),
+      input.neighborMap.size_bytes(),
       MTL::ResourceStorageModeShared);
   args.massMultWpoly6Coefficient = input.massMultWpoly6Coefficient;
   args.hScaled2 = input.hScaled2;
   args.rho = outputRho;
   args.particleIndexBack = device->newBuffer(
-      input.particleIndexBack, sizeof(uint32_t) * input.particleCount,
+      input.particleIndexBack.data(), input.particleIndexBack.size_bytes(),
       MTL::ResourceStorageModeShared);
   args.particleCount = input.particleCount;
   return args;
@@ -124,15 +125,15 @@ toOpenCLArgs(const ComputeDensityInput &input, cl::Context &context,
   ComputeDensityOpenCLArgs args{};
   args.neighborMap = cl::Buffer(
       context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
-      sizeof(float) * 2 * static_cast<size_t>(input.particleCount) * 32,
-      const_cast<float *>(input.neighborMap), &err);
+      input.neighborMap.size_bytes(),
+      const_cast<HostFloat2 *>(input.neighborMap.data()), &err);
   args.massMultWpoly6Coefficient = input.massMultWpoly6Coefficient;
   args.hScaled2 = input.hScaled2;
   args.rho = outputRho;
   args.particleIndexBack = cl::Buffer(
       context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
-      sizeof(uint32_t) * input.particleCount,
-      const_cast<uint32_t *>(input.particleIndexBack), &err);
+      input.particleIndexBack.size_bytes(),
+      const_cast<uint32_t *>(input.particleIndexBack.data()), &err);
   args.particleCount = input.particleCount;
   return args;
 }

@@ -17,23 +17,15 @@ public:
       throw std::runtime_error("neighborMap size must be particleCount * 32");
     }
 
-    // Convert host float2 array to flat floats for the Input struct.
-    std::vector<cl_float2> clNeighborMap(tc.neighborMap.size());
-    for (size_t i = 0; i < tc.neighborMap.size(); ++i) {
-      clNeighborMap[i].s[0] = tc.neighborMap[i][0];
-      clNeighborMap[i].s[1] = tc.neighborMap[i][1];
-    }
-
-    OpenCLKernelContext opencl;
-
     // Build backend-agnostic input.
     Sibernetic::ComputeDensityInput input{};
-    input.neighborMap =
-        reinterpret_cast<const float *>(clNeighborMap.data());
+    input.neighborMap = tc.neighborMap;
     input.massMultWpoly6Coefficient = tc.massMultWpoly6Coefficient;
     input.hScaled2 = tc.hScaled2;
-    input.particleIndexBack = tc.particleIndexBack.data();
+    input.particleIndexBack = tc.particleIndexBack;
     input.particleCount = particleCount;
+
+    OpenCLKernelContext opencl;
 
     // Create output buffer.
     cl_int err = CL_SUCCESS;

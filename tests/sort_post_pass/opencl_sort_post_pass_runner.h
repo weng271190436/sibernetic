@@ -3,8 +3,8 @@
 #include <vector>
 
 #include "../../src/kernels/SortPostPassKernel.h"
-#include "../utils/context/opencl_context.h"
 #include "../../src/convert/OpenCLConvert.h"
+#include "../utils/context/opencl_context.h"
 #include "sort_post_pass_test_common.h"
 
 namespace SiberneticTest {
@@ -14,15 +14,10 @@ public:
   SortPostPassResult run(const SortPostPassCase &tc) override {
     const cl_uint particleCount = static_cast<cl_uint>(tc.particleIndex.size());
 
-    auto clParticleIndex = Sibernetic::OpenCL::encode(tc.particleIndex);
-    auto clPosition = Sibernetic::OpenCL::encode(tc.position);
-    auto clVelocity = Sibernetic::OpenCL::encode(tc.velocity);
-
     Sibernetic::SortPostPassInput input{};
-    input.particleIndex =
-        reinterpret_cast<const uint32_t *>(clParticleIndex.data());
-    input.position = reinterpret_cast<const float *>(clPosition.data());
-    input.velocity = reinterpret_cast<const float *>(clVelocity.data());
+    input.particleIndex = tc.particleIndex;
+    input.position = tc.position;
+    input.velocity = tc.velocity;
     input.particleCount = particleCount;
 
     OpenCLKernelContext opencl;

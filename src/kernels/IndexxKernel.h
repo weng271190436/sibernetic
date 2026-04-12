@@ -20,6 +20,7 @@
 
 #include <cstdint>
 
+#include "../types/HostTypes.h"
 #include "common/KernelArgs.h"
 
 #ifdef SIBERNETIC_USE_METAL
@@ -40,7 +41,7 @@ namespace Sibernetic {
 
 // ============ Backend-agnostic input ============
 struct IndexxInput {
-  const uint32_t *particleIndex; // uint2 array: [cellId, serialId]
+  UInt2Span particleIndex; // [cellId, serialId], size: particleCount
   uint32_t particleCount;
   uint32_t gridCellCount;
 };
@@ -71,7 +72,7 @@ inline IndexxMetalArgs toMetalArgs(const IndexxInput &input,
                                    MTL::Buffer *outputGridCellIndex) {
   IndexxMetalArgs args{};
   args.particleIndex = device->newBuffer(
-      input.particleIndex, sizeof(uint32_t) * 2 * input.particleCount,
+      input.particleIndex.data(), input.particleIndex.size_bytes(),
       MTL::ResourceStorageModeShared);
   args.gridCellCount = input.gridCellCount;
   args.gridCellIndex = outputGridCellIndex;
@@ -105,8 +106,8 @@ inline IndexxOpenCLArgs toOpenCLArgs(const IndexxInput &input,
   IndexxOpenCLArgs args{};
   args.particleIndex = cl::Buffer(
       context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
-      sizeof(uint32_t) * 2 * input.particleCount,
-      const_cast<uint32_t *>(input.particleIndex), &err);
+      input.particleIndex.size_bytes(),
+      const_cast<HostUInt2 *>(input.particleIndex.data()), &err);
   args.gridCellCount = input.gridCellCount;
   args.gridCellIndex = outputGridCellIndex;
   args.particleCount = input.particleCount;

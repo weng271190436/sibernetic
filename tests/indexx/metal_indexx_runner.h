@@ -3,10 +3,9 @@
 #include <vector>
 
 #include "../../src/kernels/IndexxKernel.h"
+#include "../../src/convert/MetalConvert.h"
 #include "../utils/buffer/metal_buffer_utils.h"
 #include "../utils/context/metal_context.h"
-#include "../../src/convert/MetalConvert.h"
-#include "../utils/types/metal_types.h"
 #include "indexx_test_common.h"
 
 namespace SiberneticTest {
@@ -19,11 +18,8 @@ public:
     const uint32_t gridCellIndexCount = tc.gridCellCount + 1u;
     const uint32_t threadCount = gridCellIndexCount;
 
-    auto particleIndex = Sibernetic::Metal::encode(tc.particleIndex);
-
     Sibernetic::IndexxInput input{};
-    input.particleIndex =
-        reinterpret_cast<const uint32_t *>(particleIndex.data());
+    input.particleIndex = tc.particleIndex;
     input.particleCount = particleCount;
     input.gridCellCount = tc.gridCellCount;
 
