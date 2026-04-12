@@ -5,7 +5,7 @@
 #include "../../src/kernels/HashParticlesKernel.h"
 #include "../utils/buffer/metal_buffer_utils.h"
 #include "../utils/context/metal_context.h"
-#include "../utils/convert/metal_convert_utils.h"
+#include "../../src/convert/MetalConvert.h"
 #include "../utils/types/metal_types.h"
 #include "hash_particles_test_common.h"
 
@@ -14,7 +14,7 @@ namespace SiberneticTest {
 class MetalHashParticlesRunner : public HashParticlesRunner {
 public:
   HashParticlesResult run(const HashParticlesCase &tc) override {
-    std::vector<MetalFloat4> positions = toMetalFloat4Vector(tc.positions);
+    auto positions = Sibernetic::Metal::encode(tc.positions);
     const uint32_t particleCount = static_cast<uint32_t>(positions.size());
 
     Sibernetic::HashParticlesInput input{};
@@ -43,7 +43,7 @@ public:
     HashParticlesResult result;
     const auto *ptr = reinterpret_cast<const MetalUInt2 *>(
         outputParticleIndex->contents());
-    result.particleIndex = toHostUInt2Vector(ptr, particleCount);
+    result.particleIndex = Sibernetic::Metal::decode(ptr, particleCount);
     return result;
   }
 };

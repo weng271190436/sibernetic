@@ -4,7 +4,7 @@
 
 #include "../../src/kernels/SortPostPassKernel.h"
 #include "../utils/context/opencl_context.h"
-#include "../utils/convert/opencl_convert_utils.h"
+#include "../../src/convert/OpenCLConvert.h"
 #include "sort_post_pass_test_common.h"
 
 namespace SiberneticTest {
@@ -14,9 +14,9 @@ public:
   SortPostPassResult run(const SortPostPassCase &tc) override {
     const cl_uint particleCount = static_cast<cl_uint>(tc.particleIndex.size());
 
-    std::vector<cl_uint2> clParticleIndex = toCLUInt2Vector(tc.particleIndex);
-    std::vector<cl_float4> clPosition = toCLFloat4Vector(tc.position);
-    std::vector<cl_float4> clVelocity = toCLFloat4Vector(tc.velocity);
+    auto clParticleIndex = Sibernetic::OpenCL::encode(tc.particleIndex);
+    auto clPosition = Sibernetic::OpenCL::encode(tc.position);
+    auto clVelocity = Sibernetic::OpenCL::encode(tc.velocity);
 
     Sibernetic::SortPostPassInput input{};
     input.particleIndex =
@@ -65,13 +65,13 @@ public:
     opencl.queue().enqueueReadBuffer(outSortedPos, CL_TRUE, 0,
                                      sizeof(cl_float4) * particleCount,
                                      clSortedPos.data());
-    result.sortedPosition = toHostFloat4Vector(clSortedPos);
+    result.sortedPosition = Sibernetic::OpenCL::decode(clSortedPos);
 
     std::vector<cl_float4> clSortedVel(particleCount);
     opencl.queue().enqueueReadBuffer(outSortedVel, CL_TRUE, 0,
                                      sizeof(cl_float4) * particleCount,
                                      clSortedVel.data());
-    result.sortedVelocity = toHostFloat4Vector(clSortedVel);
+    result.sortedVelocity = Sibernetic::OpenCL::decode(clSortedVel);
     return result;
   }
 };

@@ -1,12 +1,13 @@
 #pragma once
 
-#include <array>
-#include <cstdint>
+#include "../../../src/types/HostTypes.h"
 
 namespace SiberneticTest {
 
-using HostFloat4 = std::array<float, 4>;
-using HostUInt2 = std::array<uint32_t, 2>;
+using Sibernetic::HostFloat2;
+using Sibernetic::HostFloat4;
+using Sibernetic::HostUInt2;
+using Sibernetic::HostUInt4;
 
 struct TestCase {};
 

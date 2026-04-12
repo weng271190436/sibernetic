@@ -5,7 +5,7 @@
 #include "../../src/kernels/IndexxKernel.h"
 #include "../utils/buffer/metal_buffer_utils.h"
 #include "../utils/context/metal_context.h"
-#include "../utils/convert/metal_convert_utils.h"
+#include "../../src/convert/MetalConvert.h"
 #include "../utils/types/metal_types.h"
 #include "indexx_test_common.h"
 
@@ -19,8 +19,7 @@ public:
     const uint32_t gridCellIndexCount = tc.gridCellCount + 1u;
     const uint32_t threadCount = gridCellIndexCount;
 
-    std::vector<MetalUInt2> particleIndex =
-        toMetalUInt2Vector(tc.particleIndex);
+    auto particleIndex = Sibernetic::Metal::encode(tc.particleIndex);
 
     Sibernetic::IndexxInput input{};
     input.particleIndex =
@@ -43,7 +42,7 @@ public:
     IndexxResult result;
     const auto *ptr =
         reinterpret_cast<const uint32_t *>(outputGridCellIndex->contents());
-    result.gridCellIndex = toHostVector(ptr, gridCellIndexCount);
+    result.gridCellIndex = Sibernetic::Metal::decode(ptr, gridCellIndexCount);
     return result;
   }
 };

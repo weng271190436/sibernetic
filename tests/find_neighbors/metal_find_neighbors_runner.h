@@ -5,7 +5,7 @@
 #include "../../src/kernels/FindNeighborsKernel.h"
 #include "../utils/buffer/metal_buffer_utils.h"
 #include "../utils/context/metal_context.h"
-#include "../utils/convert/metal_convert_utils.h"
+#include "../../src/convert/MetalConvert.h"
 #include "../utils/types/metal_types.h"
 #include "find_neighbors_test_common.h"
 
@@ -18,8 +18,7 @@ public:
         static_cast<uint32_t>(tc.sortedPosition.size());
     const size_t neighborCount = static_cast<size_t>(particleCount) * 32u;
 
-    std::vector<MetalFloat4> sortedPosition =
-        toMetalFloat4Vector(tc.sortedPosition);
+    auto sortedPosition = Sibernetic::Metal::encode(tc.sortedPosition);
 
     Sibernetic::FindNeighborsInput input{};
     input.gridCellIndexFixedUp = tc.gridCellIndexFixedUp.data();
@@ -53,7 +52,7 @@ public:
     FindNeighborsResult result;
     const auto *ptr =
         reinterpret_cast<const MetalFloat2 *>(outputNeighborMap->contents());
-    result.neighborMap = toHostFloat2ArrayVector(ptr, neighborCount);
+    result.neighborMap = Sibernetic::Metal::decode(ptr, neighborCount);
     return result;
   }
 };

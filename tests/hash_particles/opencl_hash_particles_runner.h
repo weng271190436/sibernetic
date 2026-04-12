@@ -4,7 +4,7 @@
 
 #include "../../src/kernels/HashParticlesKernel.h"
 #include "../utils/context/opencl_context.h"
-#include "../utils/convert/opencl_convert_utils.h"
+#include "../../src/convert/OpenCLConvert.h"
 #include "hash_particles_test_common.h"
 
 namespace SiberneticTest {
@@ -12,7 +12,7 @@ namespace SiberneticTest {
 class OpenCLHashParticlesRunner : public HashParticlesRunner {
 public:
   HashParticlesResult run(const HashParticlesCase &tc) override {
-    std::vector<cl_float4> clPositions = toCLFloat4Vector(tc.positions);
+    auto clPositions = Sibernetic::OpenCL::encode(tc.positions);
     const cl_uint particleCount = static_cast<cl_uint>(clPositions.size());
 
     Sibernetic::HashParticlesInput input{};
@@ -61,7 +61,7 @@ public:
             clOutput.data()) != CL_SUCCESS) {
       throw std::runtime_error("Failed to read particleIndex output buffer");
     }
-    result.particleIndex = toHostUInt2Vector(clOutput);
+    result.particleIndex = Sibernetic::OpenCL::decode(clOutput);
     return result;
   }
 };

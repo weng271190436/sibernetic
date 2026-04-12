@@ -4,7 +4,7 @@
 
 #include "../../src/kernels/FindNeighborsKernel.h"
 #include "../utils/context/opencl_context.h"
-#include "../utils/convert/opencl_convert_utils.h"
+#include "../../src/convert/OpenCLConvert.h"
 #include "find_neighbors_test_common.h"
 
 namespace SiberneticTest {
@@ -16,8 +16,7 @@ public:
         static_cast<cl_uint>(tc.sortedPosition.size());
     const size_t neighborCount = static_cast<size_t>(particleCount) * 32u;
 
-    std::vector<cl_float4> clSortedPosition =
-        toCLFloat4Vector(tc.sortedPosition);
+    auto clSortedPosition = Sibernetic::OpenCL::encode(tc.sortedPosition);
 
     Sibernetic::FindNeighborsInput input{};
     input.gridCellIndexFixedUp = tc.gridCellIndexFixedUp.data();
@@ -71,7 +70,7 @@ public:
             clNeighborMap.data()) != CL_SUCCESS) {
       throw std::runtime_error("Failed to read neighborMap output buffer");
     }
-    result.neighborMap = toHostFloat2ArrayVector(clNeighborMap);
+    result.neighborMap = Sibernetic::OpenCL::decode(clNeighborMap);
     return result;
   }
 };

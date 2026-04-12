@@ -5,7 +5,7 @@
 #include "../../src/kernels/SortPostPassKernel.h"
 #include "../utils/buffer/metal_buffer_utils.h"
 #include "../utils/context/metal_context.h"
-#include "../utils/convert/metal_convert_utils.h"
+#include "../../src/convert/MetalConvert.h"
 #include "../utils/types/metal_types.h"
 #include "sort_post_pass_test_common.h"
 
@@ -17,10 +17,9 @@ public:
     const uint32_t particleCount =
         static_cast<uint32_t>(tc.particleIndex.size());
 
-    std::vector<MetalUInt2> particleIndex =
-        toMetalUInt2Vector(tc.particleIndex);
-    std::vector<MetalFloat4> position = toMetalFloat4Vector(tc.position);
-    std::vector<MetalFloat4> velocity = toMetalFloat4Vector(tc.velocity);
+    auto particleIndex = Sibernetic::Metal::encode(tc.particleIndex);
+    auto position = Sibernetic::Metal::encode(tc.position);
+    auto velocity = Sibernetic::Metal::encode(tc.velocity);
 
     Sibernetic::SortPostPassInput input{};
     input.particleIndex =
@@ -49,13 +48,13 @@ public:
     SortPostPassResult result;
     const auto *idxPtr =
         reinterpret_cast<const uint32_t *>(outIndexBack->contents());
-    result.particleIndexBack = toHostVector(idxPtr, particleCount);
+    result.particleIndexBack = Sibernetic::Metal::decode(idxPtr, particleCount);
     const auto *posPtr =
         reinterpret_cast<const MetalFloat4 *>(outSortedPosition->contents());
-    result.sortedPosition = toHostFloat4Vector(posPtr, particleCount);
+    result.sortedPosition = Sibernetic::Metal::decode(posPtr, particleCount);
     const auto *velPtr =
         reinterpret_cast<const MetalFloat4 *>(outSortedVelocity->contents());
-    result.sortedVelocity = toHostFloat4Vector(velPtr, particleCount);
+    result.sortedVelocity = Sibernetic::Metal::decode(velPtr, particleCount);
     return result;
   }
 };

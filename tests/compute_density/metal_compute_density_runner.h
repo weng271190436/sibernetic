@@ -5,7 +5,7 @@
 #include "../../src/kernels/ComputeDensityKernel.h"
 #include "../utils/buffer/metal_buffer_utils.h"
 #include "../utils/context/metal_context.h"
-#include "../utils/convert/metal_convert_utils.h"
+#include "../../src/convert/MetalConvert.h"
 #include "../utils/types/metal_types.h"
 #include "compute_density_test_common.h"
 
@@ -20,12 +20,7 @@ public:
       throw std::runtime_error("neighborMap size must be particleCount * 32");
     }
 
-    // Convert host float2 array to flat floats for the Input struct.
-    std::vector<MetalFloat2> neighborMap(tc.neighborMap.size());
-    for (size_t i = 0; i < tc.neighborMap.size(); ++i) {
-      neighborMap[i].s[0] = tc.neighborMap[i][0];
-      neighborMap[i].s[1] = tc.neighborMap[i][1];
-    }
+    auto neighborMap = Sibernetic::Metal::encode(tc.neighborMap);
 
     MetalKernelContext metal(Sibernetic::kComputeDensityKernelName);
     auto *device = metal.device().get();
@@ -55,7 +50,7 @@ public:
     ComputeDensityResult result;
     const auto *rhoPtr =
         reinterpret_cast<const float *>(outputRho->contents());
-    result.rho = toHostVector(rhoPtr, particleCount);
+    result.rho = Sibernetic::Metal::decode(rhoPtr, particleCount);
     return result;
   }
 };
