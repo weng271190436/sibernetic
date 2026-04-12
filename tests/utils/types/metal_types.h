@@ -1,5 +1,7 @@
 #pragma once
 
+#include <simd/simd.h>
+
 #include "../../../src/types/MetalTypes.h"
 
 namespace SiberneticTest {
