@@ -31,7 +31,9 @@ concept NamedTestCase = requires(const T &tc) {
 };
 
 // GTest pretty-printer for parameterized test case structs that expose a
-// human-readable `name` field.
+// human-readable `name` field.  GTest discovers this function via ADL
+// (argument-dependent lookup) when formatting test parameter values in
+// assertion failure messages — it is never called explicitly in test code.
 template <NamedTestCase T> inline void PrintTo(const T &tc, std::ostream *os) {
   *os << ((tc.name != nullptr) ? tc.name : "<unnamed>");
 }
