@@ -46,7 +46,6 @@
 #include "common/KernelArgs.h"
 
 #ifdef SIBERNETIC_USE_METAL
-#include "Foundation/NSSharedPtr.hpp"
 #include "Metal/MTLBuffer.hpp"
 #include "Metal/MTLComputeCommandEncoder.hpp"
 #include "Metal/MTLDevice.hpp"
@@ -80,7 +79,8 @@ struct FindNeighborsInput {
 };
 
 struct FindNeighborsOutput {
-  float *neighborMap; // float2 array, size: particleCount * kMaxNeighborCount * 2
+  float
+      *neighborMap; // float2 array, size: particleCount * kMaxNeighborCount * 2
 };
 
 // ============ Metal ============
@@ -122,18 +122,16 @@ struct FindNeighborsMetalArgs {
   }
 };
 
-inline FindNeighborsMetalArgs
-toMetalArgs(const FindNeighborsInput &input, MTL::Device *device,
-            MTL::Buffer *outputNeighborMap) {
+inline FindNeighborsMetalArgs toMetalArgs(const FindNeighborsInput &input,
+                                          MTL::Device *device,
+                                          MTL::Buffer *outputNeighborMap) {
   FindNeighborsMetalArgs args{};
   args.gridCellIndexFixedUp = device->newBuffer(
       input.gridCellIndexFixedUp.data(),
-      input.gridCellIndexFixedUp.size_bytes(),
-      MTL::ResourceStorageModeShared);
-  args.sortedPosition = device->newBuffer(
-      input.sortedPosition.data(),
-      input.sortedPosition.size_bytes(),
-      MTL::ResourceStorageModeShared);
+      input.gridCellIndexFixedUp.size_bytes(), MTL::ResourceStorageModeShared);
+  args.sortedPosition = device->newBuffer(input.sortedPosition.data(),
+                                          input.sortedPosition.size_bytes(),
+                                          MTL::ResourceStorageModeShared);
   args.gridCellCount = input.gridCellCount;
   args.gridCellsX = input.gridCellsX;
   args.gridCellsY = input.gridCellsY;
@@ -191,19 +189,19 @@ struct FindNeighborsOpenCLArgs {
   }
 };
 
-inline FindNeighborsOpenCLArgs
-toOpenCLArgs(const FindNeighborsInput &input, cl::Context &context,
-             cl::Buffer &outputNeighborMap) {
+inline FindNeighborsOpenCLArgs toOpenCLArgs(const FindNeighborsInput &input,
+                                            cl::Context &context,
+                                            cl::Buffer &outputNeighborMap) {
   cl_int err = CL_SUCCESS;
   FindNeighborsOpenCLArgs args{};
   args.gridCellIndexFixedUp = cl::Buffer(
       context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
       input.gridCellIndexFixedUp.size_bytes(),
       const_cast<uint32_t *>(input.gridCellIndexFixedUp.data()), &err);
-  args.sortedPosition = cl::Buffer(
-      context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
-      input.sortedPosition.size_bytes(),
-      const_cast<HostFloat4 *>(input.sortedPosition.data()), &err);
+  args.sortedPosition =
+      cl::Buffer(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
+                 input.sortedPosition.size_bytes(),
+                 const_cast<HostFloat4 *>(input.sortedPosition.data()), &err);
   args.gridCellCount = input.gridCellCount;
   args.gridCellsX = input.gridCellsX;
   args.gridCellsY = input.gridCellsY;

@@ -2,8 +2,8 @@
 
 #include <vector>
 
-#include "../../src/kernels/SortPostPassKernel.h"
 #include "../../src/convert/OpenCLConvert.h"
+#include "../../src/kernels/SortPostPassKernel.h"
 #include "../utils/context/opencl_context.h"
 #include "sort_post_pass_test_common.h"
 

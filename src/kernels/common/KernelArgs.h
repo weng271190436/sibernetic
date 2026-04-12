@@ -5,7 +5,6 @@
 #ifdef SIBERNETIC_USE_METAL
 #include "Metal/MTLBuffer.hpp"
 #include "Metal/MTLComputeCommandEncoder.hpp"
-#include "Metal/MTLDevice.hpp"
 #endif
 
 #ifdef SIBERNETIC_USE_OPENCL

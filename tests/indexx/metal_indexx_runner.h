@@ -2,8 +2,8 @@
 
 #include <vector>
 
-#include "../../src/kernels/IndexxKernel.h"
 #include "../../src/convert/MetalConvert.h"
+#include "../../src/kernels/IndexxKernel.h"
 #include "../utils/buffer/metal_buffer_utils.h"
 #include "../utils/context/metal_context.h"
 #include "indexx_test_common.h"

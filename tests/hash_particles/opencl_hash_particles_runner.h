@@ -2,8 +2,8 @@
 
 #include <vector>
 
-#include "../../src/kernels/HashParticlesKernel.h"
 #include "../../src/convert/OpenCLConvert.h"
+#include "../../src/kernels/HashParticlesKernel.h"
 #include "../utils/context/opencl_context.h"
 #include "hash_particles_test_common.h"
 
@@ -44,10 +44,9 @@ public:
 
     HashParticlesResult result;
     std::vector<cl_uint2> clOutput(particleCount);
-    if (opencl.queue().enqueueReadBuffer(
-            outputParticleIndex, CL_TRUE, 0,
-            sizeof(cl_uint2) * particleCount,
-            clOutput.data()) != CL_SUCCESS) {
+    if (opencl.queue().enqueueReadBuffer(outputParticleIndex, CL_TRUE, 0,
+                                         sizeof(cl_uint2) * particleCount,
+                                         clOutput.data()) != CL_SUCCESS) {
       throw std::runtime_error("Failed to read particleIndex output buffer");
     }
     result.particleIndex = Sibernetic::OpenCL::decode(clOutput);

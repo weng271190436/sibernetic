@@ -31,9 +31,8 @@ cl::Device OpenCLBackend::pickDevice() {
     platform.getDevices(CL_DEVICE_TYPE_GPU, &devices);
     if (!devices.empty()) {
       const auto &d = devices.front();
-      std::cerr << "[\x1b[32m  DEVICE  \x1b[0m] "
-                << d.getInfo<CL_DEVICE_NAME>() << " ("
-                << platform.getInfo<CL_PLATFORM_NAME>() << ")\n"
+      std::cerr << "[\x1b[32m  DEVICE  \x1b[0m] " << d.getInfo<CL_DEVICE_NAME>()
+                << " (" << platform.getInfo<CL_PLATFORM_NAME>() << ")\n"
                 << std::flush;
       return d;
     }
@@ -44,9 +43,9 @@ cl::Device OpenCLBackend::pickDevice() {
     platform.getDevices(CL_DEVICE_TYPE_ALL, &devices);
     if (!devices.empty()) {
       const auto &d = devices.front();
-      std::cerr << "[\x1b[32m  DEVICE  \x1b[0m] "
-                << d.getInfo<CL_DEVICE_NAME>() << " ("
-                << platform.getInfo<CL_PLATFORM_NAME>() << ") [fallback]\n"
+      std::cerr << "[\x1b[32m  DEVICE  \x1b[0m] " << d.getInfo<CL_DEVICE_NAME>()
+                << " (" << platform.getInfo<CL_PLATFORM_NAME>()
+                << ") [fallback]\n"
                 << std::flush;
       return d;
     }
@@ -102,9 +101,8 @@ cl::Kernel OpenCLBackend::createKernel(const char *kernelName) {
 }
 
 void OpenCLBackend::dispatch(cl::Kernel &kernel, uint32_t globalSize) {
-  cl_int err = queue_.enqueueNDRangeKernel(kernel, cl::NullRange,
-                                           cl::NDRange(globalSize),
-                                           cl::NullRange);
+  cl_int err = queue_.enqueueNDRangeKernel(
+      kernel, cl::NullRange, cl::NDRange(globalSize), cl::NullRange);
   if (err != CL_SUCCESS) {
     throw std::runtime_error("Failed to enqueue kernel");
   }

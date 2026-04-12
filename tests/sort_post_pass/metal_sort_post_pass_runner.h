@@ -2,8 +2,8 @@
 
 #include <vector>
 
-#include "../../src/kernels/SortPostPassKernel.h"
 #include "../../src/convert/MetalConvert.h"
+#include "../../src/kernels/SortPostPassKernel.h"
 #include "../utils/buffer/metal_buffer_utils.h"
 #include "../utils/context/metal_context.h"
 #include "../utils/types/metal_types.h"
@@ -14,8 +14,8 @@ namespace SiberneticTest {
 class MetalSortPostPassRunner : public SortPostPassRunner {
 public:
   SortPostPassResult run(const SortPostPassCase &tc) override {
-        auto input = tc.toInput();
-        const uint32_t particleCount = input.particleCount;
+    auto input = tc.toInput();
+    const uint32_t particleCount = input.particleCount;
 
     MetalKernelContext metal(Sibernetic::kSortPostPassKernelName);
     auto *device = metal.device();

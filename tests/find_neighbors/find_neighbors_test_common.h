@@ -87,8 +87,8 @@ struct FindNeighborsCase {
       // Build expected entries.
       std::vector<NeighborEntry> expected;
       for (size_t k = 0; k < expectedPrimaryNeighborIds[p].size(); ++k) {
-        expected.push_back(
-            {expectedPrimaryNeighborIds[p][k], expectedPrimaryNeighborDistances[p][k]});
+        expected.push_back({expectedPrimaryNeighborIds[p][k],
+                            expectedPrimaryNeighborDistances[p][k]});
       }
 
       std::sort(got.begin(), got.end(), byId);
@@ -267,7 +267,6 @@ struct FindNeighborsTestCommon {
   static std::string caseName(const ::testing::TestParamInfo<Case> &info) {
     return info.param.name;
   }
-
 };
 
 static_assert(

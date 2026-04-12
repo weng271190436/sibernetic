@@ -28,8 +28,7 @@ public:
     }
 
     // Convert to OpenCL args.
-    auto args =
-        Sibernetic::toOpenCLArgs(input, opencl.context(), outputRho);
+    auto args = Sibernetic::toOpenCLArgs(input, opencl.context(), outputRho);
 
     // Create kernel, bind, and dispatch.
     cl::Kernel kernel(opencl.program(), Sibernetic::kComputeDensityKernelName,

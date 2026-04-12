@@ -17,14 +17,14 @@ using SortPostPassFloat4 = HostFloat4;
 using SortPostPassParticleIndex = HostUInt2; // [cellId, serialId]
 
 struct SortPostPassResult {
-    std::vector<SortPostPassFloat4> sortedPosition;
-    std::vector<SortPostPassFloat4> sortedVelocity;
-    std::vector<uint32_t> particleIndexBack;
+  std::vector<SortPostPassFloat4> sortedPosition;
+  std::vector<SortPostPassFloat4> sortedVelocity;
+  std::vector<uint32_t> particleIndexBack;
 };
 
 struct SortPostPassCase {
-    using InputType = Sibernetic::SortPostPassInput;
-    using ResultType = SortPostPassResult;
+  using InputType = Sibernetic::SortPostPassInput;
+  using ResultType = SortPostPassResult;
 
   const char *name;
   std::vector<SortPostPassParticleIndex> particleIndex; // sorted input
@@ -35,44 +35,44 @@ struct SortPostPassCase {
   std::vector<SortPostPassFloat4> expectedSortedVelocity;
   std::vector<uint32_t> expectedParticleIndexBack; // originalId -> sortedIndex
 
-    InputType toInput() const {
-        return {
-                .particleIndex = particleIndex,
-                .position = position,
-                .velocity = velocity,
-                .particleCount = static_cast<uint32_t>(particleIndex.size()),
-        };
+  InputType toInput() const {
+    return {
+        .particleIndex = particleIndex,
+        .position = position,
+        .velocity = velocity,
+        .particleCount = static_cast<uint32_t>(particleIndex.size()),
+    };
+  }
+
+  void verify(const ResultType &result) const {
+    const uint32_t n = static_cast<uint32_t>(particleIndex.size());
+    ASSERT_EQ(result.sortedPosition.size(), n);
+    ASSERT_EQ(result.sortedVelocity.size(), n);
+    ASSERT_EQ(result.particleIndexBack.size(), n);
+
+    for (uint32_t i = 0; i < n; ++i) {
+      EXPECT_EQ(result.sortedPosition[i][0], expectedSortedPosition[i][0])
+          << "sortedPosition[" << i << "].x";
+      EXPECT_EQ(result.sortedPosition[i][1], expectedSortedPosition[i][1])
+          << "sortedPosition[" << i << "].y";
+      EXPECT_EQ(result.sortedPosition[i][2], expectedSortedPosition[i][2])
+          << "sortedPosition[" << i << "].z";
+      EXPECT_EQ(result.sortedPosition[i][3], expectedSortedPosition[i][3])
+          << "sortedPosition[" << i << "].w (cellId)";
+
+      EXPECT_EQ(result.sortedVelocity[i][0], expectedSortedVelocity[i][0])
+          << "sortedVelocity[" << i << "].x";
+      EXPECT_EQ(result.sortedVelocity[i][1], expectedSortedVelocity[i][1])
+          << "sortedVelocity[" << i << "].y";
+      EXPECT_EQ(result.sortedVelocity[i][2], expectedSortedVelocity[i][2])
+          << "sortedVelocity[" << i << "].z";
+      EXPECT_EQ(result.sortedVelocity[i][3], expectedSortedVelocity[i][3])
+          << "sortedVelocity[" << i << "].w";
+
+      EXPECT_EQ(result.particleIndexBack[i], expectedParticleIndexBack[i])
+          << "particleIndexBack[" << i << "]";
     }
-
-    void verify(const ResultType &result) const {
-        const uint32_t n = static_cast<uint32_t>(particleIndex.size());
-        ASSERT_EQ(result.sortedPosition.size(), n);
-        ASSERT_EQ(result.sortedVelocity.size(), n);
-        ASSERT_EQ(result.particleIndexBack.size(), n);
-
-        for (uint32_t i = 0; i < n; ++i) {
-            EXPECT_EQ(result.sortedPosition[i][0], expectedSortedPosition[i][0])
-                    << "sortedPosition[" << i << "].x";
-            EXPECT_EQ(result.sortedPosition[i][1], expectedSortedPosition[i][1])
-                    << "sortedPosition[" << i << "].y";
-            EXPECT_EQ(result.sortedPosition[i][2], expectedSortedPosition[i][2])
-                    << "sortedPosition[" << i << "].z";
-            EXPECT_EQ(result.sortedPosition[i][3], expectedSortedPosition[i][3])
-                    << "sortedPosition[" << i << "].w (cellId)";
-
-            EXPECT_EQ(result.sortedVelocity[i][0], expectedSortedVelocity[i][0])
-                    << "sortedVelocity[" << i << "].x";
-            EXPECT_EQ(result.sortedVelocity[i][1], expectedSortedVelocity[i][1])
-                    << "sortedVelocity[" << i << "].y";
-            EXPECT_EQ(result.sortedVelocity[i][2], expectedSortedVelocity[i][2])
-                    << "sortedVelocity[" << i << "].z";
-            EXPECT_EQ(result.sortedVelocity[i][3], expectedSortedVelocity[i][3])
-                    << "sortedVelocity[" << i << "].w";
-
-            EXPECT_EQ(result.particleIndexBack[i], expectedParticleIndexBack[i])
-                    << "particleIndexBack[" << i << "]";
-        }
-    }
+  }
 };
 
 static_assert(SiberneticTest::KernelTestCase<SortPostPassCase>);
@@ -136,7 +136,6 @@ struct SortPostPassTestCommon {
   static std::string caseName(const ::testing::TestParamInfo<Case> &info) {
     return info.param.name;
   }
-
 };
 
 static_assert(

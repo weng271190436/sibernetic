@@ -28,7 +28,6 @@
 #include "common/KernelArgs.h"
 
 #ifdef SIBERNETIC_USE_METAL
-#include "Foundation/NSSharedPtr.hpp"
 #include "Metal/MTLBuffer.hpp"
 #include "Metal/MTLComputeCommandEncoder.hpp"
 #include "Metal/MTLDevice.hpp"
@@ -45,10 +44,10 @@ namespace Sibernetic {
 
 // ============ Backend-agnostic input ============
 struct ComputeDensityInput {
-  Float2Span neighborMap;            // size: particleCount * 32
+  Float2Span neighborMap; // size: particleCount * 32
   float massMultWpoly6Coefficient;
   float hScaled2;
-  UInt32Span particleIndexBack;      // size: particleCount
+  UInt32Span particleIndexBack; // size: particleCount
   uint32_t particleCount;
 };
 
@@ -60,12 +59,12 @@ struct ComputeDensityOutput {
 #ifdef SIBERNETIC_USE_METAL
 
 struct ComputeDensityMetalArgs {
-  MTL::Buffer *neighborMap;           // [[buffer(0)]]
-  float massMultWpoly6Coefficient;    // [[buffer(1)]]
-  float hScaled2;                     // [[buffer(2)]]
-  MTL::Buffer *rho;                   // [[buffer(3)]] output
-  MTL::Buffer *particleIndexBack;     // [[buffer(4)]]
-  uint32_t particleCount;             // [[buffer(5)]]
+  MTL::Buffer *neighborMap;        // [[buffer(0)]]
+  float massMultWpoly6Coefficient; // [[buffer(1)]]
+  float hScaled2;                  // [[buffer(2)]]
+  MTL::Buffer *rho;                // [[buffer(3)]] output
+  MTL::Buffer *particleIndexBack;  // [[buffer(4)]]
+  uint32_t particleCount;          // [[buffer(5)]]
 
   void bind(MTL::ComputeCommandEncoder *enc) const {
     bindBuffer(enc, neighborMap, 0);
@@ -77,14 +76,13 @@ struct ComputeDensityMetalArgs {
   }
 };
 
-inline ComputeDensityMetalArgs
-toMetalArgs(const ComputeDensityInput &input, MTL::Device *device,
-            MTL::Buffer *outputRho) {
+inline ComputeDensityMetalArgs toMetalArgs(const ComputeDensityInput &input,
+                                           MTL::Device *device,
+                                           MTL::Buffer *outputRho) {
   ComputeDensityMetalArgs args{};
-  args.neighborMap = device->newBuffer(
-      input.neighborMap.data(),
-      input.neighborMap.size_bytes(),
-      MTL::ResourceStorageModeShared);
+  args.neighborMap = device->newBuffer(input.neighborMap.data(),
+                                       input.neighborMap.size_bytes(),
+                                       MTL::ResourceStorageModeShared);
   args.massMultWpoly6Coefficient = input.massMultWpoly6Coefficient;
   args.hScaled2 = input.hScaled2;
   args.rho = outputRho;
@@ -101,12 +99,12 @@ toMetalArgs(const ComputeDensityInput &input, MTL::Device *device,
 #ifdef SIBERNETIC_USE_OPENCL
 
 struct ComputeDensityOpenCLArgs {
-  cl::Buffer neighborMap;           // arg 0
-  float massMultWpoly6Coefficient;  // arg 1
-  float hScaled2;                   // arg 2
-  cl::Buffer rho;                   // arg 3  output
-  cl::Buffer particleIndexBack;     // arg 4
-  uint32_t particleCount;           // arg 5
+  cl::Buffer neighborMap;          // arg 0
+  float massMultWpoly6Coefficient; // arg 1
+  float hScaled2;                  // arg 2
+  cl::Buffer rho;                  // arg 3  output
+  cl::Buffer particleIndexBack;    // arg 4
+  uint32_t particleCount;          // arg 5
 
   void bind(cl::Kernel &kernel) const {
     bindBuffer(kernel, neighborMap, 0);
@@ -118,22 +116,22 @@ struct ComputeDensityOpenCLArgs {
   }
 };
 
-inline ComputeDensityOpenCLArgs
-toOpenCLArgs(const ComputeDensityInput &input, cl::Context &context,
-             cl::Buffer &outputRho) {
+inline ComputeDensityOpenCLArgs toOpenCLArgs(const ComputeDensityInput &input,
+                                             cl::Context &context,
+                                             cl::Buffer &outputRho) {
   cl_int err = CL_SUCCESS;
   ComputeDensityOpenCLArgs args{};
-  args.neighborMap = cl::Buffer(
-      context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
-      input.neighborMap.size_bytes(),
-      const_cast<HostFloat2 *>(input.neighborMap.data()), &err);
+  args.neighborMap =
+      cl::Buffer(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
+                 input.neighborMap.size_bytes(),
+                 const_cast<HostFloat2 *>(input.neighborMap.data()), &err);
   args.massMultWpoly6Coefficient = input.massMultWpoly6Coefficient;
   args.hScaled2 = input.hScaled2;
   args.rho = outputRho;
-  args.particleIndexBack = cl::Buffer(
-      context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
-      input.particleIndexBack.size_bytes(),
-      const_cast<uint32_t *>(input.particleIndexBack.data()), &err);
+  args.particleIndexBack =
+      cl::Buffer(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
+                 input.particleIndexBack.size_bytes(),
+                 const_cast<uint32_t *>(input.particleIndexBack.data()), &err);
   args.particleCount = input.particleCount;
   return args;
 }

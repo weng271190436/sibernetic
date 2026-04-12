@@ -36,7 +36,6 @@
 #include "common/KernelArgs.h"
 
 #ifdef SIBERNETIC_USE_METAL
-#include "Foundation/NSSharedPtr.hpp"
 #include "Metal/MTLBuffer.hpp"
 #include "Metal/MTLComputeCommandEncoder.hpp"
 #include "Metal/MTLDevice.hpp"
@@ -72,16 +71,16 @@ struct HashParticlesOutput {
 #ifdef SIBERNETIC_USE_METAL
 
 struct HashParticlesMetalArgs {
-  MTL::Buffer *position;         // [[buffer(0)]]
-  uint32_t gridCellsX;           // [[buffer(1)]]
-  uint32_t gridCellsY;           // [[buffer(2)]]
-  uint32_t gridCellsZ;           // [[buffer(3)]]
-  float hashGridCellSizeInv;     // [[buffer(4)]]
-  float xmin;                    // [[buffer(5)]]
-  float ymin;                    // [[buffer(6)]]
-  float zmin;                    // [[buffer(7)]]
-  MTL::Buffer *particleIndex;    // [[buffer(8)]] output
-  uint32_t particleCount;        // [[buffer(9)]]
+  MTL::Buffer *position;      // [[buffer(0)]]
+  uint32_t gridCellsX;        // [[buffer(1)]]
+  uint32_t gridCellsY;        // [[buffer(2)]]
+  uint32_t gridCellsZ;        // [[buffer(3)]]
+  float hashGridCellSizeInv;  // [[buffer(4)]]
+  float xmin;                 // [[buffer(5)]]
+  float ymin;                 // [[buffer(6)]]
+  float zmin;                 // [[buffer(7)]]
+  MTL::Buffer *particleIndex; // [[buffer(8)]] output
+  uint32_t particleCount;     // [[buffer(9)]]
 
   void bind(MTL::ComputeCommandEncoder *enc) const {
     bindBuffer(enc, position, 0);
@@ -97,13 +96,13 @@ struct HashParticlesMetalArgs {
   }
 };
 
-inline HashParticlesMetalArgs
-toMetalArgs(const HashParticlesInput &input, MTL::Device *device,
-            MTL::Buffer *outputParticleIndex) {
+inline HashParticlesMetalArgs toMetalArgs(const HashParticlesInput &input,
+                                          MTL::Device *device,
+                                          MTL::Buffer *outputParticleIndex) {
   HashParticlesMetalArgs args{};
-  args.position = device->newBuffer(input.position.data(),
-                                    input.position.size_bytes(),
-                                    MTL::ResourceStorageModeShared);
+  args.position =
+      device->newBuffer(input.position.data(), input.position.size_bytes(),
+                        MTL::ResourceStorageModeShared);
   args.gridCellsX = input.gridCellsX;
   args.gridCellsY = input.gridCellsY;
   args.gridCellsZ = input.gridCellsZ;
@@ -123,15 +122,15 @@ toMetalArgs(const HashParticlesInput &input, MTL::Device *device,
 
 struct HashParticlesOpenCLArgs {
   cl::Buffer position;       // arg 0
-  uint32_t gridCellsX;      // arg 1
-  uint32_t gridCellsY;      // arg 2
-  uint32_t gridCellsZ;      // arg 3
+  uint32_t gridCellsX;       // arg 1
+  uint32_t gridCellsY;       // arg 2
+  uint32_t gridCellsZ;       // arg 3
   float hashGridCellSizeInv; // arg 4
-  float xmin;               // arg 5
-  float ymin;               // arg 6
-  float zmin;               // arg 7
-  cl::Buffer particleIndex; // arg 8  output
-  uint32_t particleCount;   // arg 9
+  float xmin;                // arg 5
+  float ymin;                // arg 6
+  float zmin;                // arg 7
+  cl::Buffer particleIndex;  // arg 8  output
+  uint32_t particleCount;    // arg 9
 
   void bind(cl::Kernel &kernel) const {
     bindBuffer(kernel, position, 0);
@@ -147,9 +146,9 @@ struct HashParticlesOpenCLArgs {
   }
 };
 
-inline HashParticlesOpenCLArgs
-toOpenCLArgs(const HashParticlesInput &input, cl::Context &context,
-             cl::Buffer &outputParticleIndex) {
+inline HashParticlesOpenCLArgs toOpenCLArgs(const HashParticlesInput &input,
+                                            cl::Context &context,
+                                            cl::Buffer &outputParticleIndex) {
   cl_int err = CL_SUCCESS;
   HashParticlesOpenCLArgs args{};
   args.position =

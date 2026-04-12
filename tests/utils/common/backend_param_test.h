@@ -17,8 +17,9 @@ concept KernelTestCase = requires(const T &tc) {
   typename T::InputType;
   typename T::ResultType;
   { tc.toInput() } -> std::same_as<typename T::InputType>;
-  { tc.verify(std::declval<const typename T::ResultType &>()) } ->
-      std::same_as<void>;
+  {
+    tc.verify(std::declval<const typename T::ResultType &>())
+  } -> std::same_as<void>;
 };
 
 template <typename T>

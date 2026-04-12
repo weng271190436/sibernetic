@@ -69,8 +69,7 @@ MetalBackend::compileLibrary(const std::string &sourcePath) {
   return NS::TransferPtr(lib);
 }
 
-MTL::ComputePipelineState *
-MetalBackend::getPipeline(const char *kernelName) {
+MTL::ComputePipelineState *MetalBackend::getPipeline(const char *kernelName) {
   auto it = pipelines_.find(kernelName);
   if (it != pipelines_.end()) {
     return it->second.get();

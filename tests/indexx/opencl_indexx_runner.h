@@ -13,7 +13,8 @@ public:
   IndexxResult run(const IndexxCase &tc) override {
     auto input = tc.toInput();
     const cl_uint particleCount = static_cast<cl_uint>(input.particleCount);
-    const size_t gridCellIndexCount = static_cast<size_t>(input.gridCellCount) + 1u;
+    const size_t gridCellIndexCount =
+        static_cast<size_t>(input.gridCellCount) + 1u;
     const size_t threadCount = gridCellIndexCount;
 
     OpenCLKernelContext opencl;
@@ -44,10 +45,10 @@ public:
 
     IndexxResult result;
     result.gridCellIndex.resize(gridCellIndexCount);
-    if (opencl.queue().enqueueReadBuffer(
-            outputGridCellIndex, CL_TRUE, 0,
-            sizeof(uint32_t) * gridCellIndexCount,
-            result.gridCellIndex.data()) != CL_SUCCESS) {
+    if (opencl.queue().enqueueReadBuffer(outputGridCellIndex, CL_TRUE, 0,
+                                         sizeof(uint32_t) * gridCellIndexCount,
+                                         result.gridCellIndex.data()) !=
+        CL_SUCCESS) {
       throw std::runtime_error("Failed to read gridCellIndex output buffer");
     }
     return result;

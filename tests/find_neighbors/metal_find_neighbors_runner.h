@@ -2,8 +2,8 @@
 
 #include <vector>
 
-#include "../../src/kernels/FindNeighborsKernel.h"
 #include "../../src/convert/MetalConvert.h"
+#include "../../src/kernels/FindNeighborsKernel.h"
 #include "../utils/buffer/metal_buffer_utils.h"
 #include "../utils/context/metal_context.h"
 #include "../utils/types/metal_types.h"
@@ -24,8 +24,7 @@ public:
     auto outputNeighborMap =
         makeMetalOutputBuffer(device, sizeof(MetalFloat2) * neighborCount);
 
-    auto args =
-        Sibernetic::toMetalArgs(input, device, outputNeighborMap.get());
+    auto args = Sibernetic::toMetalArgs(input, device, outputNeighborMap.get());
 
     metal.dispatch(particleCount,
                    [&](MTL::ComputeCommandEncoder *enc) { args.bind(enc); });

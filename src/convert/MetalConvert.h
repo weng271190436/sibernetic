@@ -45,8 +45,7 @@ inline std::vector<HostUInt4> decode(const MetalUInt4 *src, size_t n) {
 }
 
 // Generic scalar decode (no conversion needed).
-template <typename T>
-inline std::vector<T> decode(const T *src, size_t n) {
+template <typename T> inline std::vector<T> decode(const T *src, size_t n) {
   return std::vector<T>(src, src + n);
 }
 

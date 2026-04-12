@@ -24,7 +24,6 @@
 #include "common/KernelArgs.h"
 
 #ifdef SIBERNETIC_USE_METAL
-#include "Foundation/NSSharedPtr.hpp"
 #include "Metal/MTLBuffer.hpp"
 #include "Metal/MTLComputeCommandEncoder.hpp"
 #include "Metal/MTLDevice.hpp"
@@ -71,9 +70,9 @@ inline IndexxMetalArgs toMetalArgs(const IndexxInput &input,
                                    MTL::Device *device,
                                    MTL::Buffer *outputGridCellIndex) {
   IndexxMetalArgs args{};
-  args.particleIndex = device->newBuffer(
-      input.particleIndex.data(), input.particleIndex.size_bytes(),
-      MTL::ResourceStorageModeShared);
+  args.particleIndex = device->newBuffer(input.particleIndex.data(),
+                                         input.particleIndex.size_bytes(),
+                                         MTL::ResourceStorageModeShared);
   args.gridCellCount = input.gridCellCount;
   args.gridCellIndex = outputGridCellIndex;
   args.particleCount = input.particleCount;
@@ -104,10 +103,10 @@ inline IndexxOpenCLArgs toOpenCLArgs(const IndexxInput &input,
                                      cl::Buffer &outputGridCellIndex) {
   cl_int err = CL_SUCCESS;
   IndexxOpenCLArgs args{};
-  args.particleIndex = cl::Buffer(
-      context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
-      input.particleIndex.size_bytes(),
-      const_cast<HostUInt2 *>(input.particleIndex.data()), &err);
+  args.particleIndex =
+      cl::Buffer(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
+                 input.particleIndex.size_bytes(),
+                 const_cast<HostUInt2 *>(input.particleIndex.data()), &err);
   args.gridCellCount = input.gridCellCount;
   args.gridCellIndex = outputGridCellIndex;
   args.particleCount = input.particleCount;

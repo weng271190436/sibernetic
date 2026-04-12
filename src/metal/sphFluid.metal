@@ -342,10 +342,11 @@ pcisph_computeDensity(const device float2 *neighborMap [[buffer(0)]],
 
   const uint particleId = particleIndexBack[serialId];
   const uint idx = particleId * static_cast<uint>(kMaxNeighborCount);
-  // poly6Sum = sum_j (hScaled2 - r_j^2)^3  for all neighbors j with r_j < hScaled.
-  // Floored to hScaled^6 = (hScaled2)^3, which equals the poly6 self-contribution
-  // at r=0. This prevents poly6Sum from being zero when a particle has no neighbors,
-  // which would otherwise produce rho=0 and a numerically explosive pressure correction.
+  // poly6Sum = sum_j (hScaled2 - r_j^2)^3  for all neighbors j with r_j <
+  // hScaled. Floored to hScaled^6 = (hScaled2)^3, which equals the poly6
+  // self-contribution at r=0. This prevents poly6Sum from being zero when a
+  // particle has no neighbors, which would otherwise produce rho=0 and a
+  // numerically explosive pressure correction.
   float poly6Sum = 0.0f;
   const float hScaled6 = hScaled2 * hScaled2 * hScaled2;
 

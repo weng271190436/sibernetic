@@ -2,8 +2,8 @@
 
 #include <vector>
 
-#include "../../src/kernels/HashParticlesKernel.h"
 #include "../../src/convert/MetalConvert.h"
+#include "../../src/kernels/HashParticlesKernel.h"
 #include "../utils/buffer/metal_buffer_utils.h"
 #include "../utils/context/metal_context.h"
 #include "../utils/types/metal_types.h"
@@ -20,8 +20,8 @@ public:
     MetalKernelContext metal(Sibernetic::kHashParticlesKernelName);
     auto *device = metal.device();
 
-    auto outputParticleIndex = makeMetalOutputBuffer(
-        device, sizeof(MetalUInt2) * particleCount);
+    auto outputParticleIndex =
+        makeMetalOutputBuffer(device, sizeof(MetalUInt2) * particleCount);
 
     auto args =
         Sibernetic::toMetalArgs(input, device, outputParticleIndex.get());
@@ -30,8 +30,8 @@ public:
                    [&](MTL::ComputeCommandEncoder *enc) { args.bind(enc); });
 
     HashParticlesResult result;
-    const auto *ptr = reinterpret_cast<const MetalUInt2 *>(
-        outputParticleIndex->contents());
+    const auto *ptr =
+        reinterpret_cast<const MetalUInt2 *>(outputParticleIndex->contents());
     result.particleIndex = Sibernetic::Metal::decode(ptr, particleCount);
     return result;
   }

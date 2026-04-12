@@ -158,6 +158,19 @@ format-tests: bootstrap-format
 	"$(CLANG_FORMAT)" -i $$files; \
 	echo "Formatting complete."
 
+format: bootstrap-format
+	@dirs="src/backend src/convert src/kernels src/metal src/types tests"; \
+	files="$$(find $$dirs -type f \( -name '*.cpp' -o -name '*.h' -o -name '*.metal' \))"; \
+	if [ -z "$$files" ]; then \
+		echo "No formatable files found in requested directories."; \
+		exit 0; \
+	fi; \
+	count=$$(echo "$$files" | wc -w | tr -d '[:space:]'); \
+	echo "Formatting $$count file(s):"; \
+	for f in $$files; do echo "  - $$f"; done; \
+	"$(CLANG_FORMAT)" -i $$files; \
+	echo "Formatting complete."
+
 format-tests-check: bootstrap-format
 	@files="$$(find tests -type f \( -name '*.cpp' -o -name '*.h' \))"; \
 	if [ -z "$$files" ]; then \
@@ -175,5 +188,5 @@ clean:
 	-$(RM) $(OPENCL_TEST_OBJS) $(OPENCL_TEST_BIN) $(OPENCL_TEST_OBJDIR)
 	-@echo ' '
 
-.PHONY: all test bootstrap bootstrap-test bootstrap-format test-opencl format-tests format-tests-check clean dependents
+.PHONY: all test bootstrap bootstrap-test bootstrap-format test-opencl format format-tests format-tests-check clean dependents
 .SECONDARY:

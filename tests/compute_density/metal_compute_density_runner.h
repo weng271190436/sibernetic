@@ -2,8 +2,8 @@
 
 #include <vector>
 
-#include "../../src/kernels/ComputeDensityKernel.h"
 #include "../../src/convert/MetalConvert.h"
+#include "../../src/kernels/ComputeDensityKernel.h"
 #include "../utils/buffer/metal_buffer_utils.h"
 #include "../utils/context/metal_context.h"
 #include "compute_density_test_common.h"
@@ -27,8 +27,7 @@ public:
         makeMetalOutputBuffer(device, sizeof(float) * particleCount);
 
     // Convert to Metal args.
-    auto args =
-        Sibernetic::toMetalArgs(input, device, outputRho.get());
+    auto args = Sibernetic::toMetalArgs(input, device, outputRho.get());
 
     // Dispatch.
     metal.dispatch(particleCount,
@@ -36,8 +35,7 @@ public:
 
     // Read back results.
     ComputeDensityResult result;
-    const auto *rhoPtr =
-        reinterpret_cast<const float *>(outputRho->contents());
+    const auto *rhoPtr = reinterpret_cast<const float *>(outputRho->contents());
     result.rho = Sibernetic::Metal::decode(rhoPtr, particleCount);
     return result;
   }

@@ -127,7 +127,6 @@ struct ComputeDensityTestCommon {
   static std::string caseName(const ::testing::TestParamInfo<Case> &info) {
     return info.param.name;
   }
-
 };
 
 static_assert(

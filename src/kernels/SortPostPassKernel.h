@@ -30,7 +30,6 @@
 #include "common/KernelArgs.h"
 
 #ifdef SIBERNETIC_USE_METAL
-#include "Foundation/NSSharedPtr.hpp"
 #include "Metal/MTLBuffer.hpp"
 #include "Metal/MTLComputeCommandEncoder.hpp"
 #include "Metal/MTLDevice.hpp"
@@ -82,22 +81,22 @@ struct SortPostPassMetalArgs {
   }
 };
 
-inline SortPostPassMetalArgs
-toMetalArgs(const SortPostPassInput &input, MTL::Device *device,
-            MTL::Buffer *outputParticleIndexBack,
-            MTL::Buffer *outputSortedPosition,
-            MTL::Buffer *outputSortedVelocity) {
+inline SortPostPassMetalArgs toMetalArgs(const SortPostPassInput &input,
+                                         MTL::Device *device,
+                                         MTL::Buffer *outputParticleIndexBack,
+                                         MTL::Buffer *outputSortedPosition,
+                                         MTL::Buffer *outputSortedVelocity) {
   SortPostPassMetalArgs args{};
-  args.particleIndex = device->newBuffer(
-      input.particleIndex.data(), input.particleIndex.size_bytes(),
-      MTL::ResourceStorageModeShared);
+  args.particleIndex = device->newBuffer(input.particleIndex.data(),
+                                         input.particleIndex.size_bytes(),
+                                         MTL::ResourceStorageModeShared);
   args.particleIndexBack = outputParticleIndexBack;
-  args.position = device->newBuffer(input.position.data(),
-                                    input.position.size_bytes(),
-                                    MTL::ResourceStorageModeShared);
-  args.velocity = device->newBuffer(input.velocity.data(),
-                                    input.velocity.size_bytes(),
-                                    MTL::ResourceStorageModeShared);
+  args.position =
+      device->newBuffer(input.position.data(), input.position.size_bytes(),
+                        MTL::ResourceStorageModeShared);
+  args.velocity =
+      device->newBuffer(input.velocity.data(), input.velocity.size_bytes(),
+                        MTL::ResourceStorageModeShared);
   args.sortedPosition = outputSortedPosition;
   args.sortedVelocity = outputSortedVelocity;
   args.particleCount = input.particleCount;
@@ -129,11 +128,11 @@ struct SortPostPassOpenCLArgs {
   }
 };
 
-inline SortPostPassOpenCLArgs
-toOpenCLArgs(const SortPostPassInput &input, cl::Context &context,
-             cl::Buffer &outputParticleIndexBack,
-             cl::Buffer &outputSortedPosition,
-             cl::Buffer &outputSortedVelocity) {
+inline SortPostPassOpenCLArgs toOpenCLArgs(const SortPostPassInput &input,
+                                           cl::Context &context,
+                                           cl::Buffer &outputParticleIndexBack,
+                                           cl::Buffer &outputSortedPosition,
+                                           cl::Buffer &outputSortedVelocity) {
   cl_int err = CL_SUCCESS;
   SortPostPassOpenCLArgs args{};
   args.particleIndex =

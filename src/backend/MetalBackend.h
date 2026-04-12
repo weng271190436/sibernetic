@@ -17,8 +17,7 @@ namespace Sibernetic {
 
 class MetalBackend {
 public:
-  static constexpr const char *kDefaultLibraryPath =
-      "src/metal/sphFluid.metal";
+  static constexpr const char *kDefaultLibraryPath = "src/metal/sphFluid.metal";
 
   explicit MetalBackend(const char *libraryPath = kDefaultLibraryPath);
   ~MetalBackend();

@@ -2,8 +2,8 @@
 
 #include <vector>
 
-#include "../../src/kernels/FindNeighborsKernel.h"
 #include "../../src/convert/OpenCLConvert.h"
+#include "../../src/kernels/FindNeighborsKernel.h"
 #include "../utils/context/opencl_context.h"
 #include "find_neighbors_test_common.h"
 
@@ -45,10 +45,9 @@ public:
 
     FindNeighborsResult result;
     std::vector<cl_float2> clNeighborMap(neighborCount);
-    if (opencl.queue().enqueueReadBuffer(
-            outputNeighborMap, CL_TRUE, 0,
-            sizeof(cl_float2) * neighborCount,
-            clNeighborMap.data()) != CL_SUCCESS) {
+    if (opencl.queue().enqueueReadBuffer(outputNeighborMap, CL_TRUE, 0,
+                                         sizeof(cl_float2) * neighborCount,
+                                         clNeighborMap.data()) != CL_SUCCESS) {
       throw std::runtime_error("Failed to read neighborMap output buffer");
     }
     result.neighborMap = Sibernetic::OpenCL::decode(clNeighborMap);
