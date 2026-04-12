@@ -49,7 +49,8 @@ OPENCL_TEST_OBJDIR := $(BUILDDIR)/test_obj
 OPENCL_TEST_OBJS := $(patsubst tests/%.cpp,$(OPENCL_TEST_OBJDIR)/%.o, \
 					$(filter %.cpp,$(OPENCL_TEST_SRC)))
 CXX_STANDARD ?= c++20
-OPENCL_TEST_CXXFLAGS := -std=$(CXX_STANDARD) -O2 -Wall -fblocks
+OPENCL_TEST_CXXFLAGS := -std=$(CXX_STANDARD) -O2 -Wall -fblocks \
+	-DSIBERNETIC_USE_METAL -DSIBERNETIC_USE_OPENCL
 CLANG_FORMAT ?= clang-format
 GTEST_PREFIX ?= $(shell p=$$(brew --prefix googletest 2>/dev/null); \
 	if [ -n "$$p" ] && [ -d "$$p/lib" ]; then echo $$p; \
@@ -92,7 +93,7 @@ $(OPENCL_TEST_BIN): $(OPENCL_TEST_OBJS)
 
 $(OPENCL_TEST_OBJDIR)/%.o: tests/%.cpp $(OPENCL_TEST_HDRS)
 	@mkdir -p $(dir $@)
-	$(CXX) $(OPENCL_TEST_CXXFLAGS) -I$(INCDIR) -isystem$(GTEST_PREFIX)/include -isystemmetal-cpp -c $< -o $@
+	$(CXX) $(OPENCL_TEST_CXXFLAGS) -I$(INCDIR) -Isrc/kernels -isystem$(GTEST_PREFIX)/include -isystemmetal-cpp -c $< -o $@
 
 test-opencl: bootstrap-test $(OPENCL_TEST_BIN)
 	$(OPENCL_TEST_BIN)

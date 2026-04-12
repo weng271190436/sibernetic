@@ -2,7 +2,9 @@
 
 #include <vector>
 
-#include "../utils/arg/metal_arg_binding.h"
+#include "../../src/kernels/ComputeDensityKernel.h"
+#include "../utils/buffer/metal_buffer_utils.h"
+#include "../utils/context/metal_context.h"
 #include "../utils/convert/metal_convert_utils.h"
 #include "../utils/types/metal_types.h"
 #include "compute_density_test_common.h"
@@ -18,32 +20,42 @@ public:
       throw std::runtime_error("neighborMap size must be particleCount * 32");
     }
 
+    // Convert host float2 array to flat floats for the Input struct.
     std::vector<MetalFloat2> neighborMap(tc.neighborMap.size());
     for (size_t i = 0; i < tc.neighborMap.size(); ++i) {
       neighborMap[i].s[0] = tc.neighborMap[i][0];
       neighborMap[i].s[1] = tc.neighborMap[i][1];
     }
 
-    std::vector<uint32_t> particleIndexBack = tc.particleIndexBack;
+    MetalKernelContext metal(Sibernetic::kComputeDensityKernelName);
+    auto *device = metal.device().get();
 
+    // Build backend-agnostic input.
+    Sibernetic::ComputeDensityInput input{};
+    input.neighborMap =
+        reinterpret_cast<const float *>(neighborMap.data());
+    input.massMultWpoly6Coefficient = tc.massMultWpoly6Coefficient;
+    input.hScaled2 = tc.hScaled2;
+    input.particleIndexBack = tc.particleIndexBack.data();
+    input.particleCount = particleCount;
+
+    // Create output buffer.
+    auto outputRho =
+        makeMetalOutputBuffer(device, sizeof(float) * particleCount);
+
+    // Convert to Metal args.
+    auto args =
+        Sibernetic::toMetalArgs(input, device, outputRho.get());
+
+    // Dispatch.
+    metal.dispatch(particleCount,
+                   [&](MTL::ComputeCommandEncoder *enc) { args.bind(enc); });
+
+    // Read back results.
     ComputeDensityResult result;
-    auto outRho = makeMetalOutputFieldSpec<ComputeDensityResult, float, float>(
-        3, particleCount, &ComputeDensityResult::rho,
-        [](const float *src, size_t n) { return toHostVector(src, n); });
-
-    runMetalKernelSpecAndStore(
-        "pcisph_computeDensity", particleCount,
-        {
-            MetalScalarArg::make(1, tc.massMultWpoly6Coefficient),
-            MetalScalarArg::make(2, tc.hScaled2),
-            MetalScalarArg::make(5, particleCount),
-        },
-        {
-            MetalInputHostBuffer::make(0, neighborMap),
-            MetalInputHostBuffer::make(4, particleIndexBack),
-        },
-        result, outRho);
-
+    const auto *rhoPtr =
+        reinterpret_cast<const float *>(outputRho->contents());
+    result.rho = toHostVector(rhoPtr, particleCount);
     return result;
   }
 };
