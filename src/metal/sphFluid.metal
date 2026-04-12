@@ -36,6 +36,9 @@ inline int cellId(int3 cellCoordinates, uint gridCellsX, uint gridCellsY) {
 // Converts a particle's world position into 3D grid cell coordinates.
 // Divides each position component by the inverse cell size (effectively scaling
 // by 1/cellSize to get which cell the particle belongs to).
+// Only .x/.y/.z are used; .w is ignored, so this works for both
+// originalPosition (where .w may be particle type) and sortedPosition
+// (where .w may be cell ID).
 inline int3 cellCoordinates(float4 position, float hashGridCellSizeInv) {
   return int3(static_cast<int>(position.x * hashGridCellSizeInv),
               static_cast<int>(position.y * hashGridCellSizeInv),
@@ -44,8 +47,8 @@ inline int3 cellCoordinates(float4 position, float hashGridCellSizeInv) {
 
 // Computes each particle's spatial hash cell and writes (cellId, serialId)
 // into sortedCellAndSerialId. serialId is the original particle index in
-// position[].
-kernel void hashParticles(const device float4 *position [[buffer(0)]],
+// originalPosition[].
+kernel void hashParticles(const device float4 *originalPosition [[buffer(0)]],
                           constant uint &gridCellsX [[buffer(1)]],
                           constant uint &gridCellsY [[buffer(2)]],
                           constant uint &gridCellsZ [[buffer(3)]],
@@ -65,7 +68,7 @@ kernel void hashParticles(const device float4 *position [[buffer(0)]],
   (void)ymin;
   (void)zmin;
 
-  const float4 p = position[serialId];
+  const float4 p = originalPosition[serialId];
   int3 cellCoordinates;
   cellCoordinates.x = static_cast<int>(p.x * hashGridCellSizeInv);
   cellCoordinates.y = static_cast<int>(p.y * hashGridCellSizeInv);
@@ -410,7 +413,7 @@ kernel void pcisph_computeForcesAndInitPressure(
     constant float &gravity_x [[buffer(11)]],
     constant float &gravity_y [[buffer(12)]],
     constant float &gravity_z [[buffer(13)]],
-    const device float4 *position [[buffer(14)]],
+    const device float4 *originalPosition [[buffer(14)]],
     const device uint2 *sortedCellAndSerialId [[buffer(15)]],
     constant uint &particleCount [[buffer(16)]],
     constant float &mass [[buffer(17)]],
@@ -421,14 +424,14 @@ kernel void pcisph_computeForcesAndInitPressure(
   uint sortedParticleId = sortedParticleIdBySerialId[serialId];
 
   // Boundary particles don't move.
-  // Note: position[].w still holds the original particle type;
+  // Note: originalPosition[].w still holds the original particle type;
   // sortedPosition[].w was overwritten with cell ID in sortPostPass. We check
   // the original type here. Safe float comparison: particle types are discrete
-  // flags (0, 1, 2, 3, ...) stored exactly in position[].w as floats. Since 3.0
-  // is exactly representable in IEEE 754 and never computed/rounded, equality
-  // comparison is reliable (unlike comparisons of computed floating-point
-  // values).
-  if (position[serialId].w == float(kBoundaryParticle)) {
+  // flags (0, 1, 2, 3, ...) stored exactly in originalPosition[].w as floats.
+  // Since 3.0 is exactly representable in IEEE 754 and never computed/rounded,
+  // equality comparison is reliable (unlike comparisons of computed
+  // floating-point values).
+  if (originalPosition[serialId].w == float(kBoundaryParticle)) {
     acceleration[sortedParticleId] = float4(0.0f);
     acceleration[particleCount + sortedParticleId] = float4(0.0f);
     pressure[sortedParticleId] = 0.0f;
@@ -455,14 +458,15 @@ kernel void pcisph_computeForcesAndInitPressure(
     float r_ij2 = r_ij * r_ij;
 
     uint jd_source_particle = sortedCellAndSerialId[jd].y;
-    float not_bp = (int(position[jd_source_particle].w) != kBoundaryParticle)
-                       ? 1.0f
-                       : 0.0f;
+    float not_bp =
+        (int(originalPosition[jd_source_particle].w) != kBoundaryParticle)
+            ? 1.0f
+            : 0.0f;
 
     float4 vi = sortedVelocity[sortedParticleId];
     float4 vj = sortedVelocity[jd];
-    float4 pi_pos = position[serialId];
-    float4 pj_pos = position[jd_source_particle];
+    float4 pi_pos = originalPosition[serialId];
+    float4 pj_pos = originalPosition[jd_source_particle];
     // Viscosity coefficient based on particle types
     float viscCoeff = 1.0e-4f; // default
 
