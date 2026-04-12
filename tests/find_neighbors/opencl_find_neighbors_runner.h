@@ -2,7 +2,9 @@
 
 #include <vector>
 
-#include "../utils/arg/opencl_arg_binding.h"
+#include "../../src/kernels/FindNeighborsKernel.h"
+#include "../utils/buffer/opencl_buffer_utils.h"
+#include "../utils/context/opencl_context.h"
 #include "../utils/convert/opencl_convert_utils.h"
 #include "find_neighbors_test_common.h"
 
@@ -15,39 +17,62 @@ public:
         static_cast<cl_uint>(tc.sortedPosition.size());
     const size_t neighborCount = static_cast<size_t>(particleCount) * 32u;
 
-    std::vector<cl_uint> clGridCellIndex(tc.gridCellIndexFixedUp.begin(),
-                                         tc.gridCellIndexFixedUp.end());
     std::vector<cl_float4> clSortedPosition =
         toCLFloat4Vector(tc.sortedPosition);
-    FindNeighborsResult result;
-    auto outNeighborMap =
-        makeCLOutputFieldBinding<FindNeighborsResult, cl_float2,
-                                 std::array<float, 2>>(
-            13, neighborCount, &FindNeighborsResult::neighborMap,
-            static_cast<std::vector<std::array<float, 2>> (*)(
-                const std::vector<cl_float2> &)>(toHostFloat2ArrayVector));
-    runCLKernelSpecAndStore(
-        "findNeighbors", particleCount,
-        {
-            CLScalarArg::make<cl_uint>(2, tc.gridCellCount),
-            CLScalarArg::make<cl_uint>(3, tc.gridCellsX),
-            CLScalarArg::make<cl_uint>(4, tc.gridCellsY),
-            CLScalarArg::make<cl_uint>(5, tc.gridCellsZ),
-            CLScalarArg::make<cl_float>(6, tc.h),
-            CLScalarArg::make<cl_float>(7, tc.hashGridCellSize),
-            CLScalarArg::make<cl_float>(8, tc.hashGridCellSizeInv),
-            CLScalarArg::make<cl_float>(9, tc.simulationScale),
-            CLScalarArg::make<cl_float>(10, tc.xmin),
-            CLScalarArg::make<cl_float>(11, tc.ymin),
-            CLScalarArg::make<cl_float>(12, tc.zmin),
-            CLScalarArg::make<cl_uint>(14, particleCount),
-        },
-        {
-            CLInputBuffer::make<cl_uint>(0, clGridCellIndex),
-            CLInputBuffer::make<cl_float4>(1, clSortedPosition),
-        },
-        result, outNeighborMap);
 
+    Sibernetic::FindNeighborsInput input{};
+    input.gridCellIndexFixedUp = tc.gridCellIndexFixedUp.data();
+    input.sortedPosition =
+        reinterpret_cast<const float *>(clSortedPosition.data());
+    input.gridCellCount = tc.gridCellCount;
+    input.gridCellsX = tc.gridCellsX;
+    input.gridCellsY = tc.gridCellsY;
+    input.gridCellsZ = tc.gridCellsZ;
+    input.h = tc.h;
+    input.hashGridCellSize = tc.hashGridCellSize;
+    input.hashGridCellSizeInv = tc.hashGridCellSizeInv;
+    input.simulationScale = tc.simulationScale;
+    input.xmin = tc.xmin;
+    input.ymin = tc.ymin;
+    input.zmin = tc.zmin;
+    input.particleCount = particleCount;
+
+    OpenCLKernelContext opencl;
+
+    cl_int err = CL_SUCCESS;
+    cl::Buffer outputNeighborMap(opencl.context(), CL_MEM_WRITE_ONLY,
+                                 sizeof(cl_float2) * neighborCount, nullptr,
+                                 &err);
+    if (err != CL_SUCCESS) {
+      throw std::runtime_error("Failed to create output neighborMap buffer");
+    }
+
+    auto args =
+        Sibernetic::toOpenCLArgs(input, opencl.context(), outputNeighborMap);
+
+    cl::Kernel kernel(opencl.program(), Sibernetic::kFindNeighborsKernelName,
+                      &err);
+    if (err != CL_SUCCESS) {
+      throw std::runtime_error("Failed to create findNeighbors kernel");
+    }
+    args.bind(kernel);
+
+    if (opencl.queue().enqueueNDRangeKernel(kernel, cl::NullRange,
+                                            cl::NDRange(particleCount),
+                                            cl::NullRange) != CL_SUCCESS ||
+        opencl.queue().finish() != CL_SUCCESS) {
+      throw std::runtime_error("Failed to execute findNeighbors kernel");
+    }
+
+    FindNeighborsResult result;
+    std::vector<cl_float2> clNeighborMap(neighborCount);
+    if (opencl.queue().enqueueReadBuffer(
+            outputNeighborMap, CL_TRUE, 0,
+            sizeof(cl_float2) * neighborCount,
+            clNeighborMap.data()) != CL_SUCCESS) {
+      throw std::runtime_error("Failed to read neighborMap output buffer");
+    }
+    result.neighborMap = toHostFloat2ArrayVector(clNeighborMap);
     return result;
   }
 };

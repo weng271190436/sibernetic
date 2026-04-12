@@ -2,7 +2,9 @@
 
 #include <vector>
 
-#include "../utils/arg/opencl_arg_binding.h"
+#include "../../src/kernels/HashParticlesKernel.h"
+#include "../utils/buffer/opencl_buffer_utils.h"
+#include "../utils/context/opencl_context.h"
 #include "../utils/convert/opencl_convert_utils.h"
 #include "hash_particles_test_common.h"
 
@@ -13,31 +15,54 @@ public:
   HashParticlesResult run(const HashParticlesCase &tc) override {
     std::vector<cl_float4> clPositions = toCLFloat4Vector(tc.positions);
     const cl_uint particleCount = static_cast<cl_uint>(clPositions.size());
+
+    Sibernetic::HashParticlesInput input{};
+    input.position = reinterpret_cast<const float *>(clPositions.data());
+    input.gridCellsX = tc.gridCellsX;
+    input.gridCellsY = tc.gridCellsY;
+    input.gridCellsZ = tc.gridCellsZ;
+    input.hashGridCellSizeInv = tc.hashGridCellSizeInv;
+    input.xmin = tc.xmin;
+    input.ymin = tc.ymin;
+    input.zmin = tc.zmin;
+    input.particleCount = particleCount;
+
+    OpenCLKernelContext opencl;
+
+    cl_int err = CL_SUCCESS;
+    cl::Buffer outputParticleIndex(opencl.context(), CL_MEM_WRITE_ONLY,
+                                   sizeof(cl_uint2) * particleCount, nullptr,
+                                   &err);
+    if (err != CL_SUCCESS) {
+      throw std::runtime_error("Failed to create output particleIndex buffer");
+    }
+
+    auto args =
+        Sibernetic::toOpenCLArgs(input, opencl.context(), outputParticleIndex);
+
+    cl::Kernel kernel(opencl.program(), Sibernetic::kHashParticlesKernelName,
+                      &err);
+    if (err != CL_SUCCESS) {
+      throw std::runtime_error("Failed to create hashParticles kernel");
+    }
+    args.bind(kernel);
+
+    if (opencl.queue().enqueueNDRangeKernel(kernel, cl::NullRange,
+                                            cl::NDRange(particleCount),
+                                            cl::NullRange) != CL_SUCCESS ||
+        opencl.queue().finish() != CL_SUCCESS) {
+      throw std::runtime_error("Failed to execute hashParticles kernel");
+    }
+
     HashParticlesResult result;
-    auto outParticleIndex = makeCLOutputFieldBinding<HashParticlesResult,
-                                                     cl_uint2, HostUInt2>(
-        8, particleCount, &HashParticlesResult::particleIndex,
-        static_cast<std::vector<HostUInt2> (*)(const std::vector<cl_uint2> &)>(
-            toHostUInt2Vector));
-
-    runCLKernelSpecAndStore(
-        "hashParticles", particleCount,
-        {
-            CLScalarArg::make<cl_uint>(1, static_cast<cl_uint>(tc.gridCellsX)),
-            CLScalarArg::make<cl_uint>(2, static_cast<cl_uint>(tc.gridCellsY)),
-            CLScalarArg::make<cl_uint>(3, static_cast<cl_uint>(tc.gridCellsZ)),
-            CLScalarArg::make<cl_float>(
-                4, static_cast<cl_float>(tc.hashGridCellSizeInv)),
-            CLScalarArg::make<cl_float>(5, static_cast<cl_float>(tc.xmin)),
-            CLScalarArg::make<cl_float>(6, static_cast<cl_float>(tc.ymin)),
-            CLScalarArg::make<cl_float>(7, static_cast<cl_float>(tc.zmin)),
-            CLScalarArg::make<cl_uint>(9, particleCount),
-        },
-        {
-            CLInputBuffer::make<cl_float4>(0, clPositions),
-        },
-        result, outParticleIndex);
-
+    std::vector<cl_uint2> clOutput(particleCount);
+    if (opencl.queue().enqueueReadBuffer(
+            outputParticleIndex, CL_TRUE, 0,
+            sizeof(cl_uint2) * particleCount,
+            clOutput.data()) != CL_SUCCESS) {
+      throw std::runtime_error("Failed to read particleIndex output buffer");
+    }
+    result.particleIndex = toHostUInt2Vector(clOutput);
     return result;
   }
 };
