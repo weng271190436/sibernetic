@@ -48,6 +48,10 @@ OPENCL_TEST_BIN  := $(BUILDDIR)/opencl_kernel_tests
 OPENCL_TEST_OBJDIR := $(BUILDDIR)/test_obj
 OPENCL_TEST_OBJS := $(patsubst tests/%.cpp,$(OPENCL_TEST_OBJDIR)/%.o, \
 					$(filter %.cpp,$(OPENCL_TEST_SRC)))
+
+BACKEND_SRC := src/backend/MetalBackend.cpp src/backend/OpenCLBackend.cpp
+BACKEND_OBJDIR := $(BUILDDIR)/backend_obj
+BACKEND_OBJS := $(patsubst src/%.cpp,$(BACKEND_OBJDIR)/%.o,$(BACKEND_SRC))
 CXX_STANDARD ?= c++20
 OPENCL_TEST_CXXFLAGS := -std=$(CXX_STANDARD) -O2 -Wall -fblocks \
 	-DSIBERNETIC_USE_METAL -DSIBERNETIC_USE_OPENCL
@@ -85,11 +89,15 @@ bootstrap-test: bootstrap
 		exit 1; \
 	fi
 
-$(OPENCL_TEST_BIN): $(OPENCL_TEST_OBJS)
+$(OPENCL_TEST_BIN): $(OPENCL_TEST_OBJS) $(BACKEND_OBJS)
 	@mkdir -p $(BUILDDIR)
-	$(CXX) $(OPENCL_TEST_CXXFLAGS) $(OPENCL_TEST_OBJS) -o $(OPENCL_TEST_BIN) \
+	$(CXX) $(OPENCL_TEST_CXXFLAGS) $(OPENCL_TEST_OBJS) $(BACKEND_OBJS) -o $(OPENCL_TEST_BIN) \
 		-L$(GTEST_PREFIX)/lib -lgtest -lgtest_main \
 		-framework OpenCL -framework Metal -framework Foundation
+
+$(BACKEND_OBJDIR)/%.o: src/%.cpp $(shell find src/backend -type f -name '*.h' 2>/dev/null)
+	@mkdir -p $(dir $@)
+	$(CXX) $(OPENCL_TEST_CXXFLAGS) -I$(INCDIR) -isystemmetal-cpp -c $< -o $@
 
 $(OPENCL_TEST_OBJDIR)/%.o: tests/%.cpp $(OPENCL_TEST_HDRS)
 	@mkdir -p $(dir $@)

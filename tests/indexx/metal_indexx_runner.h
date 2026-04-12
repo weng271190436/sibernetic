@@ -28,7 +28,7 @@ public:
     input.gridCellCount = tc.gridCellCount;
 
     MetalKernelContext metal(Sibernetic::kIndexxKernelName);
-    auto *device = metal.device().get();
+    auto *device = metal.device();
 
     auto outputGridCellIndex =
         makeMetalOutputBuffer(device, sizeof(uint32_t) * gridCellIndexCount);

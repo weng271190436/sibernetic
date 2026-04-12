@@ -29,7 +29,7 @@ public:
     input.particleCount = particleCount;
 
     MetalKernelContext metal(Sibernetic::kSortPostPassKernelName);
-    auto *device = metal.device().get();
+    auto *device = metal.device();
 
     auto outIndexBack =
         makeMetalOutputBuffer(device, sizeof(uint32_t) * particleCount);

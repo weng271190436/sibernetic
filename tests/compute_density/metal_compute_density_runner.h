@@ -23,7 +23,7 @@ public:
     auto neighborMap = Sibernetic::Metal::encode(tc.neighborMap);
 
     MetalKernelContext metal(Sibernetic::kComputeDensityKernelName);
-    auto *device = metal.device().get();
+    auto *device = metal.device();
 
     // Build backend-agnostic input.
     Sibernetic::ComputeDensityInput input{};

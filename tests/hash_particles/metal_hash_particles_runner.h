@@ -29,7 +29,7 @@ public:
     input.particleCount = particleCount;
 
     MetalKernelContext metal(Sibernetic::kHashParticlesKernelName);
-    auto *device = metal.device().get();
+    auto *device = metal.device();
 
     auto outputParticleIndex = makeMetalOutputBuffer(
         device, sizeof(MetalUInt2) * particleCount);

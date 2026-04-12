@@ -38,7 +38,7 @@ public:
     input.particleCount = particleCount;
 
     MetalKernelContext metal(Sibernetic::kFindNeighborsKernelName);
-    auto *device = metal.device().get();
+    auto *device = metal.device();
 
     auto outputNeighborMap =
         makeMetalOutputBuffer(device, sizeof(MetalFloat2) * neighborCount);
