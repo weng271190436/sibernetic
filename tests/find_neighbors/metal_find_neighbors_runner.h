@@ -14,25 +14,9 @@ namespace SiberneticTest {
 class MetalFindNeighborsRunner : public FindNeighborsRunner {
 public:
   FindNeighborsResult run(const FindNeighborsCase &tc) override {
-    const uint32_t particleCount =
-        static_cast<uint32_t>(tc.sortedPosition.size());
+    auto input = tc.toInput();
+    const uint32_t particleCount = input.particleCount;
     const size_t neighborCount = static_cast<size_t>(particleCount) * 32u;
-
-    Sibernetic::FindNeighborsInput input{};
-    input.gridCellIndexFixedUp = tc.gridCellIndexFixedUp;
-    input.sortedPosition = tc.sortedPosition;
-    input.gridCellCount = tc.gridCellCount;
-    input.gridCellsX = tc.gridCellsX;
-    input.gridCellsY = tc.gridCellsY;
-    input.gridCellsZ = tc.gridCellsZ;
-    input.h = tc.h;
-    input.hashGridCellSize = tc.hashGridCellSize;
-    input.hashGridCellSizeInv = tc.hashGridCellSizeInv;
-    input.simulationScale = tc.simulationScale;
-    input.xmin = tc.xmin;
-    input.ymin = tc.ymin;
-    input.zmin = tc.zmin;
-    input.particleCount = particleCount;
 
     MetalKernelContext metal(Sibernetic::kFindNeighborsKernelName);
     auto *device = metal.device();

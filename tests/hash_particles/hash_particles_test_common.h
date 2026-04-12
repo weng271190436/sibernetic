@@ -6,6 +6,8 @@
 
 #include <gtest/gtest.h>
 
+#include "../../src/kernels/HashParticlesKernel.h"
+#include "../../src/types/HostTypes.h"
 #include "../utils/common/backend_param_test.h"
 #include "../utils/types/types.h"
 
@@ -14,7 +16,14 @@ namespace SiberneticTest {
 using HashParticlesPosition = HostFloat4;
 using HashParticlesIndexEntry = HostUInt2;
 
-struct HashParticlesCase : public TestCase {
+struct HashParticlesResult {
+  std::vector<HashParticlesIndexEntry> particleIndex;
+};
+
+struct HashParticlesCase {
+  using InputType = Sibernetic::HashParticlesInput;
+  using ResultType = HashParticlesResult;
+
   const char *name;
   std::vector<HashParticlesPosition> positions;
   uint32_t gridCellsX;
@@ -25,11 +34,35 @@ struct HashParticlesCase : public TestCase {
   float ymin;
   float zmin;
   std::vector<uint32_t> expectedCellIds;
+
+  InputType toInput() const {
+    return {
+        .position = positions,
+        .gridCellsX = gridCellsX,
+        .gridCellsY = gridCellsY,
+        .gridCellsZ = gridCellsZ,
+        .hashGridCellSizeInv = hashGridCellSizeInv,
+        .xmin = xmin,
+        .ymin = ymin,
+        .zmin = zmin,
+        .particleCount = static_cast<uint32_t>(positions.size()),
+    };
+  }
+
+  void verify(const ResultType &result) const {
+    ASSERT_EQ(positions.size(), expectedCellIds.size());
+    ASSERT_EQ(result.particleIndex.size(), expectedCellIds.size());
+
+    const uint32_t particleCount =
+        static_cast<uint32_t>(result.particleIndex.size());
+    for (uint32_t i = 0; i < particleCount; ++i) {
+      EXPECT_EQ(result.particleIndex[i][0], expectedCellIds[i]);
+      EXPECT_EQ(result.particleIndex[i][1], i);
+    }
+  }
 };
 
-struct HashParticlesResult : public TestResult {
-  std::vector<HashParticlesIndexEntry> particleIndex;
-};
+static_assert(SiberneticTest::KernelTestCase<HashParticlesCase>);
 
 class HashParticlesRunner
     : public TestRunner<HashParticlesCase, HashParticlesResult> {};
@@ -41,12 +74,10 @@ inline HashParticlesPosition makeFloat4(float x, float y, float z,
 
 struct HashParticlesTestCommon {
   using Case = HashParticlesCase;
-  using Result = HashParticlesResult;
 
   static const std::vector<Case> &cases() {
     static const std::vector<Case> kCases = {
         HashParticlesCase{
-            {},
             "UnitCellSize_4x4x4",
             {makeFloat4(0.1f, 0.1f, 0.1f), makeFloat4(1.2f, 0.1f, 0.1f),
              makeFloat4(0.2f, 1.7f, 0.1f), makeFloat4(2.8f, 3.1f, 1.0f)},
@@ -64,7 +95,6 @@ struct HashParticlesTestCommon {
                 30 // p3 -> cell (2,3,1)
             }},
         HashParticlesCase{
-            {},
             "HalfCellSize_8x8x8",
             {makeFloat4(0.1f, 0.1f, 0.1f), makeFloat4(0.6f, 0.1f, 0.1f),
              makeFloat4(0.1f, 0.6f, 0.1f), makeFloat4(1.1f, 1.1f, 0.6f)},
@@ -89,17 +119,6 @@ struct HashParticlesTestCommon {
     return info.param.name;
   }
 
-  static void expect(const Case &tc, const Result &result) {
-    ASSERT_EQ(tc.positions.size(), tc.expectedCellIds.size());
-    ASSERT_EQ(result.particleIndex.size(), tc.expectedCellIds.size());
-
-    const uint32_t particleCount =
-        static_cast<uint32_t>(result.particleIndex.size());
-    for (uint32_t i = 0; i < particleCount; ++i) {
-      EXPECT_EQ(result.particleIndex[i][0], tc.expectedCellIds[i]);
-      EXPECT_EQ(result.particleIndex[i][1], i);
-    }
-  }
 };
 
 static_assert(

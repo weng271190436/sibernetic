@@ -12,13 +12,8 @@ namespace SiberneticTest {
 class OpenCLSortPostPassRunner : public SortPostPassRunner {
 public:
   SortPostPassResult run(const SortPostPassCase &tc) override {
-    const cl_uint particleCount = static_cast<cl_uint>(tc.particleIndex.size());
-
-    Sibernetic::SortPostPassInput input{};
-    input.particleIndex = tc.particleIndex;
-    input.position = tc.position;
-    input.velocity = tc.velocity;
-    input.particleCount = particleCount;
+    auto input = tc.toInput();
+    const cl_uint particleCount = static_cast<cl_uint>(input.particleCount);
 
     OpenCLKernelContext opencl;
 

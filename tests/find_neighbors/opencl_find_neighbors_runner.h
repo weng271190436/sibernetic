@@ -12,25 +12,9 @@ namespace SiberneticTest {
 class OpenCLFindNeighborsRunner : public FindNeighborsRunner {
 public:
   FindNeighborsResult run(const FindNeighborsCase &tc) override {
-    const cl_uint particleCount =
-        static_cast<cl_uint>(tc.sortedPosition.size());
+    auto input = tc.toInput();
+    const cl_uint particleCount = static_cast<cl_uint>(input.particleCount);
     const size_t neighborCount = static_cast<size_t>(particleCount) * 32u;
-
-    Sibernetic::FindNeighborsInput input{};
-    input.gridCellIndexFixedUp = tc.gridCellIndexFixedUp;
-    input.sortedPosition = tc.sortedPosition;
-    input.gridCellCount = tc.gridCellCount;
-    input.gridCellsX = tc.gridCellsX;
-    input.gridCellsY = tc.gridCellsY;
-    input.gridCellsZ = tc.gridCellsZ;
-    input.h = tc.h;
-    input.hashGridCellSize = tc.hashGridCellSize;
-    input.hashGridCellSizeInv = tc.hashGridCellSizeInv;
-    input.simulationScale = tc.simulationScale;
-    input.xmin = tc.xmin;
-    input.ymin = tc.ymin;
-    input.zmin = tc.zmin;
-    input.particleCount = particleCount;
 
     OpenCLKernelContext opencl;
 

@@ -9,10 +9,6 @@ using Sibernetic::HostFloat4;
 using Sibernetic::HostUInt2;
 using Sibernetic::HostUInt4;
 
-struct TestCase {};
-
-struct TestResult {};
-
 template <typename TCase, typename TResult> class TestRunner {
 public:
   TestRunner() = default;

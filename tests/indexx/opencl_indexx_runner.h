@@ -11,14 +11,10 @@ namespace SiberneticTest {
 class OpenCLIndexxRunner : public IndexxRunner {
 public:
   IndexxResult run(const IndexxCase &tc) override {
-    const cl_uint particleCount = static_cast<cl_uint>(tc.particleIndex.size());
-    const size_t gridCellIndexCount = static_cast<size_t>(tc.gridCellCount) + 1u;
+    auto input = tc.toInput();
+    const cl_uint particleCount = static_cast<cl_uint>(input.particleCount);
+    const size_t gridCellIndexCount = static_cast<size_t>(input.gridCellCount) + 1u;
     const size_t threadCount = gridCellIndexCount;
-
-    Sibernetic::IndexxInput input{};
-    input.particleIndex = tc.particleIndex;
-    input.particleCount = particleCount;
-    input.gridCellCount = tc.gridCellCount;
 
     OpenCLKernelContext opencl;
 

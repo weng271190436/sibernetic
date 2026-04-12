@@ -8,6 +8,8 @@
 
 #include <gtest/gtest.h>
 
+#include "../../src/kernels/FindNeighborsKernel.h"
+#include "../../src/types/HostTypes.h"
 #include "../utils/common/backend_param_test.h"
 #include "../utils/types/types.h"
 
@@ -15,7 +17,14 @@ namespace SiberneticTest {
 
 using FindNeighborsFloat4 = HostFloat4;
 
-struct FindNeighborsCase : public TestCase {
+struct FindNeighborsResult {
+  std::vector<std::array<float, 2>> neighborMap; // size particleCount * 32
+};
+
+struct FindNeighborsCase {
+  using InputType = Sibernetic::FindNeighborsInput;
+  using ResultType = FindNeighborsResult;
+
   const char *name;
   std::vector<uint32_t> gridCellIndexFixedUp; // size gridCellCount + 1
   std::vector<FindNeighborsFloat4> sortedPosition;
@@ -32,11 +41,71 @@ struct FindNeighborsCase : public TestCase {
   float zmin;
   std::vector<std::array<int32_t, 2>> expectedPrimaryNeighborIds;
   std::vector<std::array<float, 2>> expectedPrimaryNeighborDistances;
+
+  InputType toInput() const {
+    return {
+        .gridCellIndexFixedUp = gridCellIndexFixedUp,
+        .sortedPosition = sortedPosition,
+        .gridCellCount = gridCellCount,
+        .gridCellsX = gridCellsX,
+        .gridCellsY = gridCellsY,
+        .gridCellsZ = gridCellsZ,
+        .h = h,
+        .hashGridCellSize = hashGridCellSize,
+        .hashGridCellSizeInv = hashGridCellSizeInv,
+        .simulationScale = simulationScale,
+        .xmin = xmin,
+        .ymin = ymin,
+        .zmin = zmin,
+        .particleCount = static_cast<uint32_t>(sortedPosition.size()),
+    };
+  }
+
+  void verify(const ResultType &result) const {
+    const size_t particleCount = sortedPosition.size();
+    ASSERT_EQ(expectedPrimaryNeighborIds.size(), particleCount);
+    ASSERT_EQ(expectedPrimaryNeighborDistances.size(), particleCount);
+    ASSERT_EQ(result.neighborMap.size(), particleCount * 32u);
+
+    using NeighborEntry = std::pair<int, float>; // {id, distance}
+    const auto byId = [](const NeighborEntry &a, const NeighborEntry &b) {
+      return a.first < b.first;
+    };
+
+    for (size_t p = 0; p < particleCount; ++p) {
+      const size_t base = p * 32u;
+
+      // Collect non-sentinel entries from the output.
+      std::vector<NeighborEntry> got;
+      for (size_t s = 0; s < 32u; ++s) {
+        const int id = static_cast<int>(result.neighborMap[base + s][0]);
+        if (id != -1) {
+          got.push_back({id, result.neighborMap[base + s][1]});
+        }
+      }
+
+      // Build expected entries.
+      std::vector<NeighborEntry> expected;
+      for (size_t k = 0; k < expectedPrimaryNeighborIds[p].size(); ++k) {
+        expected.push_back(
+            {expectedPrimaryNeighborIds[p][k], expectedPrimaryNeighborDistances[p][k]});
+      }
+
+      std::sort(got.begin(), got.end(), byId);
+      std::sort(expected.begin(), expected.end(), byId);
+
+      ASSERT_EQ(got.size(), expected.size()) << "particle " << p;
+      for (size_t k = 0; k < expected.size(); ++k) {
+        EXPECT_EQ(got[k].first, expected[k].first)
+            << "particle " << p << ", sorted slot " << k;
+        EXPECT_NEAR(got[k].second, expected[k].second, 1e-5f)
+            << "particle " << p << ", sorted slot " << k;
+      }
+    }
+  }
 };
 
-struct FindNeighborsResult : public TestResult {
-  std::vector<std::array<float, 2>> neighborMap; // size particleCount * 32
-};
+static_assert(SiberneticTest::KernelTestCase<FindNeighborsCase>);
 
 class FindNeighborsRunner
     : public TestRunner<FindNeighborsCase, FindNeighborsResult> {};
@@ -73,12 +142,10 @@ inline std::vector<uint32_t> fixedUpSingleOccupiedCell(uint32_t gridCellCount,
 
 struct FindNeighborsTestCommon {
   using Case = FindNeighborsCase;
-  using Result = FindNeighborsResult;
 
   static const std::vector<Case> &cases() {
     static const std::vector<Case> kCases = {
         FindNeighborsCase{
-            {},
             "SameCell_TwoNeighborsEach",
             fixedUpSingleOccupiedCell(/*gridCellCount=*/512u,
                                       /*occupiedCell=*/73u,
@@ -104,7 +171,6 @@ struct FindNeighborsTestCommon {
             {{{0.1f, 0.1f}}, {{0.1f, 0.14142136f}}, {{0.1f, 0.14142136f}}},
         },
         FindNeighborsCase{
-            {},
             "SameCell_IncludesDistanceNearH",
             fixedUpSingleOccupiedCell(/*gridCellCount=*/512u,
                                       /*occupiedCell=*/73u,
@@ -130,7 +196,6 @@ struct FindNeighborsTestCommon {
             {{{0.249f, 0.10f}}, {{0.249f, 0.149f}}, {{0.10f, 0.149f}}},
         },
         FindNeighborsCase{
-            {},
             "TwoClusters_DistantCells_NoCrossTalk",
             fixedUpFromOccupiedCellCounts(
                 /*gridCellCount=*/512u,
@@ -168,7 +233,6 @@ struct FindNeighborsTestCommon {
              {{0.1f, 0.14142136f}}},
         },
         FindNeighborsCase{
-            {},
             "AdjacentCells_CrossCellNeighborsFound",
             fixedUpFromOccupiedCellCounts(
                 /*gridCellCount=*/512u,
@@ -204,48 +268,6 @@ struct FindNeighborsTestCommon {
     return info.param.name;
   }
 
-  static void expect(const Case &tc, const Result &result) {
-    const size_t particleCount = tc.sortedPosition.size();
-    ASSERT_EQ(tc.expectedPrimaryNeighborIds.size(), particleCount);
-    ASSERT_EQ(tc.expectedPrimaryNeighborDistances.size(), particleCount);
-    ASSERT_EQ(result.neighborMap.size(), particleCount * 32u);
-
-    using NeighborEntry = std::pair<int, float>; // {id, distance}
-    const auto byId = [](const NeighborEntry &a, const NeighborEntry &b) {
-      return a.first < b.first;
-    };
-
-    for (size_t p = 0; p < particleCount; ++p) {
-      const size_t base = p * 32u;
-
-      // Collect non-sentinel entries from the output.
-      std::vector<NeighborEntry> got;
-      for (size_t s = 0; s < 32u; ++s) {
-        const int id = static_cast<int>(result.neighborMap[base + s][0]);
-        if (id != -1) {
-          got.push_back({id, result.neighborMap[base + s][1]});
-        }
-      }
-
-      // Build expected entries.
-      std::vector<NeighborEntry> expected;
-      for (size_t k = 0; k < tc.expectedPrimaryNeighborIds[p].size(); ++k) {
-        expected.push_back({tc.expectedPrimaryNeighborIds[p][k],
-                            tc.expectedPrimaryNeighborDistances[p][k]});
-      }
-
-      std::sort(got.begin(), got.end(), byId);
-      std::sort(expected.begin(), expected.end(), byId);
-
-      ASSERT_EQ(got.size(), expected.size()) << "particle " << p;
-      for (size_t k = 0; k < expected.size(); ++k) {
-        EXPECT_EQ(got[k].first, expected[k].first)
-            << "particle " << p << ", sorted slot " << k;
-        EXPECT_NEAR(got[k].second, expected[k].second, 1e-5f)
-            << "particle " << p << ", sorted slot " << k;
-      }
-    }
-  }
 };
 
 static_assert(

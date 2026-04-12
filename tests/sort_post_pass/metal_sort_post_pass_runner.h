@@ -14,14 +14,8 @@ namespace SiberneticTest {
 class MetalSortPostPassRunner : public SortPostPassRunner {
 public:
   SortPostPassResult run(const SortPostPassCase &tc) override {
-    const uint32_t particleCount =
-        static_cast<uint32_t>(tc.particleIndex.size());
-
-    Sibernetic::SortPostPassInput input{};
-    input.particleIndex = tc.particleIndex;
-    input.position = tc.position;
-    input.velocity = tc.velocity;
-    input.particleCount = particleCount;
+        auto input = tc.toInput();
+        const uint32_t particleCount = input.particleCount;
 
     MetalKernelContext metal(Sibernetic::kSortPostPassKernelName);
     auto *device = metal.device();

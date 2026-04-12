@@ -11,19 +11,11 @@ namespace SiberneticTest {
 class OpenCLComputeDensityRunner : public ComputeDensityRunner {
 public:
   ComputeDensityResult run(const ComputeDensityCase &tc) override {
-    const cl_uint particleCount =
-        static_cast<cl_uint>(tc.particleIndexBack.size());
-    if (tc.neighborMap.size() != static_cast<size_t>(particleCount) * 32u) {
+    auto input = tc.toInput();
+    const cl_uint particleCount = static_cast<cl_uint>(input.particleCount);
+    if (input.neighborMap.size() != static_cast<size_t>(particleCount) * 32u) {
       throw std::runtime_error("neighborMap size must be particleCount * 32");
     }
-
-    // Build backend-agnostic input.
-    Sibernetic::ComputeDensityInput input{};
-    input.neighborMap = tc.neighborMap;
-    input.massMultWpoly6Coefficient = tc.massMultWpoly6Coefficient;
-    input.hScaled2 = tc.hScaled2;
-    input.particleIndexBack = tc.particleIndexBack;
-    input.particleCount = particleCount;
 
     OpenCLKernelContext opencl;
 

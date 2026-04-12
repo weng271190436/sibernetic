@@ -12,18 +12,8 @@ namespace SiberneticTest {
 class OpenCLHashParticlesRunner : public HashParticlesRunner {
 public:
   HashParticlesResult run(const HashParticlesCase &tc) override {
-    const cl_uint particleCount = static_cast<cl_uint>(tc.positions.size());
-
-    Sibernetic::HashParticlesInput input{};
-    input.position = tc.positions;
-    input.gridCellsX = tc.gridCellsX;
-    input.gridCellsY = tc.gridCellsY;
-    input.gridCellsZ = tc.gridCellsZ;
-    input.hashGridCellSizeInv = tc.hashGridCellSizeInv;
-    input.xmin = tc.xmin;
-    input.ymin = tc.ymin;
-    input.zmin = tc.zmin;
-    input.particleCount = particleCount;
+    auto input = tc.toInput();
+    const cl_uint particleCount = static_cast<cl_uint>(input.particleCount);
 
     OpenCLKernelContext opencl;
 

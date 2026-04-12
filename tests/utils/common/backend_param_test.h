@@ -10,31 +10,37 @@
 
 namespace SiberneticTest {
 
+// Every test case must provide toInput() and verify().
+template <typename T>
+concept KernelTestCase = requires(const T &tc) {
+  { tc.name } -> std::convertible_to<const char *>;
+  typename T::InputType;
+  typename T::ResultType;
+  { tc.toInput() } -> std::same_as<typename T::InputType>;
+  { tc.verify(std::declval<const typename T::ResultType &>()) } ->
+      std::same_as<void>;
+};
+
 template <typename T>
 concept SibTestCommon = requires {
   typename T::Case;
-  typename T::Result;
+  requires KernelTestCase<typename T::Case>;
   { T::cases() } -> std::same_as<const std::vector<typename T::Case> &>;
   {
     T::caseName(
         std::declval<const ::testing::TestParamInfo<typename T::Case> &>())
   } -> std::same_as<std::string>;
-  {
-    T::expect(std::declval<const typename T::Case &>(),
-              std::declval<const typename T::Result &>())
-  } -> std::same_as<void>;
-};
-
-template <typename T>
-concept NamedTestCase = requires(const T &tc) {
-  { tc.name } -> std::convertible_to<const char *>;
 };
 
 // GTest pretty-printer for parameterized test case structs that expose a
 // human-readable `name` field.  GTest discovers this function via ADL
 // (argument-dependent lookup) when formatting test parameter values in
 // assertion failure messages — it is never called explicitly in test code.
-template <NamedTestCase T> inline void PrintTo(const T &tc, std::ostream *os) {
+template <typename T>
+  requires requires(const T &tc) {
+    { tc.name } -> std::convertible_to<const char *>;
+  }
+inline void PrintTo(const T &tc, std::ostream *os) {
   *os << ((tc.name != nullptr) ? tc.name : "<unnamed>");
 }
 
@@ -48,7 +54,7 @@ template <NamedTestCase T> inline void PrintTo(const T &tc, std::ostream *os) {
                     public ::testing::WithParamInterface<TestCommon::Case> {}; \
                                                                                \
   TEST_P(SuiteName, AllBackends) {                                             \
-    const TestCommon::Case &tc = GetParam();                                   \
+    const auto &tc = GetParam();                                               \
                                                                                \
     std::vector<std::pair<const char *, std::unique_ptr<RunnerBaseType>>>      \
         runners;                                                               \
@@ -61,7 +67,7 @@ template <NamedTestCase T> inline void PrintTo(const T &tc, std::ostream *os) {
       SCOPED_TRACE(std::string("backend=") + runnerEntry.first);               \
       ASSERT_NO_THROW({                                                        \
         auto result = runnerEntry.second->run(tc);                             \
-        TestCommon::expect(tc, result);                                        \
+        tc.verify(result);                                                     \
       });                                                                      \
     }                                                                          \
   }                                                                            \

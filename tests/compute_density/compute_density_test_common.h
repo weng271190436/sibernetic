@@ -8,34 +8,59 @@
 
 #include <gtest/gtest.h>
 
+#include "../../src/kernels/ComputeDensityKernel.h"
+#include "../../src/types/HostTypes.h"
 #include "../utils/common/backend_param_test.h"
 #include "../utils/types/types.h"
 
 namespace SiberneticTest {
 
-struct ComputeDensityCase : public TestCase {
+struct ComputeDensityResult {
+  std::vector<float> rho;
+};
+
+struct ComputeDensityCase {
+  using InputType = Sibernetic::ComputeDensityInput;
+  using ResultType = ComputeDensityResult;
+
   const char *name;
-  std::vector<std::array<float, 2>> neighborMap; // size particleCount * 32
+  std::vector<Sibernetic::HostFloat2> neighborMap; // size particleCount * 32
   float massMultWpoly6Coefficient;
   float hScaled2;
   std::vector<uint32_t> particleIndexBack;
   std::vector<float> expectedRho;
+
+  InputType toInput() const {
+    return {
+        .neighborMap = neighborMap,
+        .massMultWpoly6Coefficient = massMultWpoly6Coefficient,
+        .hScaled2 = hScaled2,
+        .particleIndexBack = particleIndexBack,
+        .particleCount = static_cast<uint32_t>(particleIndexBack.size()),
+    };
+  }
+
+  void verify(const ResultType &result) const {
+    ASSERT_EQ(result.rho.size(), expectedRho.size());
+    for (size_t i = 0; i < expectedRho.size(); ++i) {
+      EXPECT_NEAR(result.rho[i], expectedRho[i], 1e-6f)
+          << "rho mismatch at index " << i;
+    }
+  }
 };
 
-struct ComputeDensityResult : public TestResult {
-  std::vector<float> rho;
-};
+static_assert(SiberneticTest::KernelTestCase<ComputeDensityCase>);
 
 class ComputeDensityRunner
     : public TestRunner<ComputeDensityCase, ComputeDensityResult> {};
 
 inline std::vector<std::array<float, 2>>
 makeNeighborMap(uint32_t particleCount) {
-  return std::vector<std::array<float, 2>>(
+  return std::vector<Sibernetic::HostFloat2>(
       static_cast<size_t>(particleCount) * 32u, {-1.0f, -1.0f});
 }
 
-inline void setNeighbor(std::vector<std::array<float, 2>> &neighborMap,
+inline void setNeighbor(std::vector<Sibernetic::HostFloat2> &neighborMap,
                         uint32_t particleId, uint32_t slot, int32_t neighborId,
                         float distance) {
   neighborMap[static_cast<size_t>(particleId) * 32u + slot] = {
@@ -44,7 +69,6 @@ inline void setNeighbor(std::vector<std::array<float, 2>> &neighborMap,
 
 struct ComputeDensityTestCommon {
   using Case = ComputeDensityCase;
-  using Result = ComputeDensityResult;
 
   static const std::vector<Case> &cases() {
     static const std::vector<Case> kCases = [] {
@@ -61,7 +85,6 @@ struct ComputeDensityTestCommon {
         setNeighbor(neighborMap, 2u, 0u, 0, 1.5f); // outside h, ignored
 
         cases.push_back(ComputeDensityCase{
-            {},
             "FloorAndCutoffBehavior",
             neighborMap,
             /*massMultWpoly6Coefficient=*/10.0f,
@@ -86,7 +109,6 @@ struct ComputeDensityTestCommon {
         setNeighbor(neighborMap, 2u, 0u, 0, 0.3f);
 
         cases.push_back(ComputeDensityCase{
-            {},
             "UsesParticleIndexBackMapping",
             neighborMap,
             /*massMultWpoly6Coefficient=*/2.0f,
@@ -106,13 +128,6 @@ struct ComputeDensityTestCommon {
     return info.param.name;
   }
 
-  static void expect(const Case &tc, const Result &result) {
-    ASSERT_EQ(result.rho.size(), tc.expectedRho.size());
-    for (size_t i = 0; i < tc.expectedRho.size(); ++i) {
-      EXPECT_NEAR(result.rho[i], tc.expectedRho[i], 1e-6f)
-          << "rho mismatch at index " << i;
-    }
-  }
 };
 
 static_assert(

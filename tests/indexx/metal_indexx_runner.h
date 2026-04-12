@@ -13,15 +13,10 @@ namespace SiberneticTest {
 class MetalIndexxRunner : public IndexxRunner {
 public:
   IndexxResult run(const IndexxCase &tc) override {
-    const uint32_t particleCount =
-        static_cast<uint32_t>(tc.particleIndex.size());
-    const uint32_t gridCellIndexCount = tc.gridCellCount + 1u;
+    auto input = tc.toInput();
+    const uint32_t particleCount = input.particleCount;
+    const uint32_t gridCellIndexCount = input.gridCellCount + 1u;
     const uint32_t threadCount = gridCellIndexCount;
-
-    Sibernetic::IndexxInput input{};
-    input.particleIndex = tc.particleIndex;
-    input.particleCount = particleCount;
-    input.gridCellCount = tc.gridCellCount;
 
     MetalKernelContext metal(Sibernetic::kIndexxKernelName);
     auto *device = metal.device();

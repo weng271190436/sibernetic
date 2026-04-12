@@ -14,18 +14,8 @@ namespace SiberneticTest {
 class MetalHashParticlesRunner : public HashParticlesRunner {
 public:
   HashParticlesResult run(const HashParticlesCase &tc) override {
-    const uint32_t particleCount = static_cast<uint32_t>(tc.positions.size());
-
-    Sibernetic::HashParticlesInput input{};
-    input.position = tc.positions;
-    input.gridCellsX = tc.gridCellsX;
-    input.gridCellsY = tc.gridCellsY;
-    input.gridCellsZ = tc.gridCellsZ;
-    input.hashGridCellSizeInv = tc.hashGridCellSizeInv;
-    input.xmin = tc.xmin;
-    input.ymin = tc.ymin;
-    input.zmin = tc.zmin;
-    input.particleCount = particleCount;
+    auto input = tc.toInput();
+    const uint32_t particleCount = input.particleCount;
 
     MetalKernelContext metal(Sibernetic::kHashParticlesKernelName);
     auto *device = metal.device();
