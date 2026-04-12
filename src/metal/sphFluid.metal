@@ -310,3 +310,59 @@ kernel void findNeighbors(const device uint *gridCellIndicesFixedUp
         neighborData;
   }
 }
+
+// Computes per-particle density by summing poly6 neighbor contributions
+// within hScaled, then applying the hScaled^6 minimum-density floor.
+//
+// Arguments:
+// buffer(0) neighborMap: packed table of 32 float2 entries per particle.
+//   x = neighbor particle id (or -1 sentinel), y = neighbor distance.
+// buffer(1) massMultWpoly6Coefficient: mass * 315 / (64 * pi * hScaled^9),
+//   where hScaled = h * simulationScale. Multiplying poly6Sum by this converts
+//   the raw kernel sum into density (mass/volume).
+// buffer(2) hScaled2: (h * simulationScale)^2, matching the scale of distances
+// in neighborMap.
+// buffer(3) rho: output density array, indexed by sorted particle id.
+// buffer(4) particleIndexBack: map from serial (original) particle id -> sorted
+// index.
+// buffer(5) particleCount: number of particles to process.
+// thread_position_in_grid serialId: serial (original) particle index for this
+// thread.
+kernel void
+pcisph_computeDensity(const device float2 *neighborMap [[buffer(0)]],
+                      constant float &massMultWpoly6Coefficient [[buffer(1)]],
+                      constant float &hScaled2 [[buffer(2)]],
+                      device float *rho [[buffer(3)]],
+                      const device uint *particleIndexBack [[buffer(4)]],
+                      constant uint &particleCount [[buffer(5)]],
+                      uint serialId [[thread_position_in_grid]]) {
+  if (serialId >= particleCount) {
+    return;
+  }
+
+  const uint particleId = particleIndexBack[serialId];
+  const uint idx = particleId * static_cast<uint>(kMaxNeighborCount);
+  // poly6Sum = sum_j (hScaled2 - r_j^2)^3  for all neighbors j with r_j < hScaled.
+  // Floored to hScaled^6 = (hScaled2)^3, which equals the poly6 self-contribution
+  // at r=0. This prevents poly6Sum from being zero when a particle has no neighbors,
+  // which would otherwise produce rho=0 and a numerically explosive pressure correction.
+  float poly6Sum = 0.0f;
+  const float hScaled6 = hScaled2 * hScaled2 * hScaled2;
+
+  for (int nc = 0; nc < kMaxNeighborCount; ++nc) {
+    const float2 neighbor = neighborMap[idx + static_cast<uint>(nc)];
+    if (static_cast<int>(neighbor.x) != kNoParticleId) {
+      float r2 = neighbor.y;
+      r2 *= r2;
+      if (r2 < hScaled2) {
+        const float delta = hScaled2 - r2;
+        poly6Sum += delta * delta * delta;
+      }
+    }
+  }
+
+  if (poly6Sum < hScaled6) {
+    poly6Sum = hScaled6;
+  }
+  rho[particleId] = poly6Sum * massMultWpoly6Coefficient;
+}

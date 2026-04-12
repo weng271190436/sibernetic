@@ -32,8 +32,7 @@ concept NamedTestCase = requires(const T &tc) {
 
 // GTest pretty-printer for parameterized test case structs that expose a
 // human-readable `name` field.
-template <NamedTestCase T>
-inline void PrintTo(const T &tc, std::ostream *os) {
+template <NamedTestCase T> inline void PrintTo(const T &tc, std::ostream *os) {
   *os << ((tc.name != nullptr) ? tc.name : "<unnamed>");
 }
 
