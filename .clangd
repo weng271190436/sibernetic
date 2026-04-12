@@ -1,2 +1,7 @@
 CompileFlags:
-  Add: [-std=c++20]
+  Add:
+    - -std=c++20
+    - -DSIBERNETIC_USE_METAL
+    - -Imetal-cpp
+    - -Iinc
+    - -Isrc/kernels
