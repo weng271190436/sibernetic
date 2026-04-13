@@ -451,13 +451,13 @@ kernel void pcisph_computeForcesAndInitPressure(
 
   // Boundary particles don't move.
   // Note: originalPosition[].w still holds the original particle type;
-  // sortedPosition[].w was overwritten with cell ID in sortPostPass. We check
-  // the original type here. Safe float comparison: particle types are discrete
-  // flags (0, 1, 2, 3, ...) stored exactly in originalPosition[].w as floats.
-  // Since 3.0 is exactly representable in IEEE 754 and never computed/rounded,
-  // equality comparison is reliable (unlike comparisons of computed
-  // floating-point values).
-  if (originalPosition[serialId].w == float(kBoundaryParticle)) {
+  // sortedPosition[].w was overwritten with cell ID in sortPostPass. Match the
+  // OpenCL behavior by classifying via integer cast (i.e. floor/truncate for
+  // positive values) instead of exact float equality. Configuration
+  // files (such as demo1) store subtype tags in the fractional part (e.g. 3.1),
+  // so exact comparison with 3.0 would miss boundary-like values that should
+  // map to boundary class 3.
+  if (int(originalPosition[serialId].w) == kBoundaryParticle) {
     // Boundary particles never move, but sortedParticleId changes every
     // timestep as the sort reassigns sorted slots. The slot this particle
     // occupies now may have held a non-boundary particle last timestep, so
@@ -518,14 +518,18 @@ kernel void pcisph_computeForcesAndInitPressure(
     // mu and the neighbor density rho_j into a single scalar.
     float viscCoeff = 1.0e-4f; // default (fluid–fluid or fluid–boundary)
 
-    // Worm body (2.05-2.25) <-> Agar (2.25-2.35): very low viscosity
-    bool worm_i = (particleType > 2.05f && particleType < 2.25f);
-    bool worm_j = (neighborType > 2.05f && neighborType < 2.25f);
-    bool agar_i = (particleType > 2.25f && particleType < 2.35f);
-    bool agar_j = (neighborType > 2.25f && neighborType < 2.35f);
+    // Worm body (2.05-2.25) <-> fluid medium (2.25-2.35): use lower
+    // interface viscosity so the worm can slide through the medium.
+    // If this interface viscosity is too high, drag becomes too strong and
+    // locomotion is over-damped.
+    bool isWormParticle = (particleType > 2.05f && particleType < 2.25f);
+    bool isWormNeighbor = (neighborType > 2.05f && neighborType < 2.25f);
+    bool isFluidParticle = (particleType > 2.25f && particleType < 2.35f);
+    bool isFluidNeighbor = (neighborType > 2.25f && neighborType < 2.35f);
 
-    if ((worm_i && agar_j) || (agar_i && worm_j)) {
-      viscCoeff = 1.0e-5f; // worm–agar interface: 10× lower viscosity
+    if ((isWormParticle && isFluidNeighbor) ||
+        (isFluidParticle && isWormNeighbor)) {
+      viscCoeff = 1.0e-5f; // worm-fluid interface: 10x lower viscosity
     }
 
     // Viscosity force: viscCoeff * (v_j - v_i) * (h - r) / 1000
