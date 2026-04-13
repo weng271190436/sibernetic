@@ -7,6 +7,39 @@ constant int kNoParticleId = -1;
 constant int kNeighborCellCount = 8;
 constant int kBoundaryParticle = 3;
 
+// Empirical surface tension scaling constant.
+// See the surface tension force comment below for full attribution.
+constant float kSurfaceTensionScale = -1.7e-09f;
+// Empirical viscosity scale factor baked into this codebase.
+// Not derived from the Müller (2003) viscosity formulation.
+constant float kViscosityScale = 1.5f / 1000.0f;
+
+// Particle type ranges are encoded per particle in configuration files
+// ([position] section, 4th column) and loaded into originalPosition[].w.
+constant float kWormTypeMin = 2.05f;
+constant float kWormTypeMax = 2.25f;
+constant float kFluidTypeMin = 2.25f;
+constant float kFluidTypeMax = 2.35f;
+
+inline bool isWormType(float particleType) {
+  return particleType > kWormTypeMin && particleType < kWormTypeMax;
+}
+
+inline bool isFluidType(float particleType) {
+  return particleType > kFluidTypeMin && particleType < kFluidTypeMax;
+}
+
+// Shared Poly6 radial core term: (hScaled^2 - r^2)^3.
+// Reusing this in density and surface tension is correct because both
+// operators are built from the same compact-support Poly6 distance weight;
+// they differ in how this scalar is used (density sums scalar mass weights,
+// while surface tension multiplies by a direction vector and a different
+// physical coefficient).
+inline float poly6Core(float distanceSquared, float hScaledSquared) {
+  const float delta = hScaledSquared - distanceSquared;
+  return delta * delta * delta;
+}
+
 // neighborMap: A packed table of neighbor information for SPH force kernels.
 // Structure: float2 array with kMaxNeighborCount entries per particle.
 //   Indexing: neighborMap[sortedParticleId * kMaxNeighborCount + slotIndex]
@@ -375,30 +408,34 @@ kernel void pcisph_computeDensity(
 
   const uint sortedParticleId = sortedParticleIdBySerialId[serialId];
   const uint idx = sortedParticleId * static_cast<uint>(kMaxNeighborCount);
-  // poly6Sum = sum_j (hScaled2 - r_j^2)^3  for all neighbors j with r_j <
-  // hScaled. Floored to hScaled^6 = (hScaled2)^3, which equals the poly6
-  // self-contribution at r=0. This prevents poly6Sum from being zero when a
-  // particle has no neighbors, which would otherwise produce rho=0 and a
-  // numerically explosive pressure correction.
-  float poly6Sum = 0.0f;
-  const float hScaled6 = hScaled2 * hScaled2 * hScaled2;
+  // poly6NeighborContributionSum = sum_j (hScaled2 - r_j^2)^3 for all
+  // neighbors j with r_j <
+  // hScaled. Floored to the Poly6 self-contribution at r=0:
+  //   poly6SelfContribution = (hScaled2 - 0)^3 = hScaled^6.
+  // This prevents the density kernel sum from becoming zero when a particle
+  // has no
+  // neighbors, which would otherwise produce rho=0 and a numerically
+  // explosive pressure correction.
+  float poly6NeighborContributionSum = 0.0f;
+  const float poly6SelfContribution = poly6Core(0.0f, hScaled2);
 
   for (int neighborSlot = 0; neighborSlot < kMaxNeighborCount; ++neighborSlot) {
     const float2 neighbor = neighborMap[idx + static_cast<uint>(neighborSlot)];
     if (static_cast<int>(neighbor.x) != kNoParticleId) {
-      float r2 = neighbor.y;
-      r2 *= r2;
-      if (r2 < hScaled2) {
-        const float delta = hScaled2 - r2;
-        poly6Sum += delta * delta * delta;
+      float distanceToNeighbor2 = neighbor.y;
+      distanceToNeighbor2 *= distanceToNeighbor2;
+      if (distanceToNeighbor2 < hScaled2) {
+        poly6NeighborContributionSum +=
+            poly6Core(distanceToNeighbor2, hScaled2);
       }
     }
   }
 
-  if (poly6Sum < hScaled6) {
-    poly6Sum = hScaled6;
+  if (poly6NeighborContributionSum < poly6SelfContribution) {
+    poly6NeighborContributionSum = poly6SelfContribution;
   }
-  rho[sortedParticleId] = poly6Sum * massMultWpoly6Coefficient;
+  rho[sortedParticleId] =
+      poly6NeighborContributionSum * massMultWpoly6Coefficient;
 }
 
 // Writes the non-pressure acceleration and zeros the pressure-force slot and
@@ -506,11 +543,15 @@ kernel void pcisph_computeForcesAndInitPressure(
     // originalPosition[].w holds the particle type (unchanged by sortPostPass).
     float particleType = originalPosition[serialId].w;
     float neighborType = originalPosition[neighborSerialId].w;
-    // Müller et al. (2003) viscosity acceleration contribution from neighbor j:
-    //   a_i += (mu / rho_j) * (m_j / rho_i) * (v_j - v_i) * laplacian_W_visc
+    // Müller et al. (2003), written as a neighbor sum:
+    //   a_i += sum_j [ (mu / rho_j) * (m_j / rho_i) * (v_j - v_i)
+    //                  * laplacian_W_visc(r_ij, h) ]
     // where laplacian_W_visc(r, h) = (45 / (pi * h^6)) * (h - r).
-    // The (m_j / rho_i) * (45 / (pi * h^6)) factor is folded into
-    // massMultLaplacianWviscosityCoeff and applied after the loop.
+    // This loop body computes one j-term at a time; the sum_j is realized by
+    // iterating over neighbor slots and accumulating into accelViscosity.
+    // In this implementation, massMultLaplacianWviscosityCoeff packs
+    // m_j * (45 / (pi * hScaled^6)) (with constant particle mass), while
+    // 1 / rho_i is applied separately in the finalize step after the loop.
     //
     // Here viscCoeff replaces mu / rho_j: mu (the true dynamic viscosity,
     // Pa·s) is passed as buffer(10) but is not used. Instead, viscCoeff is
@@ -518,29 +559,53 @@ kernel void pcisph_computeForcesAndInitPressure(
     // mu and the neighbor density rho_j into a single scalar.
     float viscCoeff = 1.0e-4f; // default (fluid–fluid or fluid–boundary)
 
-    // Worm body (2.05-2.25) <-> fluid medium (2.25-2.35): use lower
+    // Worm body ([kWormTypeMin, kWormTypeMax]) <->
+    // fluid medium ([kFluidTypeMin, kFluidTypeMax]): use lower
     // interface viscosity so the worm can slide through the medium.
     // If this interface viscosity is too high, drag becomes too strong and
     // locomotion is over-damped.
-    bool isWormParticle = (particleType > 2.05f && particleType < 2.25f);
-    bool isWormNeighbor = (neighborType > 2.05f && neighborType < 2.25f);
-    bool isFluidParticle = (particleType > 2.25f && particleType < 2.35f);
-    bool isFluidNeighbor = (neighborType > 2.25f && neighborType < 2.35f);
+    bool isWormParticle = isWormType(particleType);
+    bool isWormNeighbor = isWormType(neighborType);
+    bool isFluidParticle = isFluidType(particleType);
+    bool isFluidNeighbor = isFluidType(neighborType);
 
     if ((isWormParticle && isFluidNeighbor) ||
         (isFluidParticle && isWormNeighbor)) {
       viscCoeff = 1.0e-5f; // worm-fluid interface: 10x lower viscosity
     }
 
-    // Viscosity force: viscCoeff * (v_j - v_i) * (h - r) / 1000
+    // This loop accumulates only the pairwise velocity-shape part:
+    //   sum_j [ viscCoeff_ij * (v_j - v_i) * (hScaled - r_ij) ]
+    // where viscCoeff_ij is an empirical stand-in for (mu / rho_j).
+    //
+    // Compared with Muller viscosity:
+    //   a_i += sum_j [ (mu/rho_j) * (m_j/rho_i) * (v_j-v_i)
+    //                  * (45/(pi*h^6)) * (h-r_ij) ]
+    // this line intentionally omits ((m_j*45)/(pi*hScaled^6)) and (1/rho_i);
+    // both are applied after the neighbor loop via:
+    //   accelViscosity *= (1.5/1000) * massMultLaplacianWviscosityCoeff /
+    //                     rho_i
+    // so rho_i and kernel/mass scaling are deferred to the finalize step.
     accelViscosity +=
         viscCoeff * (neighborVelocity * neighborFluidMask - particleVelocity) *
-        (hScaled - distanceToNeighbor) / 1000.0f;
+        (hScaled - distanceToNeighbor);
 
-    // Surface tension force
-    float surfKern = (hScaled2 - distanceToNeighbor2);
-    surfKern = surfKern * surfKern * surfKern; // (h² - r²)³
-    accelSurfaceTension += -1.7e-09f * surfTensCoeff * surfKern *
+    // Surface tension force (legacy Sibernetic form).
+    // Discrete pairwise form used here:
+    //   a_i^surf += C_st * s_ij * (x_i - x_j),
+    //   s_ij = (hScaled^2 - r_ij^2)^3,
+    // where C_st = (-1.7e-09) * surfTensCoeff / mass (the /mass is applied
+    // in the finalize step below).
+    // Literature attribution: this term is historically tagged in the OpenCL
+    // implementation as "formula (16) [5]" from Becker and Teschner,
+    // "Weakly compressible SPH for free surface flows" (SCA 2007,
+    // DOI: 10.2312/SCA/SCA07/209-218). The -1.7e-09 scalar is a project-
+    // specific empirical scaling, not a universal constant from the paper.
+    const float surfKern = poly6Core(distanceToNeighbor2, hScaled2);
+    // sortedPosition[].w stores cell ID (not position), so the .w part of this
+    // subtraction is not physically meaningful; we zero accelSurfaceTension.w
+    // after the loop.
+    accelSurfaceTension += kSurfaceTensionScale * surfTensCoeff * surfKern *
                            (sortedPosition[sortedParticleId] -
                             sortedPosition[neighborSortedParticleId]);
   }
@@ -549,16 +614,18 @@ kernel void pcisph_computeForcesAndInitPressure(
   accelSurfaceTension.w = 0.0f;
   accelSurfaceTension /= mass;
   // Finalize viscosity
-  accelViscosity *=
-      1.5f * massMultLaplacianWviscosityCoeff / rho[sortedParticleId];
+  // 1.5f/1000.0f is an empirical scale factor from this codebase,
+  // not a coefficient from the Müller viscosity derivation.
+  accelViscosity *= kViscosityScale * massMultLaplacianWviscosityCoeff /
+                    rho[sortedParticleId];
 
   // Total acceleration = viscosity + gravitational acceleration +
   // surface tension
-  float4 total_accel = accelViscosity;
-  total_accel += float4(gravitationalAccelerationX, gravitationalAccelerationY,
-                        gravitationalAccelerationZ, 0.0f);
-  total_accel += accelSurfaceTension;
+  float4 totalAccel = accelViscosity;
+  totalAccel += float4(gravitationalAccelerationX, gravitationalAccelerationY,
+                       gravitationalAccelerationZ, 0.0f);
+  totalAccel += accelSurfaceTension;
 
   writeAccelerationAndInitPressure(acceleration, pressure, particleCount,
-                                   sortedParticleId, total_accel);
+                                   sortedParticleId, totalAccel);
 }
