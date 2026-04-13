@@ -295,7 +295,7 @@ struct PcisphComputeForcesTestCommon {
         });
       }
 
-      // Test 7: Worm<->Agar pair uses low viscosity branch (1e-5)
+      // Test 7: Worm<->Fluid pair uses low viscosity branch (1e-5)
       {
         constexpr uint32_t N = 2;
         auto neighborMap = makeNeighborMap(N);
@@ -303,13 +303,13 @@ struct PcisphComputeForcesTestCommon {
         setNeighbor(neighborMap, 1, 0, 0, 0.5f);
 
         cases.push_back({
-            .name = "WormAgarUsesLowViscosityBranch",
+            .name = "WormFluidUsesLowViscosityBranch",
             .neighborMap = neighborMap,
             .rho = {1.0f, 1.0f},
             .sortedPosition = {{0, 0, 0, 0}, {1, 0, 0, 0}},
             .sortedVelocity = {{0, 0, 0, 0}, {2, 0, 0, 0}},
             .sortedParticleIdBySerialId = {0, 1},
-            // 2.1 = worm range, 2.3 = agar range
+            // 2.1 = worm range, 2.3 = fluid range
             .position = {{0, 0, 0, 2.1f}, {1, 0, 0, 2.3f}},
             .particleIndex = {{0, 0}, {0, 1}},
             .surfTensCoeff = 0.0f,
