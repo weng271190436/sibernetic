@@ -13,7 +13,8 @@ constant float kSurfaceTensionScale = -1.7e-09f;
 // Empirical viscosity scale factor baked into this codebase.
 // Not derived from the Müller (2003) viscosity formulation.
 constant float kViscosityScale = 1.5f / 1000.0f;
-// Default viscosity coefficient for fluid-fluid and fluid-boundary interactions.
+// Default viscosity coefficient for fluid-fluid and fluid-boundary
+// interactions.
 constant float kViscosityCoeffDefault = 1.0e-4f;
 // Reduced viscosity coefficient for worm-fluid interface interactions.
 // 10x lower than default to allow worm to slide through the medium.
@@ -562,7 +563,8 @@ kernel void pcisph_computeForcesAndInitPressure(
     // Pa·s) is passed as buffer(10) but is not used. Instead, viscCoeff is
     // an empirical per-interaction-type tuning constant that lumps together
     // mu and the neighbor density rho_j into a single scalar.
-    float viscCoeff = kViscosityCoeffDefault; // default (fluid–fluid or fluid–boundary)
+    float viscCoeff =
+        kViscosityCoeffDefault; // default (fluid–fluid or fluid–boundary)
 
     // Worm body ([kWormTypeMin, kWormTypeMax]) <->
     // fluid medium ([kFluidTypeMin, kFluidTypeMax]): use lower
@@ -576,7 +578,8 @@ kernel void pcisph_computeForcesAndInitPressure(
 
     if ((isWormParticle && isFluidNeighbor) ||
         (isFluidParticle && isWormNeighbor)) {
-      viscCoeff = kViscosityCoeffWormFluid; // worm-fluid interface: 10x lower viscosity
+      viscCoeff =
+          kViscosityCoeffWormFluid; // worm-fluid interface: 10x lower viscosity
     }
 
     // This loop accumulates only the pairwise velocity-shape part:
