@@ -192,5 +192,5 @@ clean:
 	-$(RM) $(KERNEL_TEST_OBJS) $(KERNEL_TEST_BIN) $(KERNEL_TEST_OBJDIR)
 	-@echo ' '
 
-.PHONY: all test bootstrap bootstrap-test bootstrap-format test-kernels test-opencl format format-tests format-tests-check clean dependents
+.PHONY: all test bootstrap bootstrap-test bootstrap-format format format-tests-check clean dependents
 .SECONDARY:
