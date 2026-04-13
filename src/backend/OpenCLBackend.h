@@ -1,6 +1,5 @@
 #pragma once
 
-#include <stdexcept>
 #include <string>
 
 #ifdef err_local
