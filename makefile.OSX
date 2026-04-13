@@ -37,24 +37,24 @@ PYTHON_LDFLAGS := $(shell if [ -n "$(PYTHON)" ]; then "$(PYTHON)" -c "import sys
 
 LIBS := -framework OpenGL -framework GLUT -framework OpenCL
 
-OPENCL_TEST_SRC := tests/metal_private_impl.cpp \
+KERNEL_TEST_SRC := tests/metal_private_impl.cpp \
 				   tests/compute_density/compute_density_gtest.cpp \
 				   tests/hash_particles/hash_particles_gtest.cpp \
 				   tests/find_neighbors/find_neighbors_gtest.cpp \
 				   tests/indexx/indexx_gtest.cpp \
 				   tests/sort_post_pass/sort_post_pass_gtest.cpp \
 				   tests/pcisph_compute_forces/pcisph_compute_forces_test.cpp
-OPENCL_TEST_HDRS := $(shell find tests -type f -name '*.h')
-OPENCL_TEST_BIN  := $(BUILDDIR)/opencl_kernel_tests
-OPENCL_TEST_OBJDIR := $(BUILDDIR)/test_obj
-OPENCL_TEST_OBJS := $(patsubst tests/%.cpp,$(OPENCL_TEST_OBJDIR)/%.o, \
-					$(filter %.cpp,$(OPENCL_TEST_SRC)))
+KERNEL_TEST_HDRS := $(shell find tests -type f -name '*.h')
+KERNEL_TEST_BIN  := $(BUILDDIR)/kernel_backend_tests
+KERNEL_TEST_OBJDIR := $(BUILDDIR)/test_obj
+KERNEL_TEST_OBJS := $(patsubst tests/%.cpp,$(KERNEL_TEST_OBJDIR)/%.o, \
+					$(filter %.cpp,$(KERNEL_TEST_SRC)))
 
 BACKEND_SRC := src/backend/MetalBackend.cpp src/backend/OpenCLBackend.cpp
 BACKEND_OBJDIR := $(BUILDDIR)/backend_obj
 BACKEND_OBJS := $(patsubst src/%.cpp,$(BACKEND_OBJDIR)/%.o,$(BACKEND_SRC))
 CXX_STANDARD ?= c++20
-OPENCL_TEST_CXXFLAGS := -std=$(CXX_STANDARD) -O2 -Wall -fblocks \
+KERNEL_TEST_CXXFLAGS := -std=$(CXX_STANDARD) -O2 -Wall -fblocks \
 	-DSIBERNETIC_USE_METAL -DSIBERNETIC_USE_OPENCL
 CLANG_FORMAT ?= clang-format
 GTEST_PREFIX ?= $(shell p=$$(brew --prefix googletest 2>/dev/null); \
@@ -66,7 +66,7 @@ GTEST_PREFIX ?= $(shell p=$$(brew --prefix googletest 2>/dev/null); \
 # All Target
 all: bootstrap $(TARGET)
 
-test: test-opencl
+test: test-kernels
 
 bootstrap:
 	@if [ -z "$(CXX)" ] || ! command -v "$(CXX)" >/dev/null 2>&1; then \
@@ -90,22 +90,25 @@ bootstrap-test: bootstrap
 		exit 1; \
 	fi
 
-$(OPENCL_TEST_BIN): $(OPENCL_TEST_OBJS) $(BACKEND_OBJS)
+$(KERNEL_TEST_BIN): $(KERNEL_TEST_OBJS) $(BACKEND_OBJS)
 	@mkdir -p $(BUILDDIR)
-	$(CXX) $(OPENCL_TEST_CXXFLAGS) $(OPENCL_TEST_OBJS) $(BACKEND_OBJS) -o $(OPENCL_TEST_BIN) \
+	$(CXX) $(KERNEL_TEST_CXXFLAGS) $(KERNEL_TEST_OBJS) $(BACKEND_OBJS) -o $(KERNEL_TEST_BIN) \
 		-L$(GTEST_PREFIX)/lib -lgtest -lgtest_main \
 		-framework OpenCL -framework Metal -framework Foundation
 
 $(BACKEND_OBJDIR)/%.o: src/%.cpp $(shell find src/backend -type f -name '*.h' 2>/dev/null)
 	@mkdir -p $(dir $@)
-	$(CXX) $(OPENCL_TEST_CXXFLAGS) -I$(INCDIR) -isystemmetal-cpp -c $< -o $@
+	$(CXX) $(KERNEL_TEST_CXXFLAGS) -I$(INCDIR) -isystemmetal-cpp -c $< -o $@
 
-$(OPENCL_TEST_OBJDIR)/%.o: tests/%.cpp $(OPENCL_TEST_HDRS)
+$(KERNEL_TEST_OBJDIR)/%.o: tests/%.cpp $(KERNEL_TEST_HDRS)
 	@mkdir -p $(dir $@)
-	$(CXX) $(OPENCL_TEST_CXXFLAGS) -I$(INCDIR) -Isrc/kernels -isystem$(GTEST_PREFIX)/include -isystemmetal-cpp -c $< -o $@
+	$(CXX) $(KERNEL_TEST_CXXFLAGS) -I$(INCDIR) -Isrc/kernels -isystem$(GTEST_PREFIX)/include -isystemmetal-cpp -c $< -o $@
 
-test-opencl: bootstrap-test $(OPENCL_TEST_BIN)
-	$(OPENCL_TEST_BIN)
+test-kernels: bootstrap-test $(KERNEL_TEST_BIN)
+	$(KERNEL_TEST_BIN)
+
+# Backward-compatible alias.
+test-opencl: test-kernels
 
 # Tool invocations
 $(TARGET): bootstrap $(OBJECTS)
@@ -186,8 +189,8 @@ format-tests-check: bootstrap-format
 
 clean:
 	-$(RM) $(OBJECTS) $(CPP_DEPS) $(BUILDDIR)/$(TARGET)
-	-$(RM) $(OPENCL_TEST_OBJS) $(OPENCL_TEST_BIN) $(OPENCL_TEST_OBJDIR)
+	-$(RM) $(KERNEL_TEST_OBJS) $(KERNEL_TEST_BIN) $(KERNEL_TEST_OBJDIR)
 	-@echo ' '
 
-.PHONY: all test bootstrap bootstrap-test bootstrap-format test-opencl format format-tests format-tests-check clean dependents
+.PHONY: all test bootstrap bootstrap-test bootstrap-format test-kernels test-opencl format format-tests format-tests-check clean dependents
 .SECONDARY:

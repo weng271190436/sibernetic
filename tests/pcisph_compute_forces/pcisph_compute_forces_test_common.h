@@ -366,6 +366,79 @@ struct PcisphComputeForcesTestCommon {
         });
       }
 
+      // Test 9: Fractional boundary subtype (e.g., 3.1) is treated as
+      // boundary via int-cast classification.
+      {
+        constexpr uint32_t N = 1;
+        auto neighborMap = makeNeighborMap(N);
+
+        cases.push_back({
+            .name = "BoundarySubtypeFractionalOutputsZero",
+            .neighborMap = neighborMap,
+            .rho = {1000.0f},
+            .sortedPosition = {{0, 0, 0, 0}},
+            .sortedVelocity = {{4, -2, 1, 0}},
+            .sortedParticleIdBySerialId = {0},
+            .position = {{0, 0, 0, 3.1f}}, // int(3.1f) == 3 -> boundary
+            .particleIndex = {{0, 0}},
+            .surfTensCoeff = 0.1f,
+            .massMultLaplacianWviscosityCoeff = 1.0f,
+            .hScaled = 0.1f,
+            .mu = 0.01f,
+            .gravity_x = 1.0f,
+            .gravity_y = -9.8f,
+            .gravity_z = 2.0f,
+            .mass = 1.0f,
+            .expectedPressure = {0.0f},
+            .expectedAcceleration = {{0, 0, 0, 0}, {0, 0, 0, 0}},
+        });
+      }
+
+      // Test 10: Boundary neighbors must be velocity-masked (not_bp = 0), so
+      // their velocity does not drag fluid particles directly.
+      {
+        constexpr uint32_t N = 2;
+        auto neighborMap = makeNeighborMap(N);
+        setNeighbor(neighborMap, 0, 0, 1, 0.5f);
+        setNeighbor(neighborMap, 1, 0, 0, 0.5f);
+
+        cases.push_back({
+            .name = "BoundaryNeighborVelocityIsMaskedInViscosity",
+            .neighborMap = neighborMap,
+            .rho = {1.0f, 1.0f},
+            .sortedPosition = {{0, 0, 0, 0}, {1, 0, 0, 0}},
+            .sortedVelocity =
+                {
+                    {2, 0, 0, 0}, // fluid particle velocity
+                    {10, 0, 0,
+                     0}, // boundary particle velocity (must be masked)
+                },
+            .sortedParticleIdBySerialId = {0, 1},
+            .position =
+                {
+                    {0, 0, 0, 1}, // fluid
+                    {1, 0, 0, 3}, // boundary
+                },
+            .particleIndex = {{0, 0}, {0, 1}},
+            .surfTensCoeff = 0.0f,
+            .massMultLaplacianWviscosityCoeff = 100000.0f,
+            .hScaled = 1.0f,
+            .mu = 0.01f,
+            .gravity_x = 0.0f,
+            .gravity_y = 0.0f,
+            .gravity_z = 0.0f,
+            .mass = 1.0f,
+            .expectedPressure = {0.0f, 0.0f},
+            .expectedAcceleration =
+                {
+                    {-0.015f, 0, 0, 0}, // from (0 - v_i), not from boundary v_j
+                    {0, 0, 0, 0},
+                    {0, 0, 0, 0},
+                    {0, 0, 0, 0},
+                },
+        });
+      }
+
       return cases;
     }();
     return kCases;
