@@ -46,7 +46,7 @@
 #define NO_CELL_ID -1
 #define NO_DISTANCE -1.0f
 
-#define QUEUE_EACH_KERNEL 1
+#define QUEUE_EACH_KERNEL 0
 
 #define INTEL_OPENCL_DEBUG 0
 
