@@ -8,8 +8,7 @@
 
 namespace SiberneticTest {
 
-class OpenCLPcisphPredictPositionsRunner
-    : public PcisphPredictPositionsRunner {
+class OpenCLPcisphPredictPositionsRunner : public PcisphPredictPositionsRunner {
 public:
   PcisphPredictPositionsResult
   run(const PcisphPredictPositionsCase &tc) override {
@@ -39,9 +38,8 @@ public:
       throw std::runtime_error("Failed to create sortedPosition buffer");
     }
 
-    auto args = Sibernetic::toOpenCLArgs(input, opencl.context(),
-                                         inOutAcceleration,
-                                         inOutSortedPosition);
+    auto args = Sibernetic::toOpenCLArgs(
+        input, opencl.context(), inOutAcceleration, inOutSortedPosition);
 
     cl::Kernel kernel(opencl.program(),
                       Sibernetic::kPcisphPredictPositionsKernelName, &err);
@@ -67,8 +65,7 @@ public:
             sizeof(float) * 4 * N, // offset to second half
             sizeof(float) * 4 * N,
             result.predictedPosition.data()) != CL_SUCCESS) {
-      throw std::runtime_error(
-          "Failed to read sortedPosition output buffer");
+      throw std::runtime_error("Failed to read sortedPosition output buffer");
     }
     return result;
   }

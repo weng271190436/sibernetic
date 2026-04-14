@@ -13,7 +13,8 @@
 namespace SiberneticTest {
 
 struct PcisphPredictPositionsResult {
-  std::vector<Sibernetic::HostFloat4> predictedPosition; // sortedPosition[N..2N)
+  std::vector<Sibernetic::HostFloat4>
+      predictedPosition; // sortedPosition[N..2N)
 };
 
 struct PcisphPredictPositionsCase {
@@ -24,13 +25,14 @@ struct PcisphPredictPositionsCase {
 
   // Input data
   std::vector<Sibernetic::HostFloat4> acceleration; // size: 3*N
-  std::vector<Sibernetic::HostFloat4> sortedPosition; // size: 2*N (second half is output)
+  std::vector<Sibernetic::HostFloat4>
+      sortedPosition; // size: 2*N (second half is output)
   std::vector<Sibernetic::HostFloat4> sortedVelocity; // size: N
-  std::vector<Sibernetic::HostUInt2> particleIndex;    // size: N
-  std::vector<uint32_t> particleIndexBack;             // size: N
-  std::vector<Sibernetic::HostFloat4> position;        // size: N (original)
-  std::vector<Sibernetic::HostFloat4> velocity;        // size: N (boundary normals)
-  std::vector<Sibernetic::HostFloat2> neighborMap;     // size: N * 32
+  std::vector<Sibernetic::HostUInt2> particleIndex;   // size: N
+  std::vector<uint32_t> particleIndexBack;            // size: N
+  std::vector<Sibernetic::HostFloat4> position;       // size: N (original)
+  std::vector<Sibernetic::HostFloat4> velocity;    // size: N (boundary normals)
+  std::vector<Sibernetic::HostFloat2> neighborMap; // size: N * 32
   float gravity_x;
   float gravity_y;
   float gravity_z;
@@ -119,7 +121,7 @@ struct PcisphPredictPositionsTestCommon {
             .particleIndex = {{0, 0}}, // cell 0, serial 0
             .particleIndexBack = {0},
             .position = {{5.0f, 6.0f, 7.0f, 3.0f}}, // .w=3 => BOUNDARY
-            .velocity = {{0, 1, 0, 0}},               // normal
+            .velocity = {{0, 1, 0, 0}},             // normal
             .neighborMap = neighborMap,
             .gravity_x = 0.0f,
             .gravity_y = -9.8f,
@@ -177,7 +179,8 @@ struct PcisphPredictPositionsTestCommon {
       // ---- Test 3: ZeroAccelerationVelocityOnly ----
       // All acceleration zero; only velocity contributes.
       // v_new = v + dt * 0 = v = (2, 0, 0)
-      // x_new = x + dt * simScaleInv * v_new = (0,0,0) + 0.01*0.5*(2,0,0) = (0.01,0,0)
+      // x_new = x + dt * simScaleInv * v_new = (0,0,0) + 0.01*0.5*(2,0,0) =
+      // (0.01,0,0)
       {
         constexpr uint32_t N = 1;
         auto neighborMap = makeNeighborMap(N);
@@ -254,8 +257,11 @@ struct PcisphPredictPositionsTestCommon {
             .acceleration = accel,
             .sortedPosition = sortedPos,
             .sortedVelocity = {{0, 0, 0, 0}, {0, 0, 0, 0}},
-            .particleIndex = {{0, 1}, {0, 0}}, // sorted[0]->serial 1, sorted[1]->serial 0
-            .particleIndexBack = {1, 0},        // serial 0->sorted 1, serial 1->sorted 0
+            .particleIndex = {{0, 1},
+                              {0,
+                               0}}, // sorted[0]->serial 1, sorted[1]->serial 0
+            .particleIndexBack = {1,
+                                  0}, // serial 0->sorted 1, serial 1->sorted 0
             .position = {{0, 10, 0, 1}, {10, 0, 0, 1}}, // both LIQUID
             .velocity = {{0, 0, 0, 0}, {0, 0, 0, 0}},
             .neighborMap = neighborMap,
@@ -265,7 +271,8 @@ struct PcisphPredictPositionsTestCommon {
             .simulationScaleInv = simScaleInv,
             .timeStep = dt,
             .r0 = 0.1f,
-            // output: sortedPos[N+0] for sorted id 0, sortedPos[N+1] for sorted id 1
+            // output: sortedPos[N+0] for sorted id 0, sortedPos[N+1] for sorted
+            // id 1
             .expectedPredictedPosition = {{xNew0, 0.0f, 0.0f, 0.0f},
                                           {0.0f, yNew1, 0.0f, 0.0f}},
         });
@@ -280,12 +287,13 @@ struct PcisphPredictPositionsTestCommon {
         auto accel = makeAccel(N);
 
         // Sorted particle 0 is liquid, sorted particle 1 is boundary.
-        // Make particle 0 a neighbor of itself via neighborMap (sorted 0 sees sorted 1).
+        // Make particle 0 a neighbor of itself via neighborMap (sorted 0 sees
+        // sorted 1).
         float dist = 0.04f; // less than r0=0.1
         setNeighbor(neighborMap, 0, 0, 1, dist);
 
         std::vector<Sibernetic::HostFloat4> pos = {
-            {0.5f, 0.5f, 0.5f, 0.0f}, // sorted 0 (liquid)
+            {0.5f, 0.5f, 0.5f, 0.0f},  // sorted 0 (liquid)
             {0.5f, 0.46f, 0.5f, 0.0f}, // sorted 1 (boundary, below)
         };
         auto sortedPos = makeSortedPos(pos);
@@ -306,12 +314,13 @@ struct PcisphPredictPositionsTestCommon {
             .acceleration = accel,
             .sortedPosition = sortedPos,
             .sortedVelocity = {{0, 0, 0, 0}, {0, 0, 0, 0}},
-            .particleIndex = {{0, 0}, {0, 1}}, // sorted[0]->serial 0, sorted[1]->serial 1
+            .particleIndex = {{0, 0},
+                              {0,
+                               1}}, // sorted[0]->serial 0, sorted[1]->serial 1
             .particleIndexBack = {0, 1},
-            .position = {{0.5f, 0.5f, 0.5f, 1.0f},   // serial 0: LIQUID
+            .position = {{0.5f, 0.5f, 0.5f, 1.0f},    // serial 0: LIQUID
                          {0.5f, 0.46f, 0.5f, 3.0f}},  // serial 1: BOUNDARY
-            .velocity = {{0, 0, 0, 0},
-                         {0, 1, 0, 0}}, // boundary normal: +y
+            .velocity = {{0, 0, 0, 0}, {0, 1, 0, 0}}, // boundary normal: +y
             .neighborMap = neighborMap,
             .gravity_x = 0.0f,
             .gravity_y = 0.0f,

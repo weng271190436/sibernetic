@@ -10,8 +10,7 @@
 
 namespace SiberneticTest {
 
-class MetalPcisphPredictPositionsRunner
-    : public PcisphPredictPositionsRunner {
+class MetalPcisphPredictPositionsRunner : public PcisphPredictPositionsRunner {
 public:
   PcisphPredictPositionsResult
   run(const PcisphPredictPositionsCase &tc) override {
@@ -30,20 +29,17 @@ public:
         input.sortedPosition.data(), input.sortedPosition.size_bytes(),
         MTL::ResourceStorageModeShared));
 
-    auto args =
-        Sibernetic::toMetalArgs(input, device, inOutAcceleration.get(),
-                                inOutSortedPosition.get());
+    auto args = Sibernetic::toMetalArgs(input, device, inOutAcceleration.get(),
+                                        inOutSortedPosition.get());
 
-    metal.dispatch(N,
-                   [&](MTL::ComputeCommandEncoder *enc) { args.bind(enc); });
+    metal.dispatch(N, [&](MTL::ComputeCommandEncoder *enc) { args.bind(enc); });
 
     // Read back predicted positions from sortedPosition[N..2N)
     PcisphPredictPositionsResult result;
     const auto *sortedPosPtr =
         reinterpret_cast<const Sibernetic::MetalFloat4 *>(
             inOutSortedPosition->contents());
-    result.predictedPosition =
-        Sibernetic::Metal::decode(sortedPosPtr + N, N);
+    result.predictedPosition = Sibernetic::Metal::decode(sortedPosPtr + N, N);
     return result;
   }
 };
