@@ -703,10 +703,15 @@ inline void computeInteractionWithBoundaryParticles(
   }
 }
 
-// PCISPH originalPosition prediction: semi-implicit Euler step.
-// Reads current sorted originalPosition/velocity and combined acceleration,
-// writes predicted originalPosition into sortedPosition[particleCount + id].
-// Boundary particles just copy their current originalPosition unchanged.
+// PCISPH position prediction: semi-implicit Euler step.
+// Reads current sorted position/velocity and acceleration (non-pressure from
+// the first half + pressure from the second half),
+// writes predicted position into sortedPosition[particleCount +
+// sortedParticleId]. The second half uses the same sorted index as the first
+// half for 1:1 correspondence, but is not spatially sorted by cell ID —
+// particles may have moved to different cells after integration. Re-sorting
+// happens at the start of the next timestep (hashParticles → sort →
+// sortPostPass). Boundary particles just copy their current position unchanged.
 kernel void pcisph_predictPositions(
     device float4 *acceleration [[buffer(0)]],
     device float4 *sortedPosition [[buffer(1)]],
@@ -717,7 +722,7 @@ kernel void pcisph_predictPositions(
     constant float &gravitationalAccelerationY [[buffer(6)]],
     constant float &gravitationalAccelerationZ [[buffer(7)]],
     constant float &simulationScaleInv [[buffer(8)]],
-    constant float &timeStep [[buffer(9)]],
+    constant float &deltaTime [[buffer(9)]],
     // originalPosition: unsorted originalPosition array indexed by serialId.
     // .w holds particle type (e.g. kBoundaryParticle); used for type checks
     // and boundary interaction geometry.
@@ -738,36 +743,31 @@ kernel void pcisph_predictPositions(
   if (serialId >= particleCount)
     return;
 
-  const uint id = sortedParticleIdBySerialId[serialId];
-  const uint id_source_particle = sortedCellAndSerialId[id].y; // PI_SERIAL_ID
+  const uint sortedParticleId = sortedParticleIdBySerialId[serialId];
 
-  float4 position_t = sortedPosition[id];
+  float4 currentPosition = sortedPosition[sortedParticleId];
 
-  // Boundary particles are stationary; just copy current originalPosition.
-  if (static_cast<int>(originalPosition[id_source_particle].w) ==
-      kBoundaryParticle) {
-    sortedPosition[particleCount + id] = position_t;
+  // Boundary particles are stationary; just copy current position.
+  if (static_cast<int>(originalPosition[serialId].w) == kBoundaryParticle) {
+    sortedPosition[particleCount + sortedParticleId] = currentPosition;
     return;
   }
 
-  // Combined acceleration from previous timestep (stored in 3rd segment).
-  float4 acceleration_t = acceleration[particleCount * 2 + id_source_particle];
-  acceleration_t.w = 0.0f;
   // Current non-pressure + pressure accelerations.
-  float4 acceleration_t_dt =
-      acceleration[id] + acceleration[particleCount + id];
-  acceleration_t_dt.w = 0.0f;
+  // Only .xyz is physically meaningful; .w is not used.
+  float4 currentAcceleration = acceleration[sortedParticleId] +
+                               acceleration[particleCount + sortedParticleId];
 
-  float4 velocity_t = sortedVelocity[id];
+  float4 currentVelocity = sortedVelocity[sortedParticleId];
   // Semi-implicit Euler integration.
-  float4 velocity_t_dt = velocity_t + timeStep * acceleration_t_dt;
-  const float posTimeStep = timeStep * simulationScaleInv;
-  float4 position_t_dt = position_t + posTimeStep * velocity_t_dt;
+  float4 predictedVelocity = currentVelocity + deltaTime * currentAcceleration;
+  const float posDeltaTime = deltaTime * simulationScaleInv;
+  float4 predictedPosition = currentPosition + posDeltaTime * predictedVelocity;
 
   computeInteractionWithBoundaryParticles(
-      static_cast<int>(id), r0, neighborMap, sortedParticleIdBySerialId,
-      sortedCellAndSerialId, originalPosition, velocity, &position_t_dt, false,
-      &velocity_t_dt, particleCount);
+      static_cast<int>(sortedParticleId), r0, neighborMap,
+      sortedParticleIdBySerialId, sortedCellAndSerialId, originalPosition,
+      velocity, &predictedPosition, false, &predictedVelocity, particleCount);
 
-  sortedPosition[particleCount + id] = position_t_dt;
+  sortedPosition[particleCount + sortedParticleId] = predictedPosition;
 }

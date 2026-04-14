@@ -30,14 +30,14 @@ struct PcisphPredictPositionsCase {
   std::vector<Sibernetic::HostFloat4> sortedVelocity;       // size: N
   std::vector<Sibernetic::HostUInt2> sortedCellAndSerialId; // size: N
   std::vector<uint32_t> sortedParticleIdBySerialId;         // size: N
-  std::vector<Sibernetic::HostFloat4> originalPosition;    // size: N (original)
+  std::vector<Sibernetic::HostFloat4> originalPosition; // size: N (original)
   std::vector<Sibernetic::HostFloat4> velocity;    // size: N (boundary normals)
   std::vector<Sibernetic::HostFloat2> neighborMap; // size: N * 32
   float gravitationalAccelerationX;
   float gravitationalAccelerationY;
   float gravitationalAccelerationZ;
   float simulationScaleInv;
-  float timeStep;
+  float deltaTime;
   float r0;
 
   // Expected output
@@ -57,7 +57,7 @@ struct PcisphPredictPositionsCase {
         .gravitationalAccelerationY = gravitationalAccelerationY,
         .gravitationalAccelerationZ = gravitationalAccelerationZ,
         .simulationScaleInv = simulationScaleInv,
-        .timeStep = timeStep,
+        .deltaTime = deltaTime,
         .r0 = r0,
         .particleCount = static_cast<uint32_t>(sortedVelocity.size()),
     };
@@ -105,7 +105,8 @@ struct PcisphPredictPositionsTestCommon {
       };
 
       // ---- Test 1: BoundaryParticleUnchanged ----
-      // Boundary particle (originalPosition.w == 3) just copies its current originalPosition.
+      // Boundary particle (originalPosition.w == 3) just copies its current
+      // originalPosition.
       {
         constexpr uint32_t N = 1;
         auto neighborMap = makeNeighborMap(N);
@@ -121,13 +122,13 @@ struct PcisphPredictPositionsTestCommon {
             .sortedCellAndSerialId = {{0, 0}}, // cell 0, serial 0
             .sortedParticleIdBySerialId = {0},
             .originalPosition = {{5.0f, 6.0f, 7.0f, 3.0f}}, // .w=3 => BOUNDARY
-            .velocity = {{0, 1, 0, 0}},             // normal
+            .velocity = {{0, 1, 0, 0}},                     // normal
             .neighborMap = neighborMap,
             .gravitationalAccelerationX = 0.0f,
             .gravitationalAccelerationY = -9.8f,
             .gravitationalAccelerationZ = 0.0f,
             .simulationScaleInv = 1.0f,
-            .timeStep = 0.001f,
+            .deltaTime = 0.001f,
             .r0 = 0.1f,
             .expectedPredictedPosition = {{5.0f, 6.0f, 7.0f, 0.0f}},
         });
@@ -170,7 +171,7 @@ struct PcisphPredictPositionsTestCommon {
             .gravitationalAccelerationY = 0.0f,
             .gravitationalAccelerationZ = 0.0f,
             .simulationScaleInv = 1.0f,
-            .timeStep = 0.001f,
+            .deltaTime = 0.001f,
             .r0 = 0.1f,
             .expectedPredictedPosition = {{1.0f, yNew, 3.0f, 0.0f}},
         });
@@ -206,7 +207,7 @@ struct PcisphPredictPositionsTestCommon {
             .gravitationalAccelerationY = 0.0f,
             .gravitationalAccelerationZ = 0.0f,
             .simulationScaleInv = simScaleInv,
-            .timeStep = dt,
+            .deltaTime = dt,
             .r0 = 0.1f,
             .expectedPredictedPosition = {{xNew, 0.0f, 0.0f, 0.0f}},
         });
@@ -268,7 +269,7 @@ struct PcisphPredictPositionsTestCommon {
             .gravitationalAccelerationY = 0.0f,
             .gravitationalAccelerationZ = 0.0f,
             .simulationScaleInv = simScaleInv,
-            .timeStep = dt,
+            .deltaTime = dt,
             .r0 = 0.1f,
             // output: sortedPos[N+0] for sorted id 0, sortedPos[N+1] for sorted
             // id 1
@@ -316,15 +317,16 @@ struct PcisphPredictPositionsTestCommon {
             .sortedCellAndSerialId =
                 {{0, 0}, {0, 1}}, // sorted[0]->serial 0, sorted[1]->serial 1
             .sortedParticleIdBySerialId = {0, 1},
-            .originalPosition = {{0.5f, 0.5f, 0.5f, 1.0f},    // serial 0: LIQUID
-                         {0.5f, 0.46f, 0.5f, 3.0f}},  // serial 1: BOUNDARY
+            .originalPosition = {{0.5f, 0.5f, 0.5f, 1.0f}, // serial 0: LIQUID
+                                 {0.5f, 0.46f, 0.5f,
+                                  3.0f}},             // serial 1: BOUNDARY
             .velocity = {{0, 0, 0, 0}, {0, 1, 0, 0}}, // boundary normal: +y
             .neighborMap = neighborMap,
             .gravitationalAccelerationX = 0.0f,
             .gravitationalAccelerationY = 0.0f,
             .gravitationalAccelerationZ = 0.0f,
             .simulationScaleInv = simScaleInv,
-            .timeStep = dt,
+            .deltaTime = dt,
             .r0 = r0val,
             // Exact value: Euler gives (0.5, 0.5, 0.5) (no accel).
             // Boundary pushes +y. w_c = (0.1-0.04)/0.1 = 0.6

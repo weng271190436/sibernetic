@@ -15,7 +15,7 @@
 //       float gravitationalAccelerationY,                         // arg 6
 //       float gravitationalAccelerationZ,                         // arg 7
 //       float simulationScaleInv,                // arg 8
-//       float timeStep,                          // arg 9
+//       float deltaTime,                          // arg 9
 //       __global float4 *originalPosition,               // arg 10
 //       __global float4 *velocity,               // arg 11
 //       float r0,                                // arg 12
@@ -34,7 +34,7 @@
 //       constant float &gravitationalAccelerationY               [[buffer(6)]],
 //       constant float &gravitationalAccelerationZ               [[buffer(7)]],
 //       constant float &simulationScaleInv      [[buffer(8)]],
-//       constant float &timeStep                [[buffer(9)]],
+//       constant float &deltaTime               [[buffer(9)]],
 //       const device float4 *originalPosition           [[buffer(10)]],
 //       const device float4 *velocity           [[buffer(11)]],
 //       constant float &r0                      [[buffer(12)]],
@@ -69,14 +69,14 @@ struct PcisphPredictPositionsInput {
   Float4Span sortedVelocity; // size: particleCount
   UInt2Span sortedCellAndSerialId;       // size: particleCount
   UInt32Span sortedParticleIdBySerialId; // size: particleCount
-  Float4Span originalPosition;                   // size: particleCount
+  Float4Span originalPosition;           // size: particleCount
   Float4Span velocity;    // size: particleCount (boundary stores normals)
   Float2Span neighborMap; // size: particleCount * MAX_NEIGHBOR_COUNT
   float gravitationalAccelerationX;
   float gravitationalAccelerationY;
   float gravitationalAccelerationZ;
   float simulationScaleInv;
-  float timeStep;
+  float deltaTime;
   float r0;
   uint32_t particleCount;
 };
@@ -94,8 +94,8 @@ struct PcisphPredictPositionsMetalArgs {
   float gravitationalAccelerationY;        // [[buffer(6)]]
   float gravitationalAccelerationZ;        // [[buffer(7)]]
   float simulationScaleInv;                // [[buffer(8)]]
-  float timeStep;                          // [[buffer(9)]]
-  MTL::Buffer *originalPosition;                   // [[buffer(10)]]
+  float deltaTime;                         // [[buffer(9)]]
+  MTL::Buffer *originalPosition;           // [[buffer(10)]]
   MTL::Buffer *velocity;                   // [[buffer(11)]]
   float r0;                                // [[buffer(12)]]
   MTL::Buffer *neighborMap;                // [[buffer(13)]]
@@ -111,7 +111,7 @@ struct PcisphPredictPositionsMetalArgs {
     bindScalar(enc, gravitationalAccelerationY, 6);
     bindScalar(enc, gravitationalAccelerationZ, 7);
     bindScalar(enc, simulationScaleInv, 8);
-    bindScalar(enc, timeStep, 9);
+    bindScalar(enc, deltaTime, 9);
     bindBuffer(enc, originalPosition, 10);
     bindBuffer(enc, velocity, 11);
     bindScalar(enc, r0, 12);
@@ -140,10 +140,10 @@ toMetalArgs(const PcisphPredictPositionsInput &input, MTL::Device *device,
   args.gravitationalAccelerationY = input.gravitationalAccelerationY;
   args.gravitationalAccelerationZ = input.gravitationalAccelerationZ;
   args.simulationScaleInv = input.simulationScaleInv;
-  args.timeStep = input.timeStep;
-  args.originalPosition =
-      device->newBuffer(input.originalPosition.data(), input.originalPosition.size_bytes(),
-                        MTL::ResourceStorageModeShared);
+  args.deltaTime = input.deltaTime;
+  args.originalPosition = device->newBuffer(input.originalPosition.data(),
+                                            input.originalPosition.size_bytes(),
+                                            MTL::ResourceStorageModeShared);
   args.velocity =
       device->newBuffer(input.velocity.data(), input.velocity.size_bytes(),
                         MTL::ResourceStorageModeShared);
@@ -170,8 +170,8 @@ struct PcisphPredictPositionsOpenCLArgs {
   float gravitationalAccelerationY;      // arg 6
   float gravitationalAccelerationZ;      // arg 7
   float simulationScaleInv;              // arg 8
-  float timeStep;                        // arg 9
-  cl::Buffer originalPosition;                   // arg 10
+  float deltaTime;                       // arg 9
+  cl::Buffer originalPosition;           // arg 10
   cl::Buffer velocity;                   // arg 11
   float r0;                              // arg 12
   cl::Buffer neighborMap;                // arg 13
@@ -187,7 +187,7 @@ struct PcisphPredictPositionsOpenCLArgs {
     bindScalar(kernel, gravitationalAccelerationY, 6);
     bindScalar(kernel, gravitationalAccelerationZ, 7);
     bindScalar(kernel, simulationScaleInv, 8);
-    bindScalar(kernel, timeStep, 9);
+    bindScalar(kernel, deltaTime, 9);
     bindBuffer(kernel, originalPosition, 10);
     bindBuffer(kernel, velocity, 11);
     bindScalar(kernel, r0, 12);
@@ -219,7 +219,7 @@ toOpenCLArgs(const PcisphPredictPositionsInput &input, cl::Context &context,
   args.gravitationalAccelerationY = input.gravitationalAccelerationY;
   args.gravitationalAccelerationZ = input.gravitationalAccelerationZ;
   args.simulationScaleInv = input.simulationScaleInv;
-  args.timeStep = input.timeStep;
+  args.deltaTime = input.deltaTime;
   args.originalPosition =
       cl::Buffer(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
                  input.originalPosition.size_bytes(),
