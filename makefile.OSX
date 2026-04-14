@@ -43,7 +43,8 @@ KERNEL_TEST_SRC := tests/metal_private_impl.cpp \
 				   tests/find_neighbors/find_neighbors_gtest.cpp \
 				   tests/indexx/indexx_gtest.cpp \
 				   tests/sort_post_pass/sort_post_pass_gtest.cpp \
-				   tests/pcisph_compute_forces/pcisph_compute_forces_test.cpp
+				   tests/pcisph_compute_forces/pcisph_compute_forces_test.cpp \
+				   tests/pcisph_predict_positions/pcisph_predict_positions_test.cpp
 KERNEL_TEST_HDRS := $(shell find tests -type f -name '*.h')
 KERNEL_TEST_BIN  := $(BUILDDIR)/kernel_backend_tests
 KERNEL_TEST_OBJDIR := $(BUILDDIR)/test_obj

@@ -637,3 +637,121 @@ kernel void pcisph_computeForcesAndInitPressure(
   writeAccelerationAndInitPressure(acceleration, pressure, particleCount,
                                    sortedParticleId, totalAccel);
 }
+
+// Boundary handling helper for pcisph_predictPositions.
+// Pushes the predicted position away from nearby boundary particles using
+// weighted normal vectors (Ihmsen et al., 2010, Sec. 3.2).
+// When tangVel is true, also removes the normal component of velocity and
+// applies friction (eps = 0.99).
+inline void computeInteractionWithBoundaryParticles(
+    int id, float r0, const device float2 *neighborMap,
+    const device uint *particleIndexBack, const device uint2 *particleIndex,
+    const device float4 *position, const device float4 *velocity,
+    thread float4 *pos_, bool tangVel, thread float4 *vel, uint particleCount) {
+  const int idx = id * kMaxNeighborCount;
+  float4 n_c_i = float4(0.0f);
+  float w_c_ib_sum = 0.0f;
+  float w_c_ib_second_sum = 0.0f;
+
+  for (int nc = 0; nc < kMaxNeighborCount; ++nc) {
+    const int id_b = static_cast<int>(neighborMap[idx + nc].x);
+    if (id_b == kNoParticleId)
+      continue;
+
+    const uint id_b_source_particle = particleIndex[id_b].y;
+    if (static_cast<int>(position[id_b_source_particle].w) != kBoundaryParticle)
+      continue;
+
+    float x_ib_dist = ((*pos_).x - position[id_b_source_particle].x) *
+                          ((*pos_).x - position[id_b_source_particle].x) +
+                      ((*pos_).y - position[id_b_source_particle].y) *
+                          ((*pos_).y - position[id_b_source_particle].y) +
+                      ((*pos_).z - position[id_b_source_particle].z) *
+                          ((*pos_).z - position[id_b_source_particle].z);
+    x_ib_dist = sqrt(x_ib_dist);
+    const float w_c_ib = max(0.0f, (r0 - x_ib_dist) / r0); // Ihmsen (10)
+    // Boundary particles store their outward normal in velocity[].
+    const float4 n_b = velocity[id_b_source_particle]; // Ihmsen (9)
+    n_c_i += n_b * w_c_ib;
+    w_c_ib_sum += w_c_ib;                           // Ihmsen (11) sum #1
+    w_c_ib_second_sum += w_c_ib * (r0 - x_ib_dist); // Ihmsen (11) sum #2
+  }
+
+  float n_c_i_length = dot(n_c_i, n_c_i);
+  if (n_c_i_length != 0.0f) {
+    n_c_i_length = sqrt(n_c_i_length);
+    const float4 delta_pos = ((n_c_i / n_c_i_length) * w_c_ib_second_sum) /
+                             w_c_ib_sum; // Ihmsen (11)
+    (*pos_).x += delta_pos.x;
+    (*pos_).y += delta_pos.y;
+    (*pos_).z += delta_pos.z;
+
+    if (tangVel) {
+      const float eps = 0.99f;
+      const float vel_n_len =
+          n_c_i.x * (*vel).x + n_c_i.y * (*vel).y + n_c_i.z * (*vel).z;
+      if (vel_n_len < 0.0f) {
+        (*vel).x -= n_c_i.x * vel_n_len;
+        (*vel).y -= n_c_i.y * vel_n_len;
+        (*vel).z -= n_c_i.z * vel_n_len;
+        (*vel) = (*vel) * eps; // Ihmsen (12)
+      }
+    }
+  }
+}
+
+// PCISPH position prediction: semi-implicit Euler step.
+// Reads current sorted position/velocity and combined acceleration,
+// writes predicted position into sortedPosition[particleCount + id].
+// Boundary particles just copy their current position unchanged.
+kernel void
+pcisph_predictPositions(device float4 *acceleration [[buffer(0)]],
+                        device float4 *sortedPosition [[buffer(1)]],
+                        const device float4 *sortedVelocity [[buffer(2)]],
+                        const device uint2 *particleIndex [[buffer(3)]],
+                        const device uint *particleIndexBack [[buffer(4)]],
+                        constant float &gravity_x [[buffer(5)]],
+                        constant float &gravity_y [[buffer(6)]],
+                        constant float &gravity_z [[buffer(7)]],
+                        constant float &simulationScaleInv [[buffer(8)]],
+                        constant float &timeStep [[buffer(9)]],
+                        const device float4 *position [[buffer(10)]],
+                        const device float4 *velocity [[buffer(11)]],
+                        constant float &r0 [[buffer(12)]],
+                        const device float2 *neighborMap [[buffer(13)]],
+                        constant uint &particleCount [[buffer(14)]],
+                        uint gid [[thread_position_in_grid]]) {
+  if (gid >= particleCount)
+    return;
+
+  const uint id = particleIndexBack[gid];
+  const uint id_source_particle = particleIndex[id].y; // PI_SERIAL_ID
+
+  float4 position_t = sortedPosition[id];
+
+  // Boundary particles are stationary; just copy current position.
+  if (static_cast<int>(position[id_source_particle].w) == kBoundaryParticle) {
+    sortedPosition[particleCount + id] = position_t;
+    return;
+  }
+
+  // Combined acceleration from previous timestep (stored in 3rd segment).
+  float4 acceleration_t = acceleration[particleCount * 2 + id_source_particle];
+  acceleration_t.w = 0.0f;
+  // Current non-pressure + pressure accelerations.
+  float4 acceleration_t_dt =
+      acceleration[id] + acceleration[particleCount + id];
+  acceleration_t_dt.w = 0.0f;
+
+  float4 velocity_t = sortedVelocity[id];
+  // Semi-implicit Euler integration.
+  float4 velocity_t_dt = velocity_t + timeStep * acceleration_t_dt;
+  const float posTimeStep = timeStep * simulationScaleInv;
+  float4 position_t_dt = position_t + posTimeStep * velocity_t_dt;
+
+  computeInteractionWithBoundaryParticles(
+      static_cast<int>(id), r0, neighborMap, particleIndexBack, particleIndex,
+      position, velocity, &position_t_dt, false, &velocity_t_dt, particleCount);
+
+  sortedPosition[particleCount + id] = position_t_dt;
+}

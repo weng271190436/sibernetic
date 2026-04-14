@@ -1,0 +1,245 @@
+#pragma once
+
+// Kernel argument abstraction for the `pcisph_predictPositions` kernel.
+//
+// OpenCL signature (sphFluid.cl):
+//   __kernel void pcisph_predictPositions(
+//       __global float4 *acceleration,         // arg 0  (3×N: non-pressure,
+//       pressure, combined)
+//       __global float4 *sortedPosition,        // arg 1  (2×N: current [0..N),
+//       predicted [N..2N))
+//       __global float4 *sortedVelocity,        // arg 2
+//       __global uint2  *particleIndex,          // arg 3
+//       __global uint   *particleIndexBack,      // arg 4
+//       float gravity_x,                         // arg 5
+//       float gravity_y,                         // arg 6
+//       float gravity_z,                         // arg 7
+//       float simulationScaleInv,                // arg 8
+//       float timeStep,                          // arg 9
+//       __global float4 *position,               // arg 10
+//       __global float4 *velocity,               // arg 11
+//       float r0,                                // arg 12
+//       __global float2 *neighborMap,            // arg 13
+//       uint PARTICLE_COUNT                      // arg 14
+//   )
+//
+// Metal signature (sphFluid.metal):
+//   kernel void pcisph_predictPositions(
+//       device float4 *acceleration             [[buffer(0)]],
+//       device float4 *sortedPosition           [[buffer(1)]],
+//       const device float4 *sortedVelocity     [[buffer(2)]],
+//       const device uint2 *particleIndex       [[buffer(3)]],
+//       const device uint *particleIndexBack    [[buffer(4)]],
+//       constant float &gravity_x               [[buffer(5)]],
+//       constant float &gravity_y               [[buffer(6)]],
+//       constant float &gravity_z               [[buffer(7)]],
+//       constant float &simulationScaleInv      [[buffer(8)]],
+//       constant float &timeStep                [[buffer(9)]],
+//       const device float4 *position           [[buffer(10)]],
+//       const device float4 *velocity           [[buffer(11)]],
+//       constant float &r0                      [[buffer(12)]],
+//       const device float2 *neighborMap        [[buffer(13)]],
+//       constant uint &particleCount            [[buffer(14)]],
+//       uint gid [[thread_position_in_grid]])
+
+#include <cstdint>
+
+#include "../types/HostTypes.h"
+#include "common/KernelArgs.h"
+
+#ifdef SIBERNETIC_USE_METAL
+#include "Metal/MTLBuffer.hpp"
+#include "Metal/MTLComputeCommandEncoder.hpp"
+#include "Metal/MTLDevice.hpp"
+#endif
+
+#ifdef SIBERNETIC_USE_OPENCL
+#ifdef err_local
+#undef err_local
+#endif
+#include "OpenCL/cl.hpp"
+#endif
+
+namespace Sibernetic {
+
+// ============ Backend-agnostic input ============
+struct PcisphPredictPositionsInput {
+  Float4Span acceleration;   // size: particleCount * 3
+  Float4Span sortedPosition; // size: particleCount * 2 (in [0..N), out [N..2N))
+  Float4Span sortedVelocity; // size: particleCount
+  UInt2Span particleIndex;   // size: particleCount
+  UInt32Span particleIndexBack; // size: particleCount
+  Float4Span position;          // size: particleCount
+  Float4Span velocity;          // size: particleCount (boundary stores normals)
+  Float2Span neighborMap;       // size: particleCount * MAX_NEIGHBOR_COUNT
+  float gravity_x;
+  float gravity_y;
+  float gravity_z;
+  float simulationScaleInv;
+  float timeStep;
+  float r0;
+  uint32_t particleCount;
+};
+
+// ============ Metal ============
+#ifdef SIBERNETIC_USE_METAL
+
+struct PcisphPredictPositionsMetalArgs {
+  MTL::Buffer *acceleration;      // [[buffer(0)]]  in/out (3×N)
+  MTL::Buffer *sortedPosition;    // [[buffer(1)]]  in/out (2×N)
+  MTL::Buffer *sortedVelocity;    // [[buffer(2)]]
+  MTL::Buffer *particleIndex;     // [[buffer(3)]]
+  MTL::Buffer *particleIndexBack; // [[buffer(4)]]
+  float gravity_x;                // [[buffer(5)]]
+  float gravity_y;                // [[buffer(6)]]
+  float gravity_z;                // [[buffer(7)]]
+  float simulationScaleInv;       // [[buffer(8)]]
+  float timeStep;                 // [[buffer(9)]]
+  MTL::Buffer *position;          // [[buffer(10)]]
+  MTL::Buffer *velocity;          // [[buffer(11)]]
+  float r0;                       // [[buffer(12)]]
+  MTL::Buffer *neighborMap;       // [[buffer(13)]]
+  uint32_t particleCount;         // [[buffer(14)]]
+
+  void bind(MTL::ComputeCommandEncoder *enc) const {
+    bindBuffer(enc, acceleration, 0);
+    bindBuffer(enc, sortedPosition, 1);
+    bindBuffer(enc, sortedVelocity, 2);
+    bindBuffer(enc, particleIndex, 3);
+    bindBuffer(enc, particleIndexBack, 4);
+    bindScalar(enc, gravity_x, 5);
+    bindScalar(enc, gravity_y, 6);
+    bindScalar(enc, gravity_z, 7);
+    bindScalar(enc, simulationScaleInv, 8);
+    bindScalar(enc, timeStep, 9);
+    bindBuffer(enc, position, 10);
+    bindBuffer(enc, velocity, 11);
+    bindScalar(enc, r0, 12);
+    bindBuffer(enc, neighborMap, 13);
+    bindScalar(enc, particleCount, 14);
+  }
+};
+
+inline PcisphPredictPositionsMetalArgs
+toMetalArgs(const PcisphPredictPositionsInput &input, MTL::Device *device,
+            MTL::Buffer *inOutAcceleration, MTL::Buffer *inOutSortedPosition) {
+  PcisphPredictPositionsMetalArgs args{};
+  args.acceleration = inOutAcceleration;
+  args.sortedPosition = inOutSortedPosition;
+  args.sortedVelocity = device->newBuffer(input.sortedVelocity.data(),
+                                          input.sortedVelocity.size_bytes(),
+                                          MTL::ResourceStorageModeShared);
+  args.particleIndex = device->newBuffer(input.particleIndex.data(),
+                                         input.particleIndex.size_bytes(),
+                                         MTL::ResourceStorageModeShared);
+  args.particleIndexBack = device->newBuffer(
+      input.particleIndexBack.data(), input.particleIndexBack.size_bytes(),
+      MTL::ResourceStorageModeShared);
+  args.gravity_x = input.gravity_x;
+  args.gravity_y = input.gravity_y;
+  args.gravity_z = input.gravity_z;
+  args.simulationScaleInv = input.simulationScaleInv;
+  args.timeStep = input.timeStep;
+  args.position =
+      device->newBuffer(input.position.data(), input.position.size_bytes(),
+                        MTL::ResourceStorageModeShared);
+  args.velocity =
+      device->newBuffer(input.velocity.data(), input.velocity.size_bytes(),
+                        MTL::ResourceStorageModeShared);
+  args.r0 = input.r0;
+  args.neighborMap = device->newBuffer(input.neighborMap.data(),
+                                       input.neighborMap.size_bytes(),
+                                       MTL::ResourceStorageModeShared);
+  args.particleCount = input.particleCount;
+  return args;
+}
+
+#endif // SIBERNETIC_USE_METAL
+
+// ============ OpenCL ============
+#ifdef SIBERNETIC_USE_OPENCL
+
+struct PcisphPredictPositionsOpenCLArgs {
+  cl::Buffer acceleration;      // arg 0
+  cl::Buffer sortedPosition;    // arg 1
+  cl::Buffer sortedVelocity;    // arg 2
+  cl::Buffer particleIndex;     // arg 3
+  cl::Buffer particleIndexBack; // arg 4
+  float gravity_x;              // arg 5
+  float gravity_y;              // arg 6
+  float gravity_z;              // arg 7
+  float simulationScaleInv;     // arg 8
+  float timeStep;               // arg 9
+  cl::Buffer position;          // arg 10
+  cl::Buffer velocity;          // arg 11
+  float r0;                     // arg 12
+  cl::Buffer neighborMap;       // arg 13
+  uint32_t particleCount;       // arg 14
+
+  void bind(cl::Kernel &kernel) const {
+    bindBuffer(kernel, acceleration, 0);
+    bindBuffer(kernel, sortedPosition, 1);
+    bindBuffer(kernel, sortedVelocity, 2);
+    bindBuffer(kernel, particleIndex, 3);
+    bindBuffer(kernel, particleIndexBack, 4);
+    bindScalar(kernel, gravity_x, 5);
+    bindScalar(kernel, gravity_y, 6);
+    bindScalar(kernel, gravity_z, 7);
+    bindScalar(kernel, simulationScaleInv, 8);
+    bindScalar(kernel, timeStep, 9);
+    bindBuffer(kernel, position, 10);
+    bindBuffer(kernel, velocity, 11);
+    bindScalar(kernel, r0, 12);
+    bindBuffer(kernel, neighborMap, 13);
+    bindScalar(kernel, particleCount, 14);
+  }
+};
+
+inline PcisphPredictPositionsOpenCLArgs
+toOpenCLArgs(const PcisphPredictPositionsInput &input, cl::Context &context,
+             cl::Buffer &inOutAcceleration, cl::Buffer &inOutSortedPosition) {
+  cl_int err = CL_SUCCESS;
+  PcisphPredictPositionsOpenCLArgs args{};
+  args.acceleration = inOutAcceleration;
+  args.sortedPosition = inOutSortedPosition;
+  args.sortedVelocity =
+      cl::Buffer(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
+                 input.sortedVelocity.size_bytes(),
+                 const_cast<HostFloat4 *>(input.sortedVelocity.data()), &err);
+  args.particleIndex =
+      cl::Buffer(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
+                 input.particleIndex.size_bytes(),
+                 const_cast<HostUInt2 *>(input.particleIndex.data()), &err);
+  args.particleIndexBack =
+      cl::Buffer(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
+                 input.particleIndexBack.size_bytes(),
+                 const_cast<uint32_t *>(input.particleIndexBack.data()), &err);
+  args.gravity_x = input.gravity_x;
+  args.gravity_y = input.gravity_y;
+  args.gravity_z = input.gravity_z;
+  args.simulationScaleInv = input.simulationScaleInv;
+  args.timeStep = input.timeStep;
+  args.position =
+      cl::Buffer(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
+                 input.position.size_bytes(),
+                 const_cast<HostFloat4 *>(input.position.data()), &err);
+  args.velocity =
+      cl::Buffer(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
+                 input.velocity.size_bytes(),
+                 const_cast<HostFloat4 *>(input.velocity.data()), &err);
+  args.r0 = input.r0;
+  args.neighborMap =
+      cl::Buffer(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
+                 input.neighborMap.size_bytes(),
+                 const_cast<HostFloat2 *>(input.neighborMap.data()), &err);
+  args.particleCount = input.particleCount;
+  return args;
+}
+
+#endif // SIBERNETIC_USE_OPENCL
+
+// ============ Constants ============
+inline constexpr const char *kPcisphPredictPositionsKernelName =
+    "pcisph_predictPositions";
+
+} // namespace Sibernetic
