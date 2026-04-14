@@ -645,9 +645,10 @@ kernel void pcisph_computeForcesAndInitPressure(
 // applies friction (eps = 0.99).
 inline void computeInteractionWithBoundaryParticles(
     int id, float r0, const device float2 *neighborMap,
-    const device uint *particleIndexBack, const device uint2 *particleIndex,
-    const device float4 *position, const device float4 *velocity,
-    thread float4 *pos_, bool tangVel, thread float4 *vel, uint particleCount) {
+    const device uint *sortedParticleIdBySerialId,
+    const device uint2 *sortedCellAndSerialId, const device float4 *position,
+    const device float4 *velocity, thread float4 *pos_, bool tangVel,
+    thread float4 *vel, uint particleCount) {
   const int idx = id * kMaxNeighborCount;
   float4 n_c_i = float4(0.0f);
   float w_c_ib_sum = 0.0f;
@@ -658,7 +659,7 @@ inline void computeInteractionWithBoundaryParticles(
     if (id_b == kNoParticleId)
       continue;
 
-    const uint id_b_source_particle = particleIndex[id_b].y;
+    const uint id_b_source_particle = sortedCellAndSerialId[id_b].y;
     if (static_cast<int>(position[id_b_source_particle].w) != kBoundaryParticle)
       continue;
 
@@ -704,28 +705,28 @@ inline void computeInteractionWithBoundaryParticles(
 // Reads current sorted position/velocity and combined acceleration,
 // writes predicted position into sortedPosition[particleCount + id].
 // Boundary particles just copy their current position unchanged.
-kernel void
-pcisph_predictPositions(device float4 *acceleration [[buffer(0)]],
-                        device float4 *sortedPosition [[buffer(1)]],
-                        const device float4 *sortedVelocity [[buffer(2)]],
-                        const device uint2 *particleIndex [[buffer(3)]],
-                        const device uint *particleIndexBack [[buffer(4)]],
-                        constant float &gravity_x [[buffer(5)]],
-                        constant float &gravity_y [[buffer(6)]],
-                        constant float &gravity_z [[buffer(7)]],
-                        constant float &simulationScaleInv [[buffer(8)]],
-                        constant float &timeStep [[buffer(9)]],
-                        const device float4 *position [[buffer(10)]],
-                        const device float4 *velocity [[buffer(11)]],
-                        constant float &r0 [[buffer(12)]],
-                        const device float2 *neighborMap [[buffer(13)]],
-                        constant uint &particleCount [[buffer(14)]],
-                        uint gid [[thread_position_in_grid]]) {
-  if (gid >= particleCount)
+kernel void pcisph_predictPositions(
+    device float4 *acceleration [[buffer(0)]],
+    device float4 *sortedPosition [[buffer(1)]],
+    const device float4 *sortedVelocity [[buffer(2)]],
+    const device uint2 *sortedCellAndSerialId [[buffer(3)]],
+    const device uint *sortedParticleIdBySerialId [[buffer(4)]],
+    constant float &gravitationalAccelerationX [[buffer(5)]],
+    constant float &gravitationalAccelerationY [[buffer(6)]],
+    constant float &gravitationalAccelerationZ [[buffer(7)]],
+    constant float &simulationScaleInv [[buffer(8)]],
+    constant float &timeStep [[buffer(9)]],
+    const device float4 *position [[buffer(10)]],
+    const device float4 *velocity [[buffer(11)]],
+    constant float &r0 [[buffer(12)]],
+    const device float2 *neighborMap [[buffer(13)]],
+    constant uint &particleCount [[buffer(14)]],
+    uint serialId [[thread_position_in_grid]]) {
+  if (serialId >= particleCount)
     return;
 
-  const uint id = particleIndexBack[gid];
-  const uint id_source_particle = particleIndex[id].y; // PI_SERIAL_ID
+  const uint id = sortedParticleIdBySerialId[serialId];
+  const uint id_source_particle = sortedCellAndSerialId[id].y; // PI_SERIAL_ID
 
   float4 position_t = sortedPosition[id];
 
@@ -750,8 +751,9 @@ pcisph_predictPositions(device float4 *acceleration [[buffer(0)]],
   float4 position_t_dt = position_t + posTimeStep * velocity_t_dt;
 
   computeInteractionWithBoundaryParticles(
-      static_cast<int>(id), r0, neighborMap, particleIndexBack, particleIndex,
-      position, velocity, &position_t_dt, false, &velocity_t_dt, particleCount);
+      static_cast<int>(id), r0, neighborMap, sortedParticleIdBySerialId,
+      sortedCellAndSerialId, position, velocity, &position_t_dt, false,
+      &velocity_t_dt, particleCount);
 
   sortedPosition[particleCount + id] = position_t_dt;
 }
