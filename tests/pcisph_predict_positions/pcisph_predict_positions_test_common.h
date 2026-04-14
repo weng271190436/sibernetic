@@ -30,7 +30,7 @@ struct PcisphPredictPositionsCase {
   std::vector<Sibernetic::HostFloat4> sortedVelocity;       // size: N
   std::vector<Sibernetic::HostUInt2> sortedCellAndSerialId; // size: N
   std::vector<uint32_t> sortedParticleIdBySerialId;         // size: N
-  std::vector<Sibernetic::HostFloat4> position;    // size: N (original)
+  std::vector<Sibernetic::HostFloat4> originalPosition;    // size: N (original)
   std::vector<Sibernetic::HostFloat4> velocity;    // size: N (boundary normals)
   std::vector<Sibernetic::HostFloat2> neighborMap; // size: N * 32
   float gravitationalAccelerationX;
@@ -50,7 +50,7 @@ struct PcisphPredictPositionsCase {
         .sortedVelocity = sortedVelocity,
         .sortedCellAndSerialId = sortedCellAndSerialId,
         .sortedParticleIdBySerialId = sortedParticleIdBySerialId,
-        .position = position,
+        .originalPosition = originalPosition,
         .velocity = velocity,
         .neighborMap = neighborMap,
         .gravitationalAccelerationX = gravitationalAccelerationX,
@@ -105,7 +105,7 @@ struct PcisphPredictPositionsTestCommon {
       };
 
       // ---- Test 1: BoundaryParticleUnchanged ----
-      // Boundary particle (position.w == 3) just copies its current position.
+      // Boundary particle (originalPosition.w == 3) just copies its current originalPosition.
       {
         constexpr uint32_t N = 1;
         auto neighborMap = makeNeighborMap(N);
@@ -120,7 +120,7 @@ struct PcisphPredictPositionsTestCommon {
             .sortedVelocity = {{1.0f, 2.0f, 3.0f, 0.0f}},
             .sortedCellAndSerialId = {{0, 0}}, // cell 0, serial 0
             .sortedParticleIdBySerialId = {0},
-            .position = {{5.0f, 6.0f, 7.0f, 3.0f}}, // .w=3 => BOUNDARY
+            .originalPosition = {{5.0f, 6.0f, 7.0f, 3.0f}}, // .w=3 => BOUNDARY
             .velocity = {{0, 1, 0, 0}},             // normal
             .neighborMap = neighborMap,
             .gravitationalAccelerationX = 0.0f,
@@ -163,7 +163,7 @@ struct PcisphPredictPositionsTestCommon {
             .sortedVelocity = {{0.0f, 0.0f, 0.0f, 0.0f}},
             .sortedCellAndSerialId = {{0, 0}},
             .sortedParticleIdBySerialId = {0},
-            .position = {{1.0f, 2.0f, 3.0f, 1.0f}}, // .w=1 => LIQUID
+            .originalPosition = {{1.0f, 2.0f, 3.0f, 1.0f}}, // .w=1 => LIQUID
             .velocity = {{0, 0, 0, 0}},
             .neighborMap = neighborMap,
             .gravitationalAccelerationX = 0.0f,
@@ -199,7 +199,7 @@ struct PcisphPredictPositionsTestCommon {
             .sortedVelocity = {{2.0f, 0.0f, 0.0f, 0.0f}},
             .sortedCellAndSerialId = {{0, 0}},
             .sortedParticleIdBySerialId = {0},
-            .position = {{0.0f, 0.0f, 0.0f, 1.0f}}, // LIQUID
+            .originalPosition = {{0.0f, 0.0f, 0.0f, 1.0f}}, // LIQUID
             .velocity = {{0, 0, 0, 0}},
             .neighborMap = neighborMap,
             .gravitationalAccelerationX = 0.0f,
@@ -261,7 +261,7 @@ struct PcisphPredictPositionsTestCommon {
                 {{0, 1}, {0, 0}}, // sorted[0]->serial 1, sorted[1]->serial 0
             .sortedParticleIdBySerialId =
                 {1, 0}, // serial 0->sorted 1, serial 1->sorted 0
-            .position = {{0, 10, 0, 1}, {10, 0, 0, 1}}, // both LIQUID
+            .originalPosition = {{0, 10, 0, 1}, {10, 0, 0, 1}}, // both LIQUID
             .velocity = {{0, 0, 0, 0}, {0, 0, 0, 0}},
             .neighborMap = neighborMap,
             .gravitationalAccelerationX = 0.0f,
@@ -303,7 +303,7 @@ struct PcisphPredictPositionsTestCommon {
 
         // The boundary particle stores its outward normal in velocity.
         // Normal pointing +y (away from boundary wall).
-        // position[1].w = 3 (boundary).
+        // originalPosition[1].w = 3 (boundary).
         // After Euler step with no acceleration, predicted = original.
         // Then boundary interaction pushes it in +y direction.
         // We just verify y_predicted > y_original (pushed away).
@@ -316,7 +316,7 @@ struct PcisphPredictPositionsTestCommon {
             .sortedCellAndSerialId =
                 {{0, 0}, {0, 1}}, // sorted[0]->serial 0, sorted[1]->serial 1
             .sortedParticleIdBySerialId = {0, 1},
-            .position = {{0.5f, 0.5f, 0.5f, 1.0f},    // serial 0: LIQUID
+            .originalPosition = {{0.5f, 0.5f, 0.5f, 1.0f},    // serial 0: LIQUID
                          {0.5f, 0.46f, 0.5f, 3.0f}},  // serial 1: BOUNDARY
             .velocity = {{0, 0, 0, 0}, {0, 1, 0, 0}}, // boundary normal: +y
             .neighborMap = neighborMap,

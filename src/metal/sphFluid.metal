@@ -646,9 +646,9 @@ kernel void pcisph_computeForcesAndInitPressure(
 inline void computeInteractionWithBoundaryParticles(
     int id, float r0, const device float2 *neighborMap,
     const device uint *sortedParticleIdBySerialId,
-    const device uint2 *sortedCellAndSerialId, const device float4 *position,
-    const device float4 *velocity, thread float4 *pos_, bool tangVel,
-    thread float4 *vel, uint particleCount) {
+    const device uint2 *sortedCellAndSerialId,
+    const device float4 *originalPosition, const device float4 *velocity,
+    thread float4 *pos_, bool tangVel, thread float4 *vel, uint particleCount) {
   const int idx = id * kMaxNeighborCount;
   float4 n_c_i = float4(0.0f);
   float w_c_ib_sum = 0.0f;
@@ -660,15 +660,17 @@ inline void computeInteractionWithBoundaryParticles(
       continue;
 
     const uint id_b_source_particle = sortedCellAndSerialId[id_b].y;
-    if (static_cast<int>(position[id_b_source_particle].w) != kBoundaryParticle)
+    if (static_cast<int>(originalPosition[id_b_source_particle].w) !=
+        kBoundaryParticle)
       continue;
 
-    float x_ib_dist = ((*pos_).x - position[id_b_source_particle].x) *
-                          ((*pos_).x - position[id_b_source_particle].x) +
-                      ((*pos_).y - position[id_b_source_particle].y) *
-                          ((*pos_).y - position[id_b_source_particle].y) +
-                      ((*pos_).z - position[id_b_source_particle].z) *
-                          ((*pos_).z - position[id_b_source_particle].z);
+    float x_ib_dist =
+        ((*pos_).x - originalPosition[id_b_source_particle].x) *
+            ((*pos_).x - originalPosition[id_b_source_particle].x) +
+        ((*pos_).y - originalPosition[id_b_source_particle].y) *
+            ((*pos_).y - originalPosition[id_b_source_particle].y) +
+        ((*pos_).z - originalPosition[id_b_source_particle].z) *
+            ((*pos_).z - originalPosition[id_b_source_particle].z);
     x_ib_dist = sqrt(x_ib_dist);
     const float w_c_ib = max(0.0f, (r0 - x_ib_dist) / r0); // Ihmsen (10)
     // Boundary particles store their outward normal in velocity[].
@@ -701,10 +703,10 @@ inline void computeInteractionWithBoundaryParticles(
   }
 }
 
-// PCISPH position prediction: semi-implicit Euler step.
-// Reads current sorted position/velocity and combined acceleration,
-// writes predicted position into sortedPosition[particleCount + id].
-// Boundary particles just copy their current position unchanged.
+// PCISPH originalPosition prediction: semi-implicit Euler step.
+// Reads current sorted originalPosition/velocity and combined acceleration,
+// writes predicted originalPosition into sortedPosition[particleCount + id].
+// Boundary particles just copy their current originalPosition unchanged.
 kernel void pcisph_predictPositions(
     device float4 *acceleration [[buffer(0)]],
     device float4 *sortedPosition [[buffer(1)]],
@@ -716,9 +718,20 @@ kernel void pcisph_predictPositions(
     constant float &gravitationalAccelerationZ [[buffer(7)]],
     constant float &simulationScaleInv [[buffer(8)]],
     constant float &timeStep [[buffer(9)]],
-    const device float4 *position [[buffer(10)]],
+    // originalPosition: unsorted originalPosition array indexed by serialId.
+    // .w holds particle type (e.g. kBoundaryParticle); used for type checks
+    // and boundary interaction geometry.
+    const device float4 *originalPosition [[buffer(10)]],
+    // velocity: unsorted velocity array indexed by serialId.
+    // For fluid particles: .xyz = velocity, .w = 0 (unused padding).
+    // For boundary particles: .xyz = outward surface normal (used by
+    // computeInteractionWithBoundaryParticles for Ihmsen wall repulsion).
     const device float4 *velocity [[buffer(11)]],
+    // r0: boundary interaction radius (= h * 0.5). Cutoff distance for the
+    // Ihmsen et al. (2010) boundary weight function w_c_ib = max(0, (r0-d)/r0).
     constant float &r0 [[buffer(12)]],
+    // neighborMap: packed neighbor table, kMaxNeighborCount float2 entries per
+    // particle. Each entry: (.x = neighbor sorted particle ID, .y = distance).
     const device float2 *neighborMap [[buffer(13)]],
     constant uint &particleCount [[buffer(14)]],
     uint serialId [[thread_position_in_grid]]) {
@@ -730,8 +743,9 @@ kernel void pcisph_predictPositions(
 
   float4 position_t = sortedPosition[id];
 
-  // Boundary particles are stationary; just copy current position.
-  if (static_cast<int>(position[id_source_particle].w) == kBoundaryParticle) {
+  // Boundary particles are stationary; just copy current originalPosition.
+  if (static_cast<int>(originalPosition[id_source_particle].w) ==
+      kBoundaryParticle) {
     sortedPosition[particleCount + id] = position_t;
     return;
   }
@@ -752,7 +766,7 @@ kernel void pcisph_predictPositions(
 
   computeInteractionWithBoundaryParticles(
       static_cast<int>(id), r0, neighborMap, sortedParticleIdBySerialId,
-      sortedCellAndSerialId, position, velocity, &position_t_dt, false,
+      sortedCellAndSerialId, originalPosition, velocity, &position_t_dt, false,
       &velocity_t_dt, particleCount);
 
   sortedPosition[particleCount + id] = position_t_dt;
