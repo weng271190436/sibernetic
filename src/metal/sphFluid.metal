@@ -797,3 +797,67 @@ kernel void pcisph_predictPositions(
 
   sortedPosition[particleCount + sortedParticleId] = predictedPosition;
 }
+
+// Computes predicted density from predicted positions for the PCISPH pressure
+// correction loop. Reads predicted positions from sortedPosition[N..2N)
+// (written by pcisph_predictPositions), accumulates Poly6 neighbor
+// contributions in unscaled (grid) space, scales by simulationScale^6, and
+// writes the result to rho[N..2N).
+kernel void pcisph_predictDensity(
+    const device float2 *neighborMap [[buffer(0)]],
+    const device uint *sortedParticleIdBySerialId [[buffer(1)]],
+    constant float &massMultWpoly6Coefficient [[buffer(2)]],
+    constant float &h [[buffer(3)]], constant float &rho0 [[buffer(4)]],
+    constant float &simulationScale [[buffer(5)]],
+    const device float4 *sortedPosition [[buffer(6)]],
+    device float *rho [[buffer(7)]], constant uint &particleCount [[buffer(8)]],
+    uint serialId [[thread_position_in_grid]]) {
+  if (serialId >= particleCount)
+    return;
+
+  (void)rho0;
+
+  const uint sortedParticleId = sortedParticleIdBySerialId[serialId];
+  const int neighborMapOffset =
+      static_cast<int>(sortedParticleId) * kMaxNeighborCount;
+
+  const float h2 = h * h;
+  const float hScaled = h * simulationScale;
+  const float hScaled2 = hScaled * hScaled;
+  const float hScaled6 = hScaled2 * hScaled2 * hScaled2;
+  const float simulationScale2 = simulationScale * simulationScale;
+  const float simulationScale6 =
+      simulationScale2 * simulationScale2 * simulationScale2;
+
+  float densityAccum = 0.0f;
+
+  for (int neighborSlot = 0; neighborSlot < kMaxNeighborCount; ++neighborSlot) {
+    const int neighborSortedParticleId =
+        static_cast<int>(neighborMap[neighborMapOffset + neighborSlot].x);
+    if (neighborSortedParticleId == kNoParticleId)
+      continue;
+
+    // Distance between predicted positions (unscaled grid space).
+    const float4 r_ij =
+        sortedPosition[particleCount + sortedParticleId] -
+        sortedPosition[particleCount +
+                       static_cast<uint>(neighborSortedParticleId)];
+    const float r_ij2 = r_ij.x * r_ij.x + r_ij.y * r_ij.y + r_ij.z * r_ij.z;
+
+    if (r_ij2 < h2) {
+      const float delta = h2 - r_ij2;
+      densityAccum += delta * delta * delta;
+    }
+  }
+
+  // Scale from grid space to simulation space.
+  float density = densityAccum * simulationScale6;
+
+  // Floor to the Poly6 self-contribution at r=0 in simulation space.
+  if (density < hScaled6) {
+    density = hScaled6;
+  }
+
+  density *= massMultWpoly6Coefficient;
+  rho[particleCount + sortedParticleId] = density;
+}
