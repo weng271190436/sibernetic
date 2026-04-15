@@ -19,6 +19,10 @@ constant float kViscosityCoeffDefault = 1.0e-4f;
 // Reduced viscosity coefficient for worm-fluid interface interactions.
 // 10x lower than default to allow worm to slide through the medium.
 constant float kViscosityCoeffWormFluid = 1.0e-5f;
+// Boundary friction damping factor (Ihmsen et al., 2010, eq. 12).
+// Applied to velocity after removing the wall-normal component.
+// 0.99 = 1% energy dissipation per correction.
+constant float kBoundaryFriction = 0.99f;
 
 // Particle type ranges are encoded per particle in configuration files
 // ([position] section, 4th column) and loaded into originalPosition[].w.
@@ -641,63 +645,76 @@ kernel void pcisph_computeForcesAndInitPressure(
 // Boundary handling helper for pcisph_predictPositions.
 // Pushes the predicted position away from nearby boundary particles using
 // weighted normal vectors (Ihmsen et al., 2010, Sec. 3.2).
-// When tangVel is true, also removes the normal component of velocity and
-// applies friction (eps = 0.99).
+// When correctVelocity is true, also removes the normal component of velocity
+// and applies friction (eps = 0.99).
+//
+// Limitation: this is a soft repulsion field, not a hard constraint. The
+// boundary weight w_c(i,b) = max(0, (r0-d)/r0) ramps linearly from 1 at d=0
+// to 0 at d=r0. If a particle's velocity is large enough to jump past the
+// entire r0 influence zone in one timestep, all weights clamp to zero and no
+// correction is applied — the particle tunnels through the wall. The
+// simulation relies on deltaTime being small enough that per-step displacement
+// stays within the r0 zone.
 inline void computeInteractionWithBoundaryParticles(
-    int id, float r0, const device float2 *neighborMap,
+    int sortedParticleId, float r0, const device float2 *neighborMap,
     const device uint *sortedParticleIdBySerialId,
     const device uint2 *sortedCellAndSerialId,
     const device float4 *originalPosition, const device float4 *velocity,
-    thread float4 *pos_, bool tangVel, thread float4 *vel, uint particleCount) {
-  const int idx = id * kMaxNeighborCount;
+    thread float4 *predictedPosition, bool correctVelocity,
+    thread float4 *predictedVelocity, uint particleCount) {
+  const int neighborMapOffset = sortedParticleId * kMaxNeighborCount;
   float4 n_c_i = float4(0.0f);
   float w_c_ib_sum = 0.0f;
   float w_c_ib_second_sum = 0.0f;
 
-  for (int nc = 0; nc < kMaxNeighborCount; ++nc) {
-    const int id_b = static_cast<int>(neighborMap[idx + nc].x);
-    if (id_b == kNoParticleId)
+  for (int neighborSlot = 0; neighborSlot < kMaxNeighborCount; ++neighborSlot) {
+    const int neighborSortedParticleId =
+        static_cast<int>(neighborMap[neighborMapOffset + neighborSlot].x);
+    if (neighborSortedParticleId == kNoParticleId)
       continue;
 
-    const uint id_b_source_particle = sortedCellAndSerialId[id_b].y;
-    if (static_cast<int>(originalPosition[id_b_source_particle].w) !=
+    const uint neighborSerialId =
+        sortedCellAndSerialId[neighborSortedParticleId].y;
+    if (static_cast<int>(originalPosition[neighborSerialId].w) !=
         kBoundaryParticle)
       continue;
 
-    float x_ib_dist =
-        ((*pos_).x - originalPosition[id_b_source_particle].x) *
-            ((*pos_).x - originalPosition[id_b_source_particle].x) +
-        ((*pos_).y - originalPosition[id_b_source_particle].y) *
-            ((*pos_).y - originalPosition[id_b_source_particle].y) +
-        ((*pos_).z - originalPosition[id_b_source_particle].z) *
-            ((*pos_).z - originalPosition[id_b_source_particle].z);
-    x_ib_dist = sqrt(x_ib_dist);
-    const float w_c_ib = max(0.0f, (r0 - x_ib_dist) / r0); // Ihmsen (10)
+    const float4 d = (*predictedPosition) - originalPosition[neighborSerialId];
+    float distanceToNeighbor = sqrt(d.x * d.x + d.y * d.y + d.z * d.z);
+    const float w_c_ib =
+        max(0.0f, (r0 - distanceToNeighbor) / r0); // Ihmsen (10)
     // Boundary particles store their outward normal in velocity[].
-    const float4 n_b = velocity[id_b_source_particle]; // Ihmsen (9)
+    const float4 n_b = velocity[neighborSerialId]; // Ihmsen (9)
     n_c_i += n_b * w_c_ib;
-    w_c_ib_sum += w_c_ib;                           // Ihmsen (11) sum #1
-    w_c_ib_second_sum += w_c_ib * (r0 - x_ib_dist); // Ihmsen (11) sum #2
+    w_c_ib_sum += w_c_ib; // Ihmsen (11) sum #1
+    w_c_ib_second_sum +=
+        w_c_ib * (r0 - distanceToNeighbor); // Ihmsen (11) sum #2
   }
 
-  float n_c_i_length = dot(n_c_i, n_c_i);
+  // Only .xyz of n_c_i is physically meaningful; .w accumulates from
+  // velocity[].w of boundary particles (unused padding). Use .xyz explicitly
+  // so correctness does not depend on .w being 0.
+  float n_c_i_length = dot(n_c_i.xyz, n_c_i.xyz);
   if (n_c_i_length != 0.0f) {
     n_c_i_length = sqrt(n_c_i_length);
-    const float4 delta_pos = ((n_c_i / n_c_i_length) * w_c_ib_second_sum) /
-                             w_c_ib_sum; // Ihmsen (11)
-    (*pos_).x += delta_pos.x;
-    (*pos_).y += delta_pos.y;
-    (*pos_).z += delta_pos.z;
+    // Ihmsen (11): position correction =
+    //   normalized contact normal * weighted average penetration depth.
+    //   n_c_i / n_c_i_length = unit contact normal direction
+    //   w_c_ib_second_sum / w_c_ib_sum = weighted avg of (r0 - d) over
+    //   boundary neighbors
+    const float4 deltaPos =
+        ((n_c_i / n_c_i_length) * w_c_ib_second_sum) / w_c_ib_sum;
+    (*predictedPosition).xyz += deltaPos.xyz;
 
-    if (tangVel) {
-      const float eps = 0.99f;
-      const float vel_n_len =
-          n_c_i.x * (*vel).x + n_c_i.y * (*vel).y + n_c_i.z * (*vel).z;
-      if (vel_n_len < 0.0f) {
-        (*vel).x -= n_c_i.x * vel_n_len;
-        (*vel).y -= n_c_i.y * vel_n_len;
-        (*vel).z -= n_c_i.z * vel_n_len;
-        (*vel) = (*vel) * eps; // Ihmsen (12)
+    if (correctVelocity) {
+      // Projection of velocity onto the (unnormalized) contact normal.
+      // Negative means the particle is moving into the wall; only then
+      // do we strip the wall-normal component and apply friction.
+      const float velocityNormalProjection =
+          dot(n_c_i.xyz, (*predictedVelocity).xyz);
+      if (velocityNormalProjection < 0.0f) {
+        (*predictedVelocity).xyz -= n_c_i.xyz * velocityNormalProjection;
+        (*predictedVelocity) *= kBoundaryFriction; // Ihmsen (12)
       }
     }
   }
@@ -761,9 +778,18 @@ kernel void pcisph_predictPositions(
   float4 currentVelocity = sortedVelocity[sortedParticleId];
   // Semi-implicit Euler integration.
   float4 predictedVelocity = currentVelocity + deltaTime * currentAcceleration;
+  // Velocity is in simulation space, but position is in grid space.
+  // Multiply deltaTime by simulationScaleInv (= 1/simulationScale) to convert
+  // the simulation-space displacement into grid-space units.
   const float posDeltaTime = deltaTime * simulationScaleInv;
   float4 predictedPosition = currentPosition + posDeltaTime * predictedVelocity;
 
+  // Position-only boundary correction (correctVelocity=false). Velocity is not
+  // adjusted here because this kernel runs inside the iterative PCISPH
+  // pressure loop — the prediction is tentative and may be recomputed.
+  // The velocity friction correction (Ihmsen eq. 12) is applied once in
+  // pcisph_correctPosition after the pressure loop converges
+  // (correctVelocity=true).
   computeInteractionWithBoundaryParticles(
       static_cast<int>(sortedParticleId), r0, neighborMap,
       sortedParticleIdBySerialId, sortedCellAndSerialId, originalPosition,
