@@ -27,7 +27,7 @@ struct PcisphPredictDensityCase {
   std::vector<uint32_t> sortedParticleIdBySerialId; // size: N
   float massMultWpoly6Coefficient;
   float h;
-  float rho0;
+  float restDensity;
   float simulationScale;
   std::vector<Sibernetic::HostFloat4> sortedPosition; // size: 2*N
 
@@ -40,7 +40,7 @@ struct PcisphPredictDensityCase {
         .sortedParticleIdBySerialId = sortedParticleIdBySerialId,
         .massMultWpoly6Coefficient = massMultWpoly6Coefficient,
         .h = h,
-        .rho0 = rho0,
+        .restDensity = restDensity,
         .simulationScale = simulationScale,
         .sortedPosition = sortedPosition,
         .particleCount =
@@ -107,7 +107,7 @@ struct PcisphPredictDensityTestCommon {
             .sortedParticleIdBySerialId = {0},
             .massMultWpoly6Coefficient = kCoeff,
             .h = kH,
-            .rho0 = 1000.0f,
+            .restDensity = 1000.0f,
             .simulationScale = kSimScale,
             .sortedPosition = makeSortedPos({{1.0f, 2.0f, 3.0f, 0.0f}}),
             .expectedPredictedRho = {kMinDensity},
@@ -137,7 +137,7 @@ struct PcisphPredictDensityTestCommon {
             .sortedParticleIdBySerialId = {0, 1, 2},
             .massMultWpoly6Coefficient = kCoeff,
             .h = kH,
-            .rho0 = 1000.0f,
+            .restDensity = 1000.0f,
             .simulationScale = kSimScale,
             .sortedPosition = makeSortedPos({
                 {0.0f, 0.0f, 0.0f, 0.0f},
@@ -161,7 +161,7 @@ struct PcisphPredictDensityTestCommon {
             .sortedParticleIdBySerialId = {0, 1},
             .massMultWpoly6Coefficient = kCoeff,
             .h = kH,
-            .rho0 = 1000.0f,
+            .restDensity = 1000.0f,
             .simulationScale = kSimScale,
             .sortedPosition = makeSortedPos({
                 {0.0f, 0.0f, 0.0f, 0.0f},
@@ -184,7 +184,7 @@ struct PcisphPredictDensityTestCommon {
             .sortedParticleIdBySerialId = {0, 1},
             .massMultWpoly6Coefficient = kCoeff,
             .h = kH,
-            .rho0 = 1000.0f,
+            .restDensity = 1000.0f,
             .simulationScale = kSimScale,
             .sortedPosition = makeSortedPos({
                 {0.0f, 0.0f, 0.0f, 0.0f},
@@ -226,7 +226,7 @@ struct PcisphPredictDensityTestCommon {
             .sortedParticleIdBySerialId = {2, 0, 1},
             .massMultWpoly6Coefficient = kCoeff,
             .h = kH,
-            .rho0 = 1000.0f,
+            .restDensity = 1000.0f,
             .simulationScale = kSimScale,
             .sortedPosition = makeSortedPos({
                 {0.0f, 0.0f, 0.0f, 0.0f},
@@ -273,7 +273,7 @@ struct PcisphPredictDensityTestCommon {
             .sortedParticleIdBySerialId = {0, 1, 2},
             .massMultWpoly6Coefficient = kCoeff,
             .h = kH,
-            .rho0 = 1000.0f,
+            .restDensity = 1000.0f,
             .simulationScale = simScale,
             .sortedPosition = makeSortedPos({
                 {0.0f, 0.0f, 0.0f, 0.0f},
@@ -312,7 +312,7 @@ struct PcisphPredictDensityTestCommon {
             .sortedParticleIdBySerialId = {0, 1, 2},
             .massMultWpoly6Coefficient = kCoeff,
             .h = kH,
-            .rho0 = 1000.0f,
+            .restDensity = 1000.0f,
             .simulationScale = kSimScale,
             .sortedPosition = makeSortedPos({
                 {0.0f, 0.0f, 0.0f, 0.0f},

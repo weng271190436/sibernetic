@@ -13,8 +13,8 @@
 //       __global uint   *particleIndexBack,        // arg 1
 //       float mass_mult_Wpoly6Coefficient,         // arg 2
 //       float h,                                   // arg 3  (smoothing radius)
-//       float rho0,                                // arg 4  (unused)
-//       float simulationScale,                     // arg 5
+//       float rho0,                                // arg 4  (unused, rest
+//       density) float simulationScale,                     // arg 5
 //       __global float4 *sortedPosition,           // arg 6  (2×N)
 //       __global float  *pressure,                 // arg 7  (unused)
 //       __global float  *rho,                      // arg 8  (2×N, output)
@@ -27,7 +27,7 @@
 //       const device uint   *sortedParticleIdBySerialId   [[buffer(1)]],
 //       constant float &massMultWpoly6Coefficient         [[buffer(2)]],
 //       constant float &h                                 [[buffer(3)]],
-//       constant float &rho0                              [[buffer(4)]],
+//       constant float &restDensity                       [[buffer(4)]],
 //       constant float &simulationScale                   [[buffer(5)]],
 //       const device float4 *sortedPosition               [[buffer(6)]],
 //       device float *rho                                 [[buffer(7)]],
@@ -60,7 +60,7 @@ struct PcisphPredictDensityInput {
   UInt32Span sortedParticleIdBySerialId; // size: particleCount
   float massMultWpoly6Coefficient;
   float h;                   // smoothing radius (unscaled)
-  float rho0;                // reference density (passed but unused by kernel)
+  float restDensity;         // reference density (passed but unused by kernel)
   float simulationScale;     // grid-to-simulation scale factor
   Float4Span sortedPosition; // size: particleCount * 2
   uint32_t particleCount;
@@ -74,7 +74,7 @@ struct PcisphPredictDensityMetalArgs {
   MTL::Buffer *sortedParticleIdBySerialId; // [[buffer(1)]]
   float massMultWpoly6Coefficient;         // [[buffer(2)]]
   float h;                                 // [[buffer(3)]]
-  float rho0;                              // [[buffer(4)]]
+  float restDensity;                       // [[buffer(4)]]
   float simulationScale;                   // [[buffer(5)]]
   MTL::Buffer *sortedPosition;             // [[buffer(6)]]
   MTL::Buffer *rho;                        // [[buffer(7)]] output
@@ -85,7 +85,7 @@ struct PcisphPredictDensityMetalArgs {
     bindBuffer(enc, sortedParticleIdBySerialId, 1);
     bindScalar(enc, massMultWpoly6Coefficient, 2);
     bindScalar(enc, h, 3);
-    bindScalar(enc, rho0, 4);
+    bindScalar(enc, restDensity, 4);
     bindScalar(enc, simulationScale, 5);
     bindBuffer(enc, sortedPosition, 6);
     bindBuffer(enc, rho, 7);
@@ -106,7 +106,7 @@ toMetalArgs(const PcisphPredictDensityInput &input, MTL::Device *device,
                         MTL::ResourceStorageModeShared);
   args.massMultWpoly6Coefficient = input.massMultWpoly6Coefficient;
   args.h = input.h;
-  args.rho0 = input.rho0;
+  args.restDensity = input.restDensity;
   args.simulationScale = input.simulationScale;
   args.sortedPosition = device->newBuffer(input.sortedPosition.data(),
                                           input.sortedPosition.size_bytes(),
@@ -126,7 +126,7 @@ struct PcisphPredictDensityOpenCLArgs {
   cl::Buffer sortedParticleIdBySerialId; // arg 1
   float massMultWpoly6Coefficient;       // arg 2
   float h;                               // arg 3
-  float rho0;                            // arg 4
+  float restDensity;                     // arg 4
   float simulationScale;                 // arg 5
   cl::Buffer sortedPosition;             // arg 6
   cl::Buffer pressure;                   // arg 7 (unused dummy)
@@ -138,7 +138,7 @@ struct PcisphPredictDensityOpenCLArgs {
     bindBuffer(kernel, sortedParticleIdBySerialId, 1);
     bindScalar(kernel, massMultWpoly6Coefficient, 2);
     bindScalar(kernel, h, 3);
-    bindScalar(kernel, rho0, 4);
+    bindScalar(kernel, restDensity, 4);
     bindScalar(kernel, simulationScale, 5);
     bindBuffer(kernel, sortedPosition, 6);
     bindBuffer(kernel, pressure, 7);
@@ -162,7 +162,7 @@ toOpenCLArgs(const PcisphPredictDensityInput &input, cl::Context &context,
       const_cast<uint32_t *>(input.sortedParticleIdBySerialId.data()), &err);
   args.massMultWpoly6Coefficient = input.massMultWpoly6Coefficient;
   args.h = input.h;
-  args.rho0 = input.rho0;
+  args.restDensity = input.restDensity;
   args.simulationScale = input.simulationScale;
   args.sortedPosition =
       cl::Buffer(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
