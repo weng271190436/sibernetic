@@ -21,23 +21,24 @@ struct PcisphCorrectPressureCase {
   const char *name;
 
   // Input data
-  std::vector<uint32_t> particleIndexBack; // size: N
-  float rho0;                              // reference density
-  std::vector<float> pressure;             // size: N (initial values)
-  std::vector<float> rho;                  // size: 2*N (kernel reads [N..2N))
-  float delta;                             // pressure correction factor
+  std::vector<uint32_t> sortedParticleIdBySerialId; // size: N
+  float restDensity;                                // reference density
+  std::vector<float> pressure;                      // size: N (initial values)
+  std::vector<float> rho; // size: 2*N (kernel reads [N..2N))
+  float delta;            // pressure correction factor
 
   // Expected output
   std::vector<float> expectedPressure; // size: N
 
   InputType toInput() const {
     return {
-        .particleIndexBack = particleIndexBack,
-        .rho0 = rho0,
+        .sortedParticleIdBySerialId = sortedParticleIdBySerialId,
+        .restDensity = restDensity,
         .pressure = pressure,
         .rho = rho,
         .delta = delta,
-        .particleCount = static_cast<uint32_t>(particleIndexBack.size()),
+        .particleCount =
+            static_cast<uint32_t>(sortedParticleIdBySerialId.size()),
     };
   }
 
@@ -73,8 +74,8 @@ struct PcisphCorrectPressureTestCommon {
       {
         cases.push_back({
             .name = "PositiveDensityError",
-            .particleIndexBack = {0},
-            .rho0 = 1000.0f,
+            .sortedParticleIdBySerialId = {0},
+            .restDensity = 1000.0f,
             .pressure = {0.0f},
             .rho = {0.0f, 1100.0f}, // [0..N) unused, [N..2N) predicted
             .delta = 0.5f,
@@ -89,8 +90,8 @@ struct PcisphCorrectPressureTestCommon {
       {
         cases.push_back({
             .name = "NegativeDensityErrorClamped",
-            .particleIndexBack = {0},
-            .rho0 = 1000.0f,
+            .sortedParticleIdBySerialId = {0},
+            .restDensity = 1000.0f,
             .pressure = {0.0f},
             .rho = {0.0f, 900.0f},
             .delta = 0.5f,
@@ -104,8 +105,8 @@ struct PcisphCorrectPressureTestCommon {
       {
         cases.push_back({
             .name = "ZeroDensityError",
-            .particleIndexBack = {0},
-            .rho0 = 1000.0f,
+            .sortedParticleIdBySerialId = {0},
+            .restDensity = 1000.0f,
             .pressure = {5.0f},
             .rho = {0.0f, 1000.0f},
             .delta = 0.5f,
@@ -119,8 +120,8 @@ struct PcisphCorrectPressureTestCommon {
       {
         cases.push_back({
             .name = "AccumulatesOnExistingPressure",
-            .particleIndexBack = {0},
-            .rho0 = 1000.0f,
+            .sortedParticleIdBySerialId = {0},
+            .restDensity = 1000.0f,
             .pressure = {25.0f},
             .rho = {0.0f, 1100.0f},
             .delta = 0.5f,
@@ -129,7 +130,7 @@ struct PcisphCorrectPressureTestCommon {
       }
 
       // ---- Test 5: NonIdentityIndexBack ----
-      // 3 particles with scrambled particleIndexBack: {2, 0, 1}.
+      // 3 particles with scrambled sortedParticleIdBySerialId: {2, 0, 1}.
       // gid 0 → id 2: rho[3+2]=rho[5]=1200, err=200, corr=200*0.5=100,
       //               pressure[2]=10+100=110
       // gid 1 → id 0: rho[3+0]=rho[3]=800, err=-200, corr=0 (clamped),
@@ -139,8 +140,8 @@ struct PcisphCorrectPressureTestCommon {
       {
         cases.push_back({
             .name = "NonIdentityIndexBack",
-            .particleIndexBack = {2, 0, 1},
-            .rho0 = 1000.0f,
+            .sortedParticleIdBySerialId = {2, 0, 1},
+            .restDensity = 1000.0f,
             .pressure = {20.0f, 30.0f, 10.0f},
             // rho[0..3) unused first half, rho[3..6) predicted densities
             .rho = {0.0f, 0.0f, 0.0f, 800.0f, 1050.0f, 1200.0f},
@@ -149,13 +150,45 @@ struct PcisphCorrectPressureTestCommon {
         });
       }
 
+      // ---- Test 6: SmallPositiveError ----
+      // rho_predicted barely exceeds rho0: 1000.25 vs 1000.
+      // rho_err = 0.25, p_corr = 0.25 * 0.5 = 0.125.
+      // Uses power-of-two fractions for exact float32 representation.
+      // Verifies small corrections near the clamp boundary aren't lost.
+      {
+        cases.push_back({
+            .name = "SmallPositiveError",
+            .sortedParticleIdBySerialId = {0},
+            .restDensity = 1000.0f,
+            .pressure = {0.0f},
+            .rho = {0.0f, 1000.25f},
+            .delta = 0.5f,
+            .expectedPressure = {0.125f},
+        });
+      }
+
+      // ---- Test 7: LargeDelta ----
+      // Same density error as Test 1 but with delta = 3.7 instead of 0.5.
+      // rho_err = 100, p_corr = 100 * 3.7 = 370.
+      // pressure = 0 + 370 = 370.
+      {
+        cases.push_back({
+            .name = "LargeDelta",
+            .sortedParticleIdBySerialId = {0},
+            .restDensity = 1000.0f,
+            .pressure = {0.0f},
+            .rho = {0.0f, 1100.0f},
+            .delta = 3.7f,
+            .expectedPressure = {370.0f},
+        });
+      }
+
       return cases;
     }();
     return kCases;
   }
 
-  static std::string
-  caseName(const ::testing::TestParamInfo<Case> &info) {
+  static std::string caseName(const ::testing::TestParamInfo<Case> &info) {
     return info.param.name;
   }
 };

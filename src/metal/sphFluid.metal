@@ -881,18 +881,26 @@ kernel void pcisph_predictDensity(
 //       uint PARTICLE_COUNT                // arg 5
 //   )
 kernel void pcisph_correctPressure(
-    const device uint *particleIndexBack [[buffer(0)]],
-    constant float &rho0 [[buffer(1)]], device float *pressure [[buffer(2)]],
-    const device float *rho [[buffer(3)]], constant float &delta [[buffer(4)]],
+    const device uint *sortedParticleIdBySerialId [[buffer(0)]],
+    constant float &restDensity [[buffer(1)]],
+    device float *pressure [[buffer(2)]], const device float *rho [[buffer(3)]],
+    // delta: precomputed PCISPH pressure-correction scaling factor.
+    // Solenthaler & Pajarola (2009) eq. 8 / Solenthaler dissertation eq. 3.6:
+    //   delta = 1 / (beta * gradWspikyCoeff^2 * (|sum_j gradW_j|^2 + sum_j
+    //   |gradW_j|^2))
+    // where beta = 2 * dt^2 * mass^2 / rho0^2.
+    // Computed once at startup by owConfigProperty::calcDelta() using a
+    // synthetic 32-neighbor filled neighborhood.
+    constant float &delta [[buffer(4)]],
     constant uint &particleCount [[buffer(5)]],
-    uint gid [[thread_position_in_grid]]) {
-  if (gid >= particleCount)
+    uint serialId [[thread_position_in_grid]]) {
+  if (serialId >= particleCount)
     return;
 
-  const int id = static_cast<int>(particleIndexBack[gid]);
+  const uint sortedParticleId = sortedParticleIdBySerialId[serialId];
 
   // Density error: predicted density minus reference density.
-  const float rhoErr = rho[particleCount + id] - rho0;
+  const float rhoErr = rho[particleCount + sortedParticleId] - restDensity;
 
   // Pressure correction scaled by delta; clamp to non-negative.
   float pCorr = rhoErr * delta;
@@ -900,5 +908,5 @@ kernel void pcisph_correctPressure(
     pCorr = 0.0f;
 
   // Accumulate correction into existing pressure.
-  pressure[id] += pCorr;
+  pressure[sortedParticleId] += pCorr;
 }

@@ -21,17 +21,16 @@ public:
 
     // Pressure buffer: copy input values (kernel modifies in-place).
     auto pressureBuf = NS::TransferPtr(device->newBuffer(
-        const_cast<float *>(input.pressure.data()),
-        input.pressure.size_bytes(), MTL::ResourceStorageModeShared));
+        const_cast<float *>(input.pressure.data()), input.pressure.size_bytes(),
+        MTL::ResourceStorageModeShared));
 
     // Rho buffer: 2*N floats, kernel reads [N..2N).
-    auto rhoBuf = NS::TransferPtr(
-        device->newBuffer(const_cast<float *>(input.rho.data()),
-                          input.rho.size_bytes(),
-                          MTL::ResourceStorageModeShared));
+    auto rhoBuf = NS::TransferPtr(device->newBuffer(
+        const_cast<float *>(input.rho.data()), input.rho.size_bytes(),
+        MTL::ResourceStorageModeShared));
 
-    auto args = Sibernetic::toMetalArgs(input, device, pressureBuf.get(),
-                                        rhoBuf.get());
+    auto args =
+        Sibernetic::toMetalArgs(input, device, pressureBuf.get(), rhoBuf.get());
 
     metal.dispatch(N, [&](MTL::ComputeCommandEncoder *enc) { args.bind(enc); });
 
