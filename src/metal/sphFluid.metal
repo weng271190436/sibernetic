@@ -910,3 +910,95 @@ kernel void pcisph_correctPressure(
   // Accumulate correction into existing pressure.
   pressure[sortedParticleId] += pCorr;
 }
+
+// PCISPH pressure-gradient force acceleration.
+//
+// For each fluid particle, sums the pressure force over neighbors using the
+// Spiky kernel gradient (Solenthaler & Pajarola 2009, formula 5):
+//   a_i = -(m / rho_i) * sum_j (p_i + p_j) / (2 * rho_j)
+//         * grad_W_spiky(r_ij)
+// where grad_W_spiky ∝ -(hScaled - r_ij)^2 * (x_i - x_j) / r_ij.
+//
+// Close-range correction: when r_ij < hScaled/4, the pressure term is replaced
+// with a repulsive correction based on (restDensity * delta) to prevent
+// particle overlap at very small separations.
+//
+// Reads predicted density from rho[N..2N).
+// Writes pressure acceleration to acceleration[N..2N).
+// Boundary particles (originalPosition[].w == 3) get zero acceleration.
+kernel void pcisph_computePressureForceAcceleration(
+    const device float2 *neighborMap [[buffer(0)]],
+    const device float *pressure [[buffer(1)]],
+    const device float *rho [[buffer(2)]],
+    const device float4 *sortedPosition [[buffer(3)]],
+    const device uint *sortedParticleIdBySerialId [[buffer(4)]],
+    // delta: precomputed PCISPH pressure-correction scaling factor.
+    // See pcisph_correctPressure for derivation.
+    constant float &delta [[buffer(5)]],
+    constant float &massMultGradWspikyCoefficient [[buffer(6)]],
+    constant float &h [[buffer(7)]],
+    constant float &simulationScale [[buffer(8)]],
+    constant float &restDensity [[buffer(9)]],
+    device float4 *acceleration [[buffer(10)]],
+    const device float4 *originalPosition [[buffer(11)]],
+    const device uint2 *sortedCellAndSerialId [[buffer(12)]],
+    constant uint &particleCount [[buffer(13)]],
+    uint serialId [[thread_position_in_grid]]) {
+  if (serialId >= particleCount)
+    return;
+
+  const uint sortedParticleId = sortedParticleIdBySerialId[serialId];
+
+  // Look up the original serial id for the particle type check.
+  const uint sourceSerialId = sortedCellAndSerialId[sortedParticleId].y;
+  if (static_cast<int>(originalPosition[sourceSerialId].w) ==
+      kBoundaryParticle) {
+    acceleration[particleCount + sortedParticleId] = float4(0.0f);
+    return;
+  }
+
+  const int neighborMapOffset =
+      static_cast<int>(sortedParticleId) * kMaxNeighborCount;
+  const float hScaled = h * simulationScale;
+  const float pressureI = pressure[sortedParticleId];
+  const float rhoI = rho[particleCount + sortedParticleId];
+
+  float4 result = float4(0.0f);
+
+  for (int nc = 0; nc < kMaxNeighborCount; ++nc) {
+    const float2 neighborEntry = neighborMap[neighborMapOffset + nc];
+    const int neighborSortedParticleId = static_cast<int>(neighborEntry.x);
+    if (neighborSortedParticleId == kNoParticleId)
+      continue;
+
+    float distanceToNeighbor = neighborEntry.y;
+    if (distanceToNeighbor >= hScaled)
+      continue;
+
+    const uint jd = static_cast<uint>(neighborSortedParticleId);
+
+    // Solenthaler (2009) formula (5): pressure force contribution.
+    float value = -(hScaled - distanceToNeighbor) *
+                  (hScaled - distanceToNeighbor) * 0.5f *
+                  (pressureI + pressure[jd]) / rho[particleCount + jd];
+
+    // Direction vector in simulation space.
+    float4 direction = (sortedPosition[sortedParticleId] - sortedPosition[jd]) *
+                       simulationScale;
+    direction.w = 0.0f;
+
+    // Close-range correction: when particles are very close
+    // (r < hScaled/4 = r0/2), replace the pressure term with a repulsive
+    // correction to prevent particle overlap.
+    if (distanceToNeighbor < 0.5f * (hScaled * 0.5f)) {
+      value = -(hScaled * 0.25f - distanceToNeighbor) *
+              (hScaled * 0.25f - distanceToNeighbor) * 0.5f *
+              (restDensity * delta) / rho[particleCount + jd];
+    }
+
+    result += value * direction / distanceToNeighbor;
+  }
+
+  result *= massMultGradWspikyCoefficient / rhoI;
+  acceleration[particleCount + sortedParticleId] = result;
+}
