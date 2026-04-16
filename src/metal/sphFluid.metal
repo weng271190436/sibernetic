@@ -917,7 +917,10 @@ kernel void pcisph_correctPressure(
 // Spiky kernel gradient (Solenthaler & Pajarola 2009, formula 5):
 //   a_i = -(m / rho_i) * sum_j (p_i + p_j) / (2 * rho_j)
 //         * grad_W_spiky(r_ij)
-// where grad_W_spiky ∝ -(hScaled - r_ij)^2 * (x_i - x_j) / r_ij.
+// where grad_W_spiky ∝ -(hScaled - r_ij)^2 * (vec{x_i} - vec{x_j}) / r_ij.
+//   r_ij = |vec{x_i} - vec{x_j}| is the scalar distance,
+//   (vec{x_i} - vec{x_j}) is the displacement vector from j to i,
+//   so (vec{x_i} - vec{x_j}) / r_ij is the unit direction from j toward i.
 //
 // Close-range correction: when r_ij < hScaled/4, the pressure term is replaced
 // with a repulsive correction based on (restDensity * delta) to prevent
@@ -949,10 +952,7 @@ kernel void pcisph_computePressureForceAcceleration(
 
   const uint sortedParticleId = sortedParticleIdBySerialId[serialId];
 
-  // Look up the original serial id for the particle type check.
-  const uint sourceSerialId = sortedCellAndSerialId[sortedParticleId].y;
-  if (static_cast<int>(originalPosition[sourceSerialId].w) ==
-      kBoundaryParticle) {
+  if (static_cast<int>(originalPosition[serialId].w) == kBoundaryParticle) {
     acceleration[particleCount + sortedParticleId] = float4(0.0f);
     return;
   }
@@ -965,8 +965,8 @@ kernel void pcisph_computePressureForceAcceleration(
 
   float4 result = float4(0.0f);
 
-  for (int nc = 0; nc < kMaxNeighborCount; ++nc) {
-    const float2 neighborEntry = neighborMap[neighborMapOffset + nc];
+  for (int neighborSlot = 0; neighborSlot < kMaxNeighborCount; ++neighborSlot) {
+    const float2 neighborEntry = neighborMap[neighborMapOffset + neighborSlot];
     const int neighborSortedParticleId = static_cast<int>(neighborEntry.x);
     if (neighborSortedParticleId == kNoParticleId)
       continue;
@@ -975,25 +975,25 @@ kernel void pcisph_computePressureForceAcceleration(
     if (distanceToNeighbor >= hScaled)
       continue;
 
-    const uint jd = static_cast<uint>(neighborSortedParticleId);
-
     // Solenthaler (2009) formula (5): pressure force contribution.
     float value = -(hScaled - distanceToNeighbor) *
                   (hScaled - distanceToNeighbor) * 0.5f *
-                  (pressureI + pressure[jd]) / rho[particleCount + jd];
+                  (pressureI + pressure[neighborSortedParticleId]) /
+                  rho[particleCount + neighborSortedParticleId];
 
     // Direction vector in simulation space.
-    float4 direction = (sortedPosition[sortedParticleId] - sortedPosition[jd]) *
+    float4 direction = (sortedPosition[sortedParticleId] -
+                        sortedPosition[neighborSortedParticleId]) *
                        simulationScale;
-    direction.w = 0.0f;
 
     // Close-range correction: when particles are very close
-    // (r < hScaled/4 = r0/2), replace the pressure term with a repulsive
+    // (r < hScaled/4), replace the pressure term with a repulsive
     // correction to prevent particle overlap.
-    if (distanceToNeighbor < 0.5f * (hScaled * 0.5f)) {
+    if (distanceToNeighbor < hScaled * 0.25f) {
       value = -(hScaled * 0.25f - distanceToNeighbor) *
               (hScaled * 0.25f - distanceToNeighbor) * 0.5f *
-              (restDensity * delta) / rho[particleCount + jd];
+              (restDensity * delta) /
+              rho[particleCount + neighborSortedParticleId];
     }
 
     result += value * direction / distanceToNeighbor;
