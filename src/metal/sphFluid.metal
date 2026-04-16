@@ -862,3 +862,43 @@ kernel void pcisph_predictDensity(
   rho[particleCount + sortedParticleId] =
       densityAccum * massMultWpoly6Coefficient;
 }
+
+// PCISPH pressure correction: reads predicted density from rho[N..2N),
+// computes the density error against the reference density rho0, scales by the
+// precomputed correction factor delta, clamps to non-negative, and accumulates
+// into pressure[0..N).
+//
+// This kernel runs once per PCISPH iteration, after pcisph_predictDensity has
+// written the predicted density into rho[N..2N).
+//
+// OpenCL signature (sphFluid.cl, lines 929-952):
+//   __kernel void pcisph_correctPressure(
+//       __global uint *particleIndexBack,  // arg 0
+//       float rho0,                        // arg 1
+//       __global float *pressure,          // arg 2
+//       __global float *rho,               // arg 3
+//       float delta,                       // arg 4
+//       uint PARTICLE_COUNT                // arg 5
+//   )
+kernel void pcisph_correctPressure(
+    const device uint *particleIndexBack [[buffer(0)]],
+    constant float &rho0 [[buffer(1)]], device float *pressure [[buffer(2)]],
+    const device float *rho [[buffer(3)]], constant float &delta [[buffer(4)]],
+    constant uint &particleCount [[buffer(5)]],
+    uint gid [[thread_position_in_grid]]) {
+  if (gid >= particleCount)
+    return;
+
+  const int id = static_cast<int>(particleIndexBack[gid]);
+
+  // Density error: predicted density minus reference density.
+  const float rhoErr = rho[particleCount + id] - rho0;
+
+  // Pressure correction scaled by delta; clamp to non-negative.
+  float pCorr = rhoErr * delta;
+  if (pCorr < 0.0f)
+    pCorr = 0.0f;
+
+  // Accumulate correction into existing pressure.
+  pressure[id] += pCorr;
+}

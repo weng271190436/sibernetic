@@ -45,7 +45,8 @@ KERNEL_TEST_SRC := tests/metal_private_impl.cpp \
 				   tests/sort_post_pass/sort_post_pass_gtest.cpp \
 				   tests/pcisph_compute_forces/pcisph_compute_forces_test.cpp \
 				   tests/pcisph_predict_positions/pcisph_predict_positions_test.cpp \
-				   tests/pcisph_predict_density/pcisph_predict_density_test.cpp
+				   tests/pcisph_predict_density/pcisph_predict_density_test.cpp \
+				   tests/pcisph_correct_pressure/pcisph_correct_pressure_test.cpp
 KERNEL_TEST_HDRS := $(shell find tests -type f -name '*.h')
 KERNEL_TEST_BIN  := $(BUILDDIR)/kernel_backend_tests
 KERNEL_TEST_OBJDIR := $(BUILDDIR)/test_obj
