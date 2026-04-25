@@ -88,6 +88,24 @@ inline int3 cellCoordinates(float4 position, float hashGridCellSizeInv) {
               static_cast<int>(position.z * hashGridCellSizeInv));
 }
 
+// Clears the neighborMap buffer to "no neighbor" sentinel values.
+// Each thread handles one particle's kMaxNeighborCount float2 entries,
+// writing (-1, -1) to every slot. Uses float4 writes for efficiency:
+// each float4(-1) covers two float2 entries, so 16 writes clear 32 slots.
+kernel void clearBuffers(device float4 *neighborMap [[buffer(0)]],
+                         constant uint &particleCount [[buffer(1)]],
+                         uint id [[thread_position_in_grid]]) {
+  if (id >= particleCount)
+    return;
+
+  const int outIdx = (static_cast<int>(id) * kMaxNeighborCount) >> 1;
+  const float4 noNeighbor = float4(-1.0f);
+
+  for (int i = 0; i < kMaxNeighborCount / 2; ++i) {
+    neighborMap[outIdx + i] = noNeighbor;
+  }
+}
+
 // Computes each particle's spatial hash cell and writes (cellId, serialId)
 // into sortedCellAndSerialId. serialId is the original particle index in
 // originalPosition[].
