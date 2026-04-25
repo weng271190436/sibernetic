@@ -53,8 +53,7 @@ public:
       throw std::runtime_error("Failed to create velocity buffer");
 
     auto args = Sibernetic::toOpenCLArgs(input, opencl.context(),
-                                         inOutAcceleration,
-                                         inOutSortedPosition,
+                                         inOutAcceleration, inOutSortedPosition,
                                          inOutOriginalPosition, inOutVelocity);
 
     cl::Kernel kernel(opencl.program(), Sibernetic::kPcisphIntegrateKernelName,
@@ -74,26 +73,22 @@ public:
 
     // Read back all output buffers.
     result.acceleration.resize(3 * N);
-    if (opencl.queue().enqueueReadBuffer(inOutAcceleration, CL_TRUE, 0,
-                                         sizeof(float) * 4 * 3 * N,
-                                         result.acceleration.data()) !=
-        CL_SUCCESS)
+    if (opencl.queue().enqueueReadBuffer(
+            inOutAcceleration, CL_TRUE, 0, sizeof(float) * 4 * 3 * N,
+            result.acceleration.data()) != CL_SUCCESS)
       throw std::runtime_error("Failed to read acceleration output buffer");
 
     result.sortedPosition.resize(N);
-    if (opencl.queue().enqueueReadBuffer(inOutSortedPosition, CL_TRUE, 0,
-                                         sizeof(float) * 4 * N,
-                                         result.sortedPosition.data()) !=
-        CL_SUCCESS)
+    if (opencl.queue().enqueueReadBuffer(
+            inOutSortedPosition, CL_TRUE, 0, sizeof(float) * 4 * N,
+            result.sortedPosition.data()) != CL_SUCCESS)
       throw std::runtime_error("Failed to read sortedPosition output buffer");
 
     result.originalPosition.resize(N);
-    if (opencl.queue().enqueueReadBuffer(inOutOriginalPosition, CL_TRUE, 0,
-                                         sizeof(float) * 4 * N,
-                                         result.originalPosition.data()) !=
-        CL_SUCCESS)
-      throw std::runtime_error(
-          "Failed to read originalPosition output buffer");
+    if (opencl.queue().enqueueReadBuffer(
+            inOutOriginalPosition, CL_TRUE, 0, sizeof(float) * 4 * N,
+            result.originalPosition.data()) != CL_SUCCESS)
+      throw std::runtime_error("Failed to read originalPosition output buffer");
 
     result.velocity.resize(N);
     if (opencl.queue().enqueueReadBuffer(inOutVelocity, CL_TRUE, 0,

@@ -31,23 +31,21 @@ public:
         input.originalPosition.data(), input.originalPosition.size_bytes(),
         MTL::ResourceStorageModeShared));
     // velocity is read/write
-    auto inOutVelocity = NS::TransferPtr(device->newBuffer(
-        input.velocity.data(), input.velocity.size_bytes(),
-        MTL::ResourceStorageModeShared));
+    auto inOutVelocity = NS::TransferPtr(
+        device->newBuffer(input.velocity.data(), input.velocity.size_bytes(),
+                          MTL::ResourceStorageModeShared));
 
-    auto args = Sibernetic::toMetalArgs(input, device, inOutAcceleration.get(),
-                                        inOutSortedPosition.get(),
-                                        inOutOriginalPosition.get(),
-                                        inOutVelocity.get());
+    auto args = Sibernetic::toMetalArgs(
+        input, device, inOutAcceleration.get(), inOutSortedPosition.get(),
+        inOutOriginalPosition.get(), inOutVelocity.get());
 
     metal.dispatch(N, [&](MTL::ComputeCommandEncoder *enc) { args.bind(enc); });
 
     PcisphIntegrateResult result;
 
     // Read back all output buffers.
-    const auto *accelPtr =
-        reinterpret_cast<const Sibernetic::MetalFloat4 *>(
-            inOutAcceleration->contents());
+    const auto *accelPtr = reinterpret_cast<const Sibernetic::MetalFloat4 *>(
+        inOutAcceleration->contents());
     result.acceleration = Sibernetic::Metal::decode(accelPtr, 3 * N);
 
     const auto *sortedPosPtr =
@@ -55,14 +53,12 @@ public:
             inOutSortedPosition->contents());
     result.sortedPosition = Sibernetic::Metal::decode(sortedPosPtr, N);
 
-    const auto *origPosPtr =
-        reinterpret_cast<const Sibernetic::MetalFloat4 *>(
-            inOutOriginalPosition->contents());
+    const auto *origPosPtr = reinterpret_cast<const Sibernetic::MetalFloat4 *>(
+        inOutOriginalPosition->contents());
     result.originalPosition = Sibernetic::Metal::decode(origPosPtr, N);
 
-    const auto *velPtr =
-        reinterpret_cast<const Sibernetic::MetalFloat4 *>(
-            inOutVelocity->contents());
+    const auto *velPtr = reinterpret_cast<const Sibernetic::MetalFloat4 *>(
+        inOutVelocity->contents());
     result.velocity = Sibernetic::Metal::decode(velPtr, N);
 
     return result;

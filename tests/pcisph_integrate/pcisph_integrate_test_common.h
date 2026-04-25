@@ -32,12 +32,12 @@ struct PcisphIntegrateCase {
   std::vector<Sibernetic::HostUInt2> sortedCellAndSerialId;
   std::vector<uint32_t> sortedParticleIdBySerialId;
   float simulationScaleInv;
-  float timeStep;
+  float deltaTime;
   std::vector<Sibernetic::HostFloat4> originalPosition;
   std::vector<Sibernetic::HostFloat4> velocity;
   float r0;
   std::vector<Sibernetic::HostFloat2> neighborMap;
-  int32_t iterationCount;
+  int32_t timestepIndex;
   int32_t mode;
 
   // Which outputs to verify (order must match declaration order for
@@ -61,14 +61,14 @@ struct PcisphIntegrateCase {
         .sortedCellAndSerialId = sortedCellAndSerialId,
         .sortedParticleIdBySerialId = sortedParticleIdBySerialId,
         .simulationScaleInv = simulationScaleInv,
-        .timeStep = timeStep,
+        .deltaTime = deltaTime,
         .originalPosition = originalPosition,
         .velocity = velocity,
         .r0 = r0,
         .neighborMap = neighborMap,
         .particleCount =
             static_cast<uint32_t>(sortedParticleIdBySerialId.size()),
-        .iterationCount = iterationCount,
+        .timestepIndex = timestepIndex,
         .mode = mode,
     };
   }
@@ -88,8 +88,8 @@ struct PcisphIntegrateCase {
       ASSERT_EQ(result.sortedPosition.size(), expectedSortedPosition.size());
       for (size_t i = 0; i < expectedSortedPosition.size(); ++i) {
         for (int c = 0; c < 4; ++c) {
-          EXPECT_NEAR(result.sortedPosition[i][c],
-                      expectedSortedPosition[i][c], 1e-4f)
+          EXPECT_NEAR(result.sortedPosition[i][c], expectedSortedPosition[i][c],
+                      1e-4f)
               << "sortedPosition mismatch at [" << i << "][" << c << "]";
         }
       }
@@ -125,7 +125,8 @@ public:
   virtual PcisphIntegrateResult run(const PcisphIntegrateCase &tc) = 0;
 };
 
-// Helper: create an empty neighborMap for N particles (all slots = no particle).
+// Helper: create an empty neighborMap for N particles (all slots = no
+// particle).
 inline std::vector<Sibernetic::HostFloat2>
 makeEmptyIntegrateNeighborMap(uint32_t particleCount) {
   std::vector<Sibernetic::HostFloat2> nm(static_cast<size_t>(particleCount) *
@@ -171,12 +172,12 @@ struct PcisphIntegrateTestCommon {
             .sortedCellAndSerialId = {{0, 0}},
             .sortedParticleIdBySerialId = {0},
             .simulationScaleInv = simScaleInv,
-            .timeStep = dt,
+            .deltaTime = dt,
             .originalPosition = {{10.0f, 20.0f, 30.0f, 3.0f}}, // boundary
             .velocity = {{0.0f, 0.0f, 0.0f, 0.0f}},
             .r0 = r0,
             .neighborMap = nm,
-            .iterationCount = 1,
+            .timestepIndex = 1,
             .mode = 0,
             // Boundary → no writes at all. sortedPosition, velocity,
             // acceleration should be unchanged.
@@ -190,7 +191,7 @@ struct PcisphIntegrateTestCommon {
       }
 
       // ---- Test 2: IterationZeroStoresAcceleration ----
-      // iterationCount == 0 → store acc[id] + acc[N+id] into acc[2N+serialId].
+      // timestepIndex == 0 → store acc[id] + acc[N+id] into acc[2N+serialId].
       {
         const uint32_t N = 1;
         auto nm = makeEmptyIntegrateNeighborMap(N);
@@ -210,13 +211,13 @@ struct PcisphIntegrateTestCommon {
             .sortedCellAndSerialId = {{0, 0}},
             .sortedParticleIdBySerialId = {0},
             .simulationScaleInv = simScaleInv,
-            .timeStep = dt,
+            .deltaTime = dt,
             .originalPosition = {{1.0f, 2.0f, 3.0f, 2.0f}}, // fluid
             .velocity = {{0.0f, 0.0f, 0.0f, 0.0f}},
             .r0 = r0,
             .neighborMap = nm,
-            .iterationCount = 0,
-            .mode = 0, // mode is irrelevant for iterationCount==0
+            .timestepIndex = 0,
+            .mode = 0, // mode is irrelevant for timestepIndex==0
             .checkAcceleration = true,
             .expectedAcceleration = expectedAccel,
         });
@@ -245,12 +246,12 @@ struct PcisphIntegrateTestCommon {
             .sortedCellAndSerialId = {{0, 0}},
             .sortedParticleIdBySerialId = {0},
             .simulationScaleInv = simScaleInv,
-            .timeStep = dt,
+            .deltaTime = dt,
             .originalPosition = {{10.0f, 0.0f, 0.0f, 2.0f}}, // fluid type 2
             .velocity = {{0.0f, 0.0f, 0.0f, 0.0f}},
             .r0 = r0,
             .neighborMap = nm,
-            .iterationCount = 1,
+            .timestepIndex = 1,
             .mode = 0,
             .checkSortedPosition = true,
             // x(t+dt) = 10 + (1*0.5 + 2*0.25/2)*2 = 10 + 1.5 = 11.5
@@ -294,12 +295,12 @@ struct PcisphIntegrateTestCommon {
             .sortedCellAndSerialId = {{0, 0}},
             .sortedParticleIdBySerialId = {0},
             .simulationScaleInv = simScaleInv,
-            .timeStep = dt,
+            .deltaTime = dt,
             .originalPosition = {{10.0f, 0.0f, 0.0f, 2.0f}}, // fluid
             .velocity = {{0.0f, 0.0f, 0.0f, 0.0f}},
             .r0 = r0,
             .neighborMap = nm,
-            .iterationCount = 1,
+            .timestepIndex = 1,
             .mode = 1,
             .checkAcceleration = true,
             .checkOriginalPosition = true,
@@ -343,12 +344,12 @@ struct PcisphIntegrateTestCommon {
             .sortedCellAndSerialId = {{0, 0}},
             .sortedParticleIdBySerialId = {0},
             .simulationScaleInv = simScaleInv,
-            .timeStep = dt,
+            .deltaTime = dt,
             .originalPosition = {{5.0f, 5.0f, 5.0f, 2.0f}}, // fluid
             .velocity = {{0.0f, 0.0f, 0.0f, 0.0f}},
             .r0 = r0,
             .neighborMap = nm,
-            .iterationCount = 1,
+            .timestepIndex = 1,
             .mode = 2,
             .checkAcceleration = true,
             .checkOriginalPosition = true,
@@ -400,14 +401,13 @@ struct PcisphIntegrateTestCommon {
             // serial 0 → sorted 1, serial 1 → sorted 0
             .sortedParticleIdBySerialId = {1, 0},
             .simulationScaleInv = simScaleInv,
-            .timeStep = dt,
+            .deltaTime = dt,
             .originalPosition = {{20.0f, 0.0f, 0.0f, 2.0f},
                                  {10.0f, 0.0f, 0.0f, 2.0f}},
-            .velocity = {{0.0f, 0.0f, 0.0f, 0.0f},
-                         {0.0f, 0.0f, 0.0f, 0.0f}},
+            .velocity = {{0.0f, 0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f, 0.0f}},
             .r0 = r0,
             .neighborMap = nm,
-            .iterationCount = 1,
+            .timestepIndex = 1,
             .mode = 0,
             .checkSortedPosition = true,
             // sorted 0 (serial 1): x = 10 + 1.5 = 11.5, .w = type of
@@ -426,15 +426,15 @@ struct PcisphIntegrateTestCommon {
       // Mode 1: v(t+dt) = v(t) + (a_prev + a_cur) * dt / 2
       // With a_prev = (1, 0, 0, 99), a_cur = (0, 2, 0, 77):
       //   zeroed: a_prev.w = 0, a_cur.w = 0
-      //   v(t+dt) = (0,0,0) + ((1,0,0,0) + (0,2,0,0)) * 0.25 = (0.25, 0.5, 0, 0)
-      //   stored a_cur at [2N] should have .w = 0
+      //   v(t+dt) = (0,0,0) + ((1,0,0,0) + (0,2,0,0)) * 0.25 = (0.25, 0.5, 0,
+      //   0) stored a_cur at [2N] should have .w = 0
       {
         const uint32_t N = 1;
         auto nm = makeEmptyIntegrateNeighborMap(N);
         auto accel = makeAccel(N);
         accel[0] = {0.0f, 2.0f, 0.0f, 77.0f}; // non-pressure, bad .w
         accel[1] = {0.0f, 0.0f, 0.0f, 0.0f};  // pressure
-        accel[2] = {1.0f, 0.0f, 0.0f, 99.0f};  // previous combined, bad .w
+        accel[2] = {1.0f, 0.0f, 0.0f, 99.0f}; // previous combined, bad .w
 
         auto expectedAccel = accel;
         // a_cur = acc[0] + acc[1] = (0,2,0,77), then .w zeroed → (0,2,0,0)
@@ -448,12 +448,12 @@ struct PcisphIntegrateTestCommon {
             .sortedCellAndSerialId = {{0, 0}},
             .sortedParticleIdBySerialId = {0},
             .simulationScaleInv = simScaleInv,
-            .timeStep = dt,
+            .deltaTime = dt,
             .originalPosition = {{5.0f, 5.0f, 5.0f, 2.0f}},
             .velocity = {{0.0f, 0.0f, 0.0f, 0.0f}},
             .r0 = r0,
             .neighborMap = nm,
-            .iterationCount = 1,
+            .timestepIndex = 1,
             .mode = 1,
             .checkAcceleration = true,
             .checkVelocity = true,
@@ -486,14 +486,13 @@ struct PcisphIntegrateTestCommon {
             .sortedCellAndSerialId = {{0, 0}, {0, 1}},
             .sortedParticleIdBySerialId = {0, 1},
             .simulationScaleInv = simScaleInv,
-            .timeStep = dt,
-            .originalPosition = {{1.0f, 2.0f, 3.0f, 2.0f},   // fluid
+            .deltaTime = dt,
+            .originalPosition = {{1.0f, 2.0f, 3.0f, 2.0f},     // fluid
                                  {10.0f, 20.0f, 30.0f, 3.0f}}, // boundary
-            .velocity = {{0.0f, 0.0f, 0.0f, 0.0f},
-                         {0.0f, 0.0f, 0.0f, 0.0f}},
+            .velocity = {{0.0f, 0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f, 0.0f}},
             .r0 = r0,
             .neighborMap = nm,
-            .iterationCount = 1,
+            .timestepIndex = 1,
             .mode = 0,
             .checkSortedPosition = true,
             // Fluid (sorted 0): dx = (1*0.5 + 2*0.125)*2 = 1.5 in z
@@ -558,15 +557,14 @@ struct PcisphIntegrateTestCommon {
             .sortedCellAndSerialId = {{0, 0}, {0, 1}},
             .sortedParticleIdBySerialId = {0, 1},
             .simulationScaleInv = simScaleInv,
-            .timeStep = dt,
-            .originalPosition = {{1.0f, 0.0f, 0.0f, 2.0f},   // fluid
-                                 {0.0f, 0.0f, 0.0f, 3.0f}},   // boundary
+            .deltaTime = dt,
+            .originalPosition = {{1.0f, 0.0f, 0.0f, 2.0f},  // fluid
+                                 {0.0f, 0.0f, 0.0f, 3.0f}}, // boundary
             // velocity[1] = boundary outward normal
-            .velocity = {{0.0f, 0.0f, 0.0f, 0.0f},
-                         {1.0f, 0.0f, 0.0f, 0.0f}},
+            .velocity = {{0.0f, 0.0f, 0.0f, 0.0f}, {1.0f, 0.0f, 0.0f, 0.0f}},
             .r0 = bigR0,
             .neighborMap = nm,
-            .iterationCount = 1,
+            .timestepIndex = 1,
             .mode = 1,
             .checkAcceleration = true,
             .checkOriginalPosition = true,

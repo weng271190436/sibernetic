@@ -4,7 +4,7 @@
 //
 // Performs leapfrog time integration for PCISPH. Has three modes:
 //
-//   iterationCount == 0:
+//   timestepIndex == 0:
 //     Store combined acceleration: acceleration[2N + serialId] =
 //       acceleration[sortedId] + acceleration[N + sortedId].
 //     No position or velocity update.
@@ -36,7 +36,7 @@
 //       float gravity_y,                       // arg 6
 //       float gravity_z,                       // arg 7
 //       float simulationScaleInv,              // arg 8
-//       float timeStep,                        // arg 9
+//       float timeStep,                        // arg 9 (deltaTime)
 //       float xmin,                            // arg 10
 //       float xmax,                            // arg 11
 //       float ymin,                            // arg 12
@@ -49,7 +49,7 @@
 //       float r0,                              // arg 19
 //       __global float2 *neighborMap,          // arg 20
 //       uint PARTICLE_COUNT,                   // arg 21
-//       int iterationCount,                    // arg 22
+//       int iterationCount,                    // arg 22 (timestepIndex)
 //       int mode                               // arg 23
 //   )
 //
@@ -61,13 +61,13 @@
 //       const device uint2 *sortedCellAndSerialId        [[buffer(3)]],
 //       const device uint *sortedParticleIdBySerialId    [[buffer(4)]],
 //       constant float &simulationScaleInv               [[buffer(5)]],
-//       constant float &timeStep                         [[buffer(6)]],
+//       constant float &deltaTime                        [[buffer(6)]],
 //       device float4 *originalPosition                  [[buffer(7)]],
 //       device float4 *velocity                          [[buffer(8)]],
 //       constant float &r0                               [[buffer(9)]],
 //       const device float2 *neighborMap                 [[buffer(10)]],
 //       constant uint &particleCount                     [[buffer(11)]],
-//       constant int &iterationCount                     [[buffer(12)]],
+//       constant int &timestepIndex                      [[buffer(12)]],
 //       constant int &mode                               [[buffer(13)]],
 //       uint serialId [[thread_position_in_grid]])
 
@@ -93,19 +93,19 @@ namespace Sibernetic {
 
 // ============ Backend-agnostic input ============
 struct PcisphIntegrateInput {
-  Float4Span acceleration;   // size: particleCount * 3
-  Float4Span sortedPosition; // size: particleCount
-  Float4Span sortedVelocity; // size: particleCount
+  Float4Span acceleration;               // size: particleCount * 3
+  Float4Span sortedPosition;             // size: particleCount
+  Float4Span sortedVelocity;             // size: particleCount
   UInt2Span sortedCellAndSerialId;       // size: particleCount
   UInt32Span sortedParticleIdBySerialId; // size: particleCount
   float simulationScaleInv;
-  float timeStep;
+  float deltaTime;
   Float4Span originalPosition; // size: particleCount (in/out, .w = type)
   Float4Span velocity;         // size: particleCount (in/out)
   float r0;                    // boundary interaction radius
   Float2Span neighborMap;      // size: particleCount * 32
   uint32_t particleCount;
-  int32_t iterationCount;
+  int32_t timestepIndex;
   int32_t mode;
 };
 
@@ -119,13 +119,13 @@ struct PcisphIntegrateMetalArgs {
   MTL::Buffer *sortedCellAndSerialId;      // [[buffer(3)]]
   MTL::Buffer *sortedParticleIdBySerialId; // [[buffer(4)]]
   float simulationScaleInv;                // [[buffer(5)]]
-  float timeStep;                          // [[buffer(6)]]
+  float deltaTime;                         // [[buffer(6)]]
   MTL::Buffer *originalPosition;           // [[buffer(7)]]  in/out
   MTL::Buffer *velocity;                   // [[buffer(8)]]  in/out
   float r0;                                // [[buffer(9)]]
   MTL::Buffer *neighborMap;                // [[buffer(10)]]
   uint32_t particleCount;                  // [[buffer(11)]]
-  int32_t iterationCount;                  // [[buffer(12)]]
+  int32_t timestepIndex;                   // [[buffer(12)]]
   int32_t mode;                            // [[buffer(13)]]
 
   void bind(MTL::ComputeCommandEncoder *enc) const {
@@ -135,13 +135,13 @@ struct PcisphIntegrateMetalArgs {
     bindBuffer(enc, sortedCellAndSerialId, 3);
     bindBuffer(enc, sortedParticleIdBySerialId, 4);
     bindScalar(enc, simulationScaleInv, 5);
-    bindScalar(enc, timeStep, 6);
+    bindScalar(enc, deltaTime, 6);
     bindBuffer(enc, originalPosition, 7);
     bindBuffer(enc, velocity, 8);
     bindScalar(enc, r0, 9);
     bindBuffer(enc, neighborMap, 10);
     bindScalar(enc, particleCount, 11);
-    bindScalar(enc, iterationCount, 12);
+    bindScalar(enc, timestepIndex, 12);
     bindScalar(enc, mode, 13);
   }
 };
@@ -164,7 +164,7 @@ toMetalArgs(const PcisphIntegrateInput &input, MTL::Device *device,
                         input.sortedParticleIdBySerialId.size_bytes(),
                         MTL::ResourceStorageModeShared);
   args.simulationScaleInv = input.simulationScaleInv;
-  args.timeStep = input.timeStep;
+  args.deltaTime = input.deltaTime;
   args.originalPosition = inOutOriginalPosition;
   args.velocity = inOutVelocity;
   args.r0 = input.r0;
@@ -172,7 +172,7 @@ toMetalArgs(const PcisphIntegrateInput &input, MTL::Device *device,
                                        input.neighborMap.size_bytes(),
                                        MTL::ResourceStorageModeShared);
   args.particleCount = input.particleCount;
-  args.iterationCount = input.iterationCount;
+  args.timestepIndex = input.timestepIndex;
   args.mode = input.mode;
   return args;
 }
@@ -192,7 +192,7 @@ struct PcisphIntegrateOpenCLArgs {
   float gravityY;                        // arg 6
   float gravityZ;                        // arg 7
   float simulationScaleInv;              // arg 8
-  float timeStep;                        // arg 9
+  float deltaTime;                       // arg 9 (timeStep in .cl)
   float xmin;                            // arg 10
   float xmax;                            // arg 11
   float ymin;                            // arg 12
@@ -205,7 +205,7 @@ struct PcisphIntegrateOpenCLArgs {
   float r0;                              // arg 19
   cl::Buffer neighborMap;                // arg 20
   uint32_t particleCount;                // arg 21
-  int32_t iterationCount;                // arg 22
+  int32_t timestepIndex;                 // arg 22 (iterationCount in .cl)
   int32_t mode;                          // arg 23
 
   void bind(cl::Kernel &kernel) const {
@@ -218,7 +218,7 @@ struct PcisphIntegrateOpenCLArgs {
     bindScalar(kernel, gravityY, 6);
     bindScalar(kernel, gravityZ, 7);
     bindScalar(kernel, simulationScaleInv, 8);
-    bindScalar(kernel, timeStep, 9);
+    bindScalar(kernel, deltaTime, 9);
     bindScalar(kernel, xmin, 10);
     bindScalar(kernel, xmax, 11);
     bindScalar(kernel, ymin, 12);
@@ -231,7 +231,7 @@ struct PcisphIntegrateOpenCLArgs {
     bindScalar(kernel, r0, 19);
     bindBuffer(kernel, neighborMap, 20);
     bindScalar(kernel, particleCount, 21);
-    bindScalar(kernel, iterationCount, 22);
+    bindScalar(kernel, timestepIndex, 22);
     bindScalar(kernel, mode, 23);
   }
 };
@@ -260,7 +260,7 @@ toOpenCLArgs(const PcisphIntegrateInput &input, cl::Context &context,
   args.gravityY = 0.0f;
   args.gravityZ = 0.0f;
   args.simulationScaleInv = input.simulationScaleInv;
-  args.timeStep = input.timeStep;
+  args.deltaTime = input.deltaTime;
   args.xmin = 0.0f;
   args.xmax = 100.0f;
   args.ymin = 0.0f;
@@ -279,7 +279,7 @@ toOpenCLArgs(const PcisphIntegrateInput &input, cl::Context &context,
                  input.neighborMap.size_bytes(),
                  const_cast<HostFloat2 *>(input.neighborMap.data()), &err);
   args.particleCount = input.particleCount;
-  args.iterationCount = input.iterationCount;
+  args.timestepIndex = input.timestepIndex;
   args.mode = input.mode;
   return args;
 }

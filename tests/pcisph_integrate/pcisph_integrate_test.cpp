@@ -8,7 +8,6 @@
 using namespace SiberneticTest;
 
 SIB_DEFINE_BACKEND_PARAM_TEST(PcisphIntegrateBackendParamTest,
-                              PcisphIntegrateTestCommon,
-                              PcisphIntegrateRunner,
+                              PcisphIntegrateTestCommon, PcisphIntegrateRunner,
                               OpenCLPcisphIntegrateRunner,
                               MetalPcisphIntegrateRunner);
