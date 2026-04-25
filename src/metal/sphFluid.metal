@@ -1002,3 +1002,103 @@ kernel void pcisph_computePressureForceAcceleration(
   result *= massMultGradWspikyCoefficient / rhoI;
   acceleration[particleCount + sortedParticleId] = result;
 }
+
+// Leapfrog / semi-implicit Euler time integration.
+//
+// iterationCount == 0: store combined acceleration for the first leapfrog step.
+// mode == 0 (positions): leapfrog position update x(t+dt) = x(t) + v*dt + a*dt^2/2.
+// mode == 1 (velocities): leapfrog velocity update v(t+dt) = v(t) + (a(t)+a(t+dt))*dt/2,
+//   with boundary interaction correction.
+// mode == 2 (semi-implicit Euler): v(t+dt) = v(t) + a(t+dt)*dt,
+//   x(t+dt) = x(t) + v(t+dt)*dt, with boundary interaction correction.
+kernel void pcisph_integrate(
+    device float4 *acceleration [[buffer(0)]],
+    device float4 *sortedPosition [[buffer(1)]],
+    const device float4 *sortedVelocity [[buffer(2)]],
+    const device uint2 *sortedCellAndSerialId [[buffer(3)]],
+    const device uint *sortedParticleIdBySerialId [[buffer(4)]],
+    constant float &simulationScaleInv [[buffer(5)]],
+    constant float &timeStep [[buffer(6)]],
+    device float4 *originalPosition [[buffer(7)]],
+    device float4 *velocity [[buffer(8)]],
+    constant float &r0 [[buffer(9)]],
+    const device float2 *neighborMap [[buffer(10)]],
+    constant uint &particleCount [[buffer(11)]],
+    constant int &iterationCount [[buffer(12)]],
+    constant int &mode [[buffer(13)]],
+    uint serialId [[thread_position_in_grid]]) {
+  if (serialId >= particleCount)
+    return;
+
+  const uint sortedParticleId = sortedParticleIdBySerialId[serialId];
+  const uint sourceSerialId = sortedCellAndSerialId[sortedParticleId].y;
+
+  if (static_cast<int>(originalPosition[sourceSerialId].w) == kBoundaryParticle)
+    return;
+
+  if (iterationCount == 0) {
+    acceleration[particleCount * 2 + sourceSerialId] =
+        acceleration[sortedParticleId] +
+        acceleration[particleCount + sortedParticleId];
+    return;
+  }
+
+  float4 accelerationPrev =
+      acceleration[particleCount * 2 + sourceSerialId];
+  accelerationPrev.w = 0.0f;
+
+  float4 velocityT = sortedVelocity[sortedParticleId];
+  float particleType = originalPosition[sourceSerialId].w;
+
+  if (mode == 2) {
+    float4 accelerationCurrent =
+        acceleration[sortedParticleId] +
+        acceleration[particleCount + sortedParticleId];
+    accelerationCurrent.w = 0.0f;
+
+    float4 positionT = sortedPosition[sortedParticleId];
+    float4 velocityNew = velocityT + accelerationCurrent * timeStep;
+    float4 positionNew =
+        positionT + velocityNew * timeStep * simulationScaleInv;
+
+    computeInteractionWithBoundaryParticles(
+        static_cast<int>(sortedParticleId), r0, neighborMap,
+        sortedParticleIdBySerialId, sortedCellAndSerialId, originalPosition,
+        velocity, &positionNew, true, &velocityNew, particleCount);
+
+    velocity[sourceSerialId] = velocityNew;
+    originalPosition[sourceSerialId] = positionNew;
+    originalPosition[sourceSerialId].w = particleType;
+    acceleration[particleCount * 2 + sourceSerialId] = accelerationCurrent;
+    return;
+  }
+
+  if (mode == 0) {
+    float4 positionT = sortedPosition[sortedParticleId];
+    float4 positionNew =
+        positionT + (velocityT * timeStep +
+                     accelerationPrev * timeStep * timeStep * 0.5f) *
+                        simulationScaleInv;
+    sortedPosition[sortedParticleId] = positionNew;
+    sortedPosition[sortedParticleId].w = particleType;
+  } else if (mode == 1) {
+    float4 positionNew = sortedPosition[sortedParticleId];
+    float4 accelerationCurrent =
+        acceleration[sortedParticleId] +
+        acceleration[particleCount + sortedParticleId];
+    accelerationCurrent.w = 0.0f;
+
+    float4 velocityNew =
+        velocityT + (accelerationPrev + accelerationCurrent) * timeStep * 0.5f;
+
+    computeInteractionWithBoundaryParticles(
+        static_cast<int>(sortedParticleId), r0, neighborMap,
+        sortedParticleIdBySerialId, sortedCellAndSerialId, originalPosition,
+        velocity, &positionNew, true, &velocityNew, particleCount);
+
+    velocity[sourceSerialId] = velocityNew;
+    acceleration[particleCount * 2 + sourceSerialId] = accelerationCurrent;
+    originalPosition[sourceSerialId] = positionNew;
+    originalPosition[sourceSerialId].w = particleType;
+  }
+}
