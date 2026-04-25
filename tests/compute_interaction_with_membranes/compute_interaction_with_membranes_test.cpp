@@ -7,12 +7,11 @@
 
 using namespace SiberneticTest;
 
-SIB_DEFINE_BACKEND_PARAM_TEST(
-    ComputeInteractionWithMembranesBackendParamTest,
-    ComputeInteractionWithMembranesTestCommon,
-    ComputeInteractionWithMembranesRunner,
-    OpenCLComputeInteractionWithMembranesRunner,
-    MetalComputeInteractionWithMembranesRunner);
+SIB_DEFINE_BACKEND_PARAM_TEST(ComputeInteractionWithMembranesBackendParamTest,
+                              ComputeInteractionWithMembranesTestCommon,
+                              ComputeInteractionWithMembranesRunner,
+                              OpenCLComputeInteractionWithMembranesRunner,
+                              MetalComputeInteractionWithMembranesRunner);
 
 SIB_DEFINE_BACKEND_PARAM_TEST(
     ComputeInteractionWithMembranesFinalizeBackendParamTest,

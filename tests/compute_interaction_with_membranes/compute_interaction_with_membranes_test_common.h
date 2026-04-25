@@ -34,7 +34,7 @@ inline HostFloat2 f2(float x, float y) { return {x, y}; }
 // Build identity sort: sortedParticleIdBySerialId[i] = i,
 // sortedCellAndSerialId[i] = (0, i).
 inline void identitySort(uint32_t n, std::vector<uint32_t> &backMap,
-                          std::vector<HostUInt2> &cellAndSerial) {
+                         std::vector<HostUInt2> &cellAndSerial) {
   backMap.resize(n);
   cellAndSerial.resize(n);
   for (uint32_t i = 0; i < n; ++i) {
@@ -44,16 +44,15 @@ inline void identitySort(uint32_t n, std::vector<uint32_t> &backMap,
 }
 
 // Fill neighborMap with sentinels.
-inline std::vector<HostFloat2>
-emptyNeighborMap(uint32_t particleCount) {
-  std::vector<HostFloat2> nm(
-      particleCount * Sibernetic::kMaxNeighborCount, {-1.0f, -1.0f});
+inline std::vector<HostFloat2> emptyNeighborMap(uint32_t particleCount) {
+  std::vector<HostFloat2> nm(particleCount * Sibernetic::kMaxNeighborCount,
+                             {-1.0f, -1.0f});
   return nm;
 }
 
 // Set a single neighbor entry in the neighborMap.
 inline void setNeighbor(std::vector<HostFloat2> &nm, uint32_t sortedId,
-                         int slot, int neighborSortedId, float distance) {
+                        int slot, int neighborSortedId, float distance) {
   nm[sortedId * Sibernetic::kMaxNeighborCount + slot] = {
       static_cast<float>(neighborSortedId), distance};
 }
@@ -126,7 +125,8 @@ struct ComputeInteractionWithMembranesCase {
   }
 };
 
-static_assert(SiberneticTest::KernelTestCase<ComputeInteractionWithMembranesCase>);
+static_assert(
+    SiberneticTest::KernelTestCase<ComputeInteractionWithMembranesCase>);
 
 class ComputeInteractionWithMembranesRunner
     : public TestRunner<ComputeInteractionWithMembranesCase,
@@ -167,8 +167,8 @@ struct ComputeInteractionWithMembranesFinalizeCase {
   }
 };
 
-static_assert(
-    SiberneticTest::KernelTestCase<ComputeInteractionWithMembranesFinalizeCase>);
+static_assert(SiberneticTest::KernelTestCase<
+              ComputeInteractionWithMembranesFinalizeCase>);
 
 class ComputeInteractionWithMembranesFinalizeRunner
     : public TestRunner<ComputeInteractionWithMembranesFinalizeCase,
@@ -226,8 +226,7 @@ struct ComputeInteractionWithMembranesTestCommon {
           tc.particleCount = 2;
           tc.r0 = 0.5f;
           // Particle 0: liquid, particle 1: liquid (not elastic)
-          tc.position = {f4(1.0f, 1.0f, 0.0f, 1.0f),
-                         f4(2.0f, 1.0f, 0.0f, 1.0f),
+          tc.position = {f4(1.0f, 1.0f, 0.0f, 1.0f), f4(2.0f, 1.0f, 0.0f, 1.0f),
                          f4(0.0f, 0.0f, 0.0f, 0.0f),
                          f4(0.0f, 0.0f, 0.0f, 0.0f)};
           tc.velocity.resize(4, f4(0, 0, 0, 0));
@@ -281,9 +280,9 @@ struct ComputeInteractionWithMembranesTestCommon {
           // Particle 0 has no membranes.
           tc.particleMembranesList = {
               -1, -1, -1, -1, -1, -1, -1, // particle 0: liquid, no membranes
-              0,  -1, -1, -1, -1, -1, -1,  // particle 1: membrane 0
-              0,  -1, -1, -1, -1, -1, -1,  // particle 2: membrane 0
-              0,  -1, -1, -1, -1, -1, -1,  // particle 3: membrane 0
+              0,  -1, -1, -1, -1, -1, -1, // particle 1: membrane 0
+              0,  -1, -1, -1, -1, -1, -1, // particle 2: membrane 0
+              0,  -1, -1, -1, -1, -1, -1, // particle 3: membrane 0
           };
           // membraneData: membrane 0 → vertices 1, 2, 3.
           tc.membraneData = {1, 2, 3};
@@ -342,10 +341,10 @@ struct ComputeInteractionWithMembranesTestCommon {
           // Particle 1 belongs to both triangles, particle 2 belongs to both.
           tc.particleMembranesList = {
               -1, -1, -1, -1, -1, -1, -1, // 0: liquid
-              0,  1,  -1, -1, -1, -1, -1,  // 1: membranes 0 and 1
-              0,  1,  -1, -1, -1, -1, -1,  // 2: membranes 0 and 1
-              0,  -1, -1, -1, -1, -1, -1,  // 3: membrane 0 only
-              1,  -1, -1, -1, -1, -1, -1,  // 4: membrane 1 only
+              0,  1,  -1, -1, -1, -1, -1, // 1: membranes 0 and 1
+              0,  1,  -1, -1, -1, -1, -1, // 2: membranes 0 and 1
+              0,  -1, -1, -1, -1, -1, -1, // 3: membrane 0 only
+              1,  -1, -1, -1, -1, -1, -1, // 4: membrane 1 only
           };
           tc.membraneData = {
               1, 2, 3, // membrane 0
@@ -360,10 +359,8 @@ struct ComputeInteractionWithMembranesTestCommon {
           const float d = std::sqrt(0.5f + dw * dw);
           const float dz = tc.r0 - d;
           tc.expectedDelta = {
-              f4(0.0f, 0.0f, dz, 0.0f),
-              f4(0.0f, 0.0f, 0.0f, 0.0f),
-              f4(0.0f, 0.0f, 0.0f, 0.0f),
-              f4(0.0f, 0.0f, 0.0f, 0.0f),
+              f4(0.0f, 0.0f, dz, 0.0f),   f4(0.0f, 0.0f, 0.0f, 0.0f),
+              f4(0.0f, 0.0f, 0.0f, 0.0f), f4(0.0f, 0.0f, 0.0f, 0.0f),
               f4(0.0f, 0.0f, 0.0f, 0.0f),
           };
           return tc;
@@ -381,10 +378,8 @@ struct ComputeInteractionWithMembranesTestCommon {
               f4(0.0f, 0.0f, 0.0f, 2.1f), // 1: elastic
               f4(1.0f, 0.0f, 0.0f, 2.1f), // 2: elastic
               f4(0.0f, 1.0f, 0.0f, 2.1f), // 3: elastic
-              f4(0.0f, 0.0f, 0.0f, 0.0f),
-              f4(0.0f, 0.0f, 0.0f, 0.0f),
-              f4(0.0f, 0.0f, 0.0f, 0.0f),
-              f4(0.0f, 0.0f, 0.0f, 0.0f),
+              f4(0.0f, 0.0f, 0.0f, 0.0f), f4(0.0f, 0.0f, 0.0f, 0.0f),
+              f4(0.0f, 0.0f, 0.0f, 0.0f), f4(0.0f, 0.0f, 0.0f, 0.0f),
           };
           tc.velocity.resize(8, f4(0, 0, 0, 0));
           // Shuffled: serial 0→sorted 2, 1→0, 2→3, 3→1.
@@ -397,15 +392,14 @@ struct ComputeInteractionWithMembranesTestCommon {
           };
           tc.neighborMap = emptyNeighborMap(4);
           // Liquid (serial 0, sorted 2) sees elastic neighbors at their
-          // sorted IDs: serial 1→sorted 0, serial 2→sorted 3, serial 3→sorted 1.
+          // sorted IDs: serial 1→sorted 0, serial 2→sorted 3, serial
+          // 3→sorted 1.
           setNeighbor(tc.neighborMap, 2, 0, 0, 0.707f);
           setNeighbor(tc.neighborMap, 2, 1, 3, 0.707f);
           setNeighbor(tc.neighborMap, 2, 2, 1, 0.707f);
           tc.particleMembranesList = {
-              -1, -1, -1, -1, -1, -1, -1,
-              0,  -1, -1, -1, -1, -1, -1,
-              0,  -1, -1, -1, -1, -1, -1,
-              0,  -1, -1, -1, -1, -1, -1,
+              -1, -1, -1, -1, -1, -1, -1, 0, -1, -1, -1, -1, -1, -1,
+              0,  -1, -1, -1, -1, -1, -1, 0, -1, -1, -1, -1, -1, -1,
           };
           tc.membraneData = {1, 2, 3};
           // Same geometry → same expected delta as LiquidNearMembrane.
@@ -433,10 +427,8 @@ struct ComputeInteractionWithMembranesTestCommon {
               f4(5.0f, 0.0f, 0.0f, 2.1f),  // 1: elastic (far away)
               f4(0.0f, 5.0f, 0.0f, 2.1f),  // 2: triangle vertex
               f4(5.0f, 5.0f, 0.0f, 2.1f),  // 3: triangle vertex
-              f4(0.0f, 0.0f, 0.0f, 0.0f),
-              f4(0.0f, 0.0f, 0.0f, 0.0f),
-              f4(0.0f, 0.0f, 0.0f, 0.0f),
-              f4(0.0f, 0.0f, 0.0f, 0.0f),
+              f4(0.0f, 0.0f, 0.0f, 0.0f),  f4(0.0f, 0.0f, 0.0f, 0.0f),
+              f4(0.0f, 0.0f, 0.0f, 0.0f),  f4(0.0f, 0.0f, 0.0f, 0.0f),
           };
           tc.velocity.resize(8, f4(0, 0, 0, 0));
           identitySort(4, tc.sortedParticleIdBySerialId,
@@ -444,10 +436,8 @@ struct ComputeInteractionWithMembranesTestCommon {
           tc.neighborMap = emptyNeighborMap(4);
           setNeighbor(tc.neighborMap, 0, 0, 1, 5.0f);
           tc.particleMembranesList = {
-              -1, -1, -1, -1, -1, -1, -1,
-              0,  -1, -1, -1, -1, -1, -1,
-              0,  -1, -1, -1, -1, -1, -1,
-              0,  -1, -1, -1, -1, -1, -1,
+              -1, -1, -1, -1, -1, -1, -1, 0, -1, -1, -1, -1, -1, -1,
+              0,  -1, -1, -1, -1, -1, -1, 0, -1, -1, -1, -1, -1, -1,
           };
           tc.membraneData = {1, 2, 3};
           // dist >> r0 so weight = 0, no delta.
@@ -467,10 +457,8 @@ struct ComputeInteractionWithMembranesTestCommon {
               f4(0.3f, 0.0f, 0.0f, 2.1f), // 1: elastic (closer)
               f4(0.8f, 0.0f, 0.0f, 2.1f), // 2: elastic (farther)
               f4(0.0f, 1.0f, 0.0f, 2.1f), // 3: triangle vertex
-              f4(0.0f, 0.0f, 0.0f, 0.0f),
-              f4(0.0f, 0.0f, 0.0f, 0.0f),
-              f4(0.0f, 0.0f, 0.0f, 0.0f),
-              f4(0.0f, 0.0f, 0.0f, 0.0f),
+              f4(0.0f, 0.0f, 0.0f, 0.0f), f4(0.0f, 0.0f, 0.0f, 0.0f),
+              f4(0.0f, 0.0f, 0.0f, 0.0f), f4(0.0f, 0.0f, 0.0f, 0.0f),
           };
           tc.velocity.resize(8, f4(0, 0, 0, 0));
           identitySort(4, tc.sortedParticleIdBySerialId,
@@ -479,10 +467,8 @@ struct ComputeInteractionWithMembranesTestCommon {
           setNeighbor(tc.neighborMap, 0, 0, 1, 0.3f);
           setNeighbor(tc.neighborMap, 0, 1, 2, 0.8f);
           tc.particleMembranesList = {
-              -1, -1, -1, -1, -1, -1, -1,
-              0,  -1, -1, -1, -1, -1, -1,
-              0,  -1, -1, -1, -1, -1, -1,
-              0,  -1, -1, -1, -1, -1, -1,
+              -1, -1, -1, -1, -1, -1, -1, 0, -1, -1, -1, -1, -1, -1,
+              0,  -1, -1, -1, -1, -1, -1, 0, -1, -1, -1, -1, -1, -1,
           };
           tc.membraneData = {1, 2, 3};
           // Triangle (P1, P2, P3) lies in z=0 → normal = (0,0,1).
@@ -493,8 +479,7 @@ struct ComputeInteractionWithMembranesTestCommon {
           const float w1 = (tc.r0 - dist1) / tc.r0;
           const float w2 = (tc.r0 - dist2) / tc.r0;
           const float w_sum = w1 + w2;
-          const float w_second =
-              w1 * (tc.r0 - dist1) + w2 * (tc.r0 - dist2);
+          const float w_second = w1 * (tc.r0 - dist1) + w2 * (tc.r0 - dist2);
           const float dz = w_second / w_sum;
           tc.expectedDelta = {
               f4(0.0f, 0.0f, dz, 0.0f),
@@ -519,10 +504,8 @@ struct ComputeInteractionWithMembranesTestCommon {
               f4(1.0f, 0.0f, 0.0f, 2.1f), // 1: elastic
               f4(0.0f, 1.0f, 0.0f, 2.1f), // 2: elastic
               f4(0.0f, 0.0f, 1.0f, 2.1f), // 3: elastic
-              f4(0.0f, 0.0f, 0.0f, 0.0f),
-              f4(0.0f, 0.0f, 0.0f, 0.0f),
-              f4(0.0f, 0.0f, 0.0f, 0.0f),
-              f4(0.0f, 0.0f, 0.0f, 0.0f),
+              f4(0.0f, 0.0f, 0.0f, 0.0f), f4(0.0f, 0.0f, 0.0f, 0.0f),
+              f4(0.0f, 0.0f, 0.0f, 0.0f), f4(0.0f, 0.0f, 0.0f, 0.0f),
           };
           tc.velocity.resize(8, f4(0, 0, 0, 0));
           identitySort(4, tc.sortedParticleIdBySerialId,
@@ -531,10 +514,8 @@ struct ComputeInteractionWithMembranesTestCommon {
           // Only P1 is a neighbor of P0.
           setNeighbor(tc.neighborMap, 0, 0, 1, 1.0f);
           tc.particleMembranesList = {
-              -1, -1, -1, -1, -1, -1, -1,
-              0,  -1, -1, -1, -1, -1, -1,
-              0,  -1, -1, -1, -1, -1, -1,
-              0,  -1, -1, -1, -1, -1, -1,
+              -1, -1, -1, -1, -1, -1, -1, 0, -1, -1, -1, -1, -1, -1,
+              0,  -1, -1, -1, -1, -1, -1, 0, -1, -1, -1, -1, -1, -1,
           };
           tc.membraneData = {1, 2, 3};
           // One neighbor → delta = normal * (r0 - dist).
@@ -542,7 +523,8 @@ struct ComputeInteractionWithMembranesTestCommon {
           const float dw = 1.0f - 2.1f;
           const float dist = std::sqrt(1.0f + dw * dw);
           // Projection of (0,0,0) onto x+y+z=1: (1/3, 1/3, 1/3).
-          // Normal = (0,0,0)-(1/3,1/3,1/3) → normalized = (-1/√3, -1/√3, -1/√3).
+          // Normal = (0,0,0)-(1/3,1/3,1/3) → normalized = (-1/√3, -1/√3,
+          // -1/√3).
           const float nComp = -1.0f / std::sqrt(3.0f);
           const float scale = tc.r0 - dist;
           tc.expectedDelta = {
@@ -566,10 +548,8 @@ struct ComputeInteractionWithMembranesTestCommon {
               f4(0.0f, 0.0f, 0.0f, 2.1f), // 1: elastic
               f4(1.0f, 0.0f, 0.0f, 2.1f), // 2: elastic (collinear)
               f4(2.0f, 0.0f, 0.0f, 2.1f), // 3: elastic (collinear)
-              f4(0.0f, 0.0f, 0.0f, 0.0f),
-              f4(0.0f, 0.0f, 0.0f, 0.0f),
-              f4(0.0f, 0.0f, 0.0f, 0.0f),
-              f4(0.0f, 0.0f, 0.0f, 0.0f),
+              f4(0.0f, 0.0f, 0.0f, 0.0f), f4(0.0f, 0.0f, 0.0f, 0.0f),
+              f4(0.0f, 0.0f, 0.0f, 0.0f), f4(0.0f, 0.0f, 0.0f, 0.0f),
           };
           tc.velocity.resize(8, f4(0, 0, 0, 0));
           identitySort(4, tc.sortedParticleIdBySerialId,
@@ -577,10 +557,8 @@ struct ComputeInteractionWithMembranesTestCommon {
           tc.neighborMap = emptyNeighborMap(4);
           setNeighbor(tc.neighborMap, 0, 0, 1, 1.0f);
           tc.particleMembranesList = {
-              -1, -1, -1, -1, -1, -1, -1,
-              0,  -1, -1, -1, -1, -1, -1,
-              0,  -1, -1, -1, -1, -1, -1,
-              0,  -1, -1, -1, -1, -1, -1,
+              -1, -1, -1, -1, -1, -1, -1, 0, -1, -1, -1, -1, -1, -1,
+              0,  -1, -1, -1, -1, -1, -1, 0, -1, -1, -1, -1, -1, -1,
           };
           tc.membraneData = {1, 2, 3};
           // Collinear triangle → degenerate, no delta.
@@ -595,8 +573,8 @@ struct ComputeInteractionWithMembranesTestCommon {
   }
 };
 
-static_assert(SiberneticTest::SibTestCommon<
-              ComputeInteractionWithMembranesTestCommon>);
+static_assert(
+    SiberneticTest::SibTestCommon<ComputeInteractionWithMembranesTestCommon>);
 
 // ── Test cases: computeInteractionWithMembranes_finalize ────────────────────
 
@@ -661,18 +639,18 @@ struct ComputeInteractionWithMembranesFinalizeTestCommon {
           tc.name = "MultipleParticleMixed";
           tc.particleCount = 3;
           tc.position = {
-              f4(1.0f, 2.0f, 3.0f, 3.0f),  // 0: boundary
-              f4(4.0f, 5.0f, 6.0f, 1.0f),  // 1: liquid
-              f4(7.0f, 8.0f, 9.0f, 2.1f),  // 2: elastic
-              f4(0.5f, 0.5f, 0.5f, 0.0f),  // delta for 0
-              f4(0.1f, 0.2f, 0.3f, 0.0f),  // delta for 1
-              f4(0.3f, 0.2f, 0.1f, 0.0f),  // delta for 2
+              f4(1.0f, 2.0f, 3.0f, 3.0f), // 0: boundary
+              f4(4.0f, 5.0f, 6.0f, 1.0f), // 1: liquid
+              f4(7.0f, 8.0f, 9.0f, 2.1f), // 2: elastic
+              f4(0.5f, 0.5f, 0.5f, 0.0f), // delta for 0
+              f4(0.1f, 0.2f, 0.3f, 0.0f), // delta for 1
+              f4(0.3f, 0.2f, 0.1f, 0.0f), // delta for 2
           };
           tc.sortedParticleIdBySerialId = {0, 1, 2};
           tc.expectedPosition = {
-              f4(1.0f, 2.0f, 3.0f, 3.0f),  // boundary: unchanged
-              f4(4.1f, 5.2f, 6.3f, 1.0f),  // liquid: applied
-              f4(7.3f, 8.2f, 9.1f, 2.1f),  // elastic: applied
+              f4(1.0f, 2.0f, 3.0f, 3.0f), // boundary: unchanged
+              f4(4.1f, 5.2f, 6.3f, 1.0f), // liquid: applied
+              f4(7.3f, 8.2f, 9.1f, 2.1f), // elastic: applied
           };
           return tc;
         }(),

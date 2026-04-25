@@ -24,20 +24,20 @@ public:
     auto *device = metal.device();
 
     // position: 2×N float4 (in/out).
-    auto positionBuf = NS::TransferPtr(device->newBuffer(
-        input.position.data(), input.position.size_bytes(),
-        MTL::ResourceStorageModeShared));
-    auto velocityBuf = NS::TransferPtr(device->newBuffer(
-        input.velocity.data(), input.velocity.size_bytes(),
-        MTL::ResourceStorageModeShared));
-    auto sortedCellBuf = NS::TransferPtr(device->newBuffer(
-        input.sortedCellAndSerialId.data(),
-        input.sortedCellAndSerialId.size_bytes(),
-        MTL::ResourceStorageModeShared));
-    auto backMapBuf = NS::TransferPtr(device->newBuffer(
-        input.sortedParticleIdBySerialId.data(),
-        input.sortedParticleIdBySerialId.size_bytes(),
-        MTL::ResourceStorageModeShared));
+    auto positionBuf = NS::TransferPtr(
+        device->newBuffer(input.position.data(), input.position.size_bytes(),
+                          MTL::ResourceStorageModeShared));
+    auto velocityBuf = NS::TransferPtr(
+        device->newBuffer(input.velocity.data(), input.velocity.size_bytes(),
+                          MTL::ResourceStorageModeShared));
+    auto sortedCellBuf = NS::TransferPtr(
+        device->newBuffer(input.sortedCellAndSerialId.data(),
+                          input.sortedCellAndSerialId.size_bytes(),
+                          MTL::ResourceStorageModeShared));
+    auto backMapBuf = NS::TransferPtr(
+        device->newBuffer(input.sortedParticleIdBySerialId.data(),
+                          input.sortedParticleIdBySerialId.size_bytes(),
+                          MTL::ResourceStorageModeShared));
     auto neighborMapBuf = NS::TransferPtr(device->newBuffer(
         input.neighborMap.data(), input.neighborMap.size_bytes(),
         MTL::ResourceStorageModeShared));
@@ -67,8 +67,7 @@ public:
     args.particleCount = N;
     args.r0 = input.r0;
 
-    metal.dispatch(N,
-                   [&](MTL::ComputeCommandEncoder *enc) { args.bind(enc); });
+    metal.dispatch(N, [&](MTL::ComputeCommandEncoder *enc) { args.bind(enc); });
 
     ComputeInteractionWithMembranesResult result;
     const auto *posPtr = reinterpret_cast<const Sibernetic::MetalFloat4 *>(
@@ -92,21 +91,20 @@ public:
         Sibernetic::kComputeInteractionWithMembranesFinalizeKernelName);
     auto *device = metal.device();
 
-    auto positionBuf = NS::TransferPtr(device->newBuffer(
-        input.position.data(), input.position.size_bytes(),
-        MTL::ResourceStorageModeShared));
-    auto backMapBuf = NS::TransferPtr(device->newBuffer(
-        input.sortedParticleIdBySerialId.data(),
-        input.sortedParticleIdBySerialId.size_bytes(),
-        MTL::ResourceStorageModeShared));
+    auto positionBuf = NS::TransferPtr(
+        device->newBuffer(input.position.data(), input.position.size_bytes(),
+                          MTL::ResourceStorageModeShared));
+    auto backMapBuf = NS::TransferPtr(
+        device->newBuffer(input.sortedParticleIdBySerialId.data(),
+                          input.sortedParticleIdBySerialId.size_bytes(),
+                          MTL::ResourceStorageModeShared));
 
     Sibernetic::ComputeInteractionWithMembranesFinalizeMetalArgs args{};
     args.position = positionBuf.get();
     args.sortedParticleIdBySerialId = backMapBuf.get();
     args.particleCount = N;
 
-    metal.dispatch(N,
-                   [&](MTL::ComputeCommandEncoder *enc) { args.bind(enc); });
+    metal.dispatch(N, [&](MTL::ComputeCommandEncoder *enc) { args.bind(enc); });
 
     ComputeInteractionWithMembranesFinalizeResult result;
     const auto *posPtr = reinterpret_cast<const Sibernetic::MetalFloat4 *>(

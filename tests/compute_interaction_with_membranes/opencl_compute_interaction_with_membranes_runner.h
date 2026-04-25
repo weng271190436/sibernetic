@@ -38,16 +38,15 @@ public:
 
     // sortedPosition (arg 2): unused but required by OpenCL signature.
     float dummy4[4] = {0.0f, 0.0f, 0.0f, 0.0f};
-    cl::Buffer sortedPositionBuf(
-        opencl.context(), CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
-        sizeof(dummy4), &dummy4, &err);
+    cl::Buffer sortedPositionBuf(opencl.context(),
+                                 CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
+                                 sizeof(dummy4), &dummy4, &err);
 
     // particleIndex (arg 3) = sortedCellAndSerialId
     cl::Buffer particleIndexBuf(
         opencl.context(), CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
         input.sortedCellAndSerialId.size_bytes(),
-        const_cast<Sibernetic::HostUInt2 *>(
-            input.sortedCellAndSerialId.data()),
+        const_cast<Sibernetic::HostUInt2 *>(input.sortedCellAndSerialId.data()),
         &err);
     if (err != CL_SUCCESS)
       throw std::runtime_error("Failed to create particleIndex buffer");
@@ -105,9 +104,9 @@ public:
     args.numOfElasticP = 0; // unused by kernel
     args.r0 = input.r0;
 
-    cl::Kernel kernel(
-        opencl.program(),
-        Sibernetic::kComputeInteractionWithMembranesKernelName, &err);
+    cl::Kernel kernel(opencl.program(),
+                      Sibernetic::kComputeInteractionWithMembranesKernelName,
+                      &err);
     if (err != CL_SUCCESS)
       throw std::runtime_error(
           "Failed to create computeInteractionWithMembranes kernel");
@@ -155,8 +154,8 @@ public:
     // velocity (arg 1): unused but required by OpenCL signature.
     float dummy4[4] = {0.0f, 0.0f, 0.0f, 0.0f};
     cl::Buffer velocityBuf(opencl.context(),
-                            CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
-                            sizeof(dummy4), &dummy4, &err);
+                           CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
+                           sizeof(dummy4), &dummy4, &err);
 
     // Build sortedCellAndSerialId from sortedParticleIdBySerialId.
     // For the finalize kernel, particleIndex[sortedId].y must map back to

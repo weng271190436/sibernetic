@@ -81,7 +81,7 @@ struct ComputeInteractionWithMembranesInput {
   Float4Span velocity;                   // size: 2 × particleCount
   UInt2Span sortedCellAndSerialId;       // size: particleCount
   UInt32Span sortedParticleIdBySerialId; // size: particleCount
-  Float2Span neighborMap;   // size: particleCount × kMaxNeighborCount
+  Float2Span neighborMap;          // size: particleCount × kMaxNeighborCount
   Int32Span particleMembranesList; // size: numOfElasticP × 7
   Int32Span membraneData;          // size: numMembranes × 3
   uint32_t particleCount;
@@ -199,8 +199,8 @@ struct ComputeInteractionWithMembranesFinalizeOpenCLArgs {
 
 #endif
 
-inline constexpr const char *
-    kComputeInteractionWithMembranesFinalizeKernelName =
+inline constexpr const char
+    *kComputeInteractionWithMembranesFinalizeKernelName =
         "computeInteractionWithMembranes_finalize";
 
 } // namespace Sibernetic

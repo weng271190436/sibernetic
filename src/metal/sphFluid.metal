@@ -1256,7 +1256,8 @@ kernel void pcisph_integrate(device float4 *acceleration [[buffer(0)]],
   }
 }
 
-// ── Membrane interaction helpers ──────────────────────────────────────────────
+// ── Membrane interaction helpers
+// ──────────────────────────────────────────────
 
 // 3×3 determinant of column vectors (c1, c2, c3), using only .xyz components.
 // Used by calculateProjectionOfPointToPlane (Cramer's rule).
@@ -1270,8 +1271,8 @@ inline float calcDeterminant3x3(float4 c1, float4 c2, float4 c3) {
 // a degenerate triangle (zero-area, so the plane is undefined).
 //
 // Reference: http://ateist.spb.ru/mw/distpoint.htm
-inline float4 calculateProjectionOfPointToPlane(float4 ps, float4 pa,
-                                                float4 pb, float4 pc) {
+inline float4 calculateProjectionOfPointToPlane(float4 ps, float4 pa, float4 pb,
+                                                float4 pc) {
   float4 pm = float4(0.0f);
 
   const float b_1 =
@@ -1283,15 +1284,15 @@ inline float4 calculateProjectionOfPointToPlane(float4 ps, float4 pa,
   const float b_3 =
       ps.x * (pc.x - pa.x) + ps.y * (pc.y - pa.y) + ps.z * (pc.z - pa.z);
 
-  const float4 a_1 = float4(
-      (pb.y - pa.y) * (pc.z - pa.z) - (pb.z - pa.z) * (pc.y - pa.y),
-      pb.x - pa.x, pc.x - pa.x, 0.0f);
-  const float4 a_2 = float4(
-      (pb.z - pa.z) * (pc.x - pa.x) - (pb.x - pa.x) * (pc.z - pa.z),
-      pb.y - pa.y, pc.y - pa.y, 0.0f);
-  const float4 a_3 = float4(
-      (pb.x - pa.x) * (pc.y - pa.y) - (pb.y - pa.y) * (pc.x - pa.x),
-      pb.z - pa.z, pc.z - pa.z, 0.0f);
+  const float4 a_1 =
+      float4((pb.y - pa.y) * (pc.z - pa.z) - (pb.z - pa.z) * (pc.y - pa.y),
+             pb.x - pa.x, pc.x - pa.x, 0.0f);
+  const float4 a_2 =
+      float4((pb.z - pa.z) * (pc.x - pa.x) - (pb.x - pa.x) * (pc.z - pa.z),
+             pb.y - pa.y, pc.y - pa.y, 0.0f);
+  const float4 a_3 =
+      float4((pb.x - pa.x) * (pc.y - pa.y) - (pb.y - pa.y) * (pc.x - pa.x),
+             pb.z - pa.z, pc.z - pa.z, 0.0f);
   const float4 b = float4(b_1, b_2, b_3, 0.0f);
 
   const float denominator = calcDeterminant3x3(a_1, a_2, a_3);
@@ -1367,9 +1368,9 @@ kernel void computeInteractionWithMembranes(
   // Pass 1: For each neighbor, check if it's an elastic (membrane) particle.
   // If so, project the current particle onto each membrane triangle containing
   // that neighbor and accumulate the surface normal.
-  for (int nc = 0; nc < kMaxNeighborCount; ++nc) {
+  for (int neighborSlot = 0; neighborSlot < kMaxNeighborCount; ++neighborSlot) {
     const int neighborSortedParticleId =
-        static_cast<int>(neighborMap[neighborMapOffset + nc].x);
+        static_cast<int>(neighborMap[neighborMapOffset + neighborSlot].x);
     if (neighborSortedParticleId == kNoParticleId)
       break;
 
@@ -1387,14 +1388,15 @@ kernel void computeInteractionWithMembranes(
     // the distance into the XY plane.
     float4 displacement = position[serialId] - position[neighborSerialId];
     displacement.z = 0.0f;
-    const float distToNeighbor = sqrt(dot(displacement, displacement));
+    const float distanceToNeighbor = sqrt(dot(displacement, displacement));
 
     // Check all membrane triangles that include this elastic neighbor.
-    for (int mli = 0; mli < kMaxMembranesIncludingSameParticle; ++mli) {
+    for (int membraneSlot = 0;
+         membraneSlot < kMaxMembranesIncludingSameParticle; ++membraneSlot) {
       const int membraneIndex =
           particleMembranesList[static_cast<int>(neighborSerialId) *
                                     kMaxMembranesIncludingSameParticle +
-                                mli];
+                                membraneSlot];
       if (membraneIndex < 0)
         break;
 
@@ -1409,10 +1411,9 @@ kernel void computeInteractionWithMembranes(
 
       // Normal = particle position − its projection onto the membrane plane.
       float4 normalToPlane = position[serialId] - projection;
-      const float normalLength =
-          sqrt(normalToPlane.x * normalToPlane.x +
-               normalToPlane.y * normalToPlane.y +
-               normalToPlane.z * normalToPlane.z);
+      const float normalLength = sqrt(normalToPlane.x * normalToPlane.x +
+                                      normalToPlane.y * normalToPlane.y +
+                                      normalToPlane.z * normalToPlane.z);
 
       if (normalLength <= 0.0f)
         return;
@@ -1425,7 +1426,7 @@ kernel void computeInteractionWithMembranes(
     if (membraneTriangleCount > 0) {
       membraneNeighborNormal[membraneNeighborCount] /=
           static_cast<float>(membraneTriangleCount);
-      membraneNeighborDistance[membraneNeighborCount] = distToNeighbor;
+      membraneNeighborDistance[membraneNeighborCount] = distanceToNeighbor;
       membraneNeighborSerialId[membraneNeighborCount] =
           static_cast<int>(neighborSerialId);
       membraneNeighborCount++;
@@ -1438,12 +1439,12 @@ kernel void computeInteractionWithMembranes(
     float w_c_im_sum = 0.0f;
     float w_c_im_second_sum = 0.0f;
 
-    for (int nc = 0; nc < membraneNeighborCount; ++nc) {
-      const float x_im_dist = membraneNeighborDistance[nc];
+    for (int mi = 0; mi < membraneNeighborCount; ++mi) {
+      const float x_im_dist = membraneNeighborDistance[mi];
       const float w_c_im = max(0.0f, (r0 - x_im_dist) / r0); // Ihmsen (10)
-      const float4 n_m = membraneNeighborNormal[nc];
-      n_c_i += n_m * w_c_im;                         // Ihmsen (9)
-      w_c_im_sum += w_c_im;                          // Ihmsen (11) sum #1
+      const float4 n_m = membraneNeighborNormal[mi];
+      n_c_i += n_m * w_c_im;                          // Ihmsen (9)
+      w_c_im_sum += w_c_im;                           // Ihmsen (11) sum #1
       w_c_im_second_sum += w_c_im * (r0 - x_im_dist); // Ihmsen (11) sum #2
     }
 
