@@ -51,7 +51,8 @@ KERNEL_TEST_SRC := tests/metal_private_impl.cpp \
 				   tests/pcisph_integrate/pcisph_integrate_test.cpp \
 				   tests/clear_buffers/clear_buffers_test.cpp \
 				   tests/clear_membrane_buffers/clear_membrane_buffers_test.cpp \
-				   tests/pcisph_compute_elastic_forces/pcisph_compute_elastic_forces_test.cpp
+				   tests/pcisph_compute_elastic_forces/pcisph_compute_elastic_forces_test.cpp \
+				   tests/compute_interaction_with_membranes/compute_interaction_with_membranes_test.cpp
 KERNEL_TEST_HDRS := $(shell find tests -type f -name '*.h')
 KERNEL_TEST_BIN  := $(BUILDDIR)/kernel_backend_tests
 KERNEL_TEST_OBJDIR := $(BUILDDIR)/test_obj

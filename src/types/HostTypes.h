@@ -16,6 +16,7 @@ using Float4Span = std::span<const HostFloat4>;
 using Float2Span = std::span<const HostFloat2>;
 using UInt2Span = std::span<const HostUInt2>;
 using UInt32Span = std::span<const uint32_t>;
+using Int32Span = std::span<const int32_t>;
 using FloatSpan = std::span<const float>;
 
 } // namespace Sibernetic

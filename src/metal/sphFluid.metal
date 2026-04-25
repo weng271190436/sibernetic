@@ -5,6 +5,10 @@ constant int kMaxNeighborCount = 32;
 constant int kNoParticleId = -1;
 // Each particle probes the 2×2×2 octant of cells overlapping its h-radius ball.
 constant int kNeighborCellCount = 8;
+// Maximum number of membrane triangles that share a single elastic particle.
+constant int kMaxMembranesIncludingSameParticle = 7;
+constant int kLiquidParticle = 1;
+constant int kElasticParticle = 2;
 constant int kBoundaryParticle = 3;
 
 // Empirical surface tension scaling constant.
@@ -1250,4 +1254,236 @@ kernel void pcisph_integrate(device float4 *acceleration [[buffer(0)]],
     originalPosition[serialId].w = particleType;
     acceleration[particleCount * 2 + serialId] = accelerationCurrent;
   }
+}
+
+// ── Membrane interaction helpers ──────────────────────────────────────────────
+
+// 3×3 determinant of column vectors (c1, c2, c3), using only .xyz components.
+// Used by calculateProjectionOfPointToPlane (Cramer's rule).
+inline float calcDeterminant3x3(float4 c1, float4 c2, float4 c3) {
+  return c1.x * c2.y * c3.z + c1.y * c2.z * c3.x + c1.z * c2.x * c3.y -
+         c1.z * c2.y * c3.x - c1.x * c2.z * c3.y - c1.y * c2.x * c3.z;
+}
+
+// Projects point ps onto the plane defined by triangle (pa, pb, pc) using
+// Cramer's rule. Returns the projected point in .xyz; .w == -1.0f signals
+// a degenerate triangle (zero-area, so the plane is undefined).
+//
+// Reference: http://ateist.spb.ru/mw/distpoint.htm
+inline float4 calculateProjectionOfPointToPlane(float4 ps, float4 pa,
+                                                float4 pb, float4 pc) {
+  float4 pm = float4(0.0f);
+
+  const float b_1 =
+      pa.x * ((pb.y - pa.y) * (pc.z - pa.z) - (pb.z - pa.z) * (pc.y - pa.y)) +
+      pa.y * ((pb.z - pa.z) * (pc.x - pa.x) - (pb.x - pa.x) * (pc.z - pa.z)) +
+      pa.z * ((pb.x - pa.x) * (pc.y - pa.y) - (pb.y - pa.y) * (pc.x - pa.x));
+  const float b_2 =
+      ps.x * (pb.x - pa.x) + ps.y * (pb.y - pa.y) + ps.z * (pb.z - pa.z);
+  const float b_3 =
+      ps.x * (pc.x - pa.x) + ps.y * (pc.y - pa.y) + ps.z * (pc.z - pa.z);
+
+  const float4 a_1 = float4(
+      (pb.y - pa.y) * (pc.z - pa.z) - (pb.z - pa.z) * (pc.y - pa.y),
+      pb.x - pa.x, pc.x - pa.x, 0.0f);
+  const float4 a_2 = float4(
+      (pb.z - pa.z) * (pc.x - pa.x) - (pb.x - pa.x) * (pc.z - pa.z),
+      pb.y - pa.y, pc.y - pa.y, 0.0f);
+  const float4 a_3 = float4(
+      (pb.x - pa.x) * (pc.y - pa.y) - (pb.y - pa.y) * (pc.x - pa.x),
+      pb.z - pa.z, pc.z - pa.z, 0.0f);
+  const float4 b = float4(b_1, b_2, b_3, 0.0f);
+
+  const float denominator = calcDeterminant3x3(a_1, a_2, a_3);
+  if (denominator != 0.0f) {
+    pm.x = calcDeterminant3x3(b, a_2, a_3) / denominator;
+    pm.y = calcDeterminant3x3(a_1, b, a_3) / denominator;
+    pm.z = calcDeterminant3x3(a_1, a_2, b) / denominator;
+  } else {
+    pm.w = -1.0f; // degenerate triangle
+  }
+  return pm;
+}
+
+// ── Membrane interaction kernels ─────────────────────────────────────────────
+
+// Handles particle-membrane collision detection and position correction.
+// For each liquid particle, finds neighboring elastic particles that belong
+// to membrane triangles, projects the particle onto each membrane plane to
+// compute a surface normal, then accumulates a position correction (Ihmsen
+// et al. 2010, Sec. 3.2) into the delta buffer at position[N + serialId].
+//
+// Thread count: particleCount (all particles). Boundary and non-liquid
+// particles exit early.
+//
+// OpenCL signature (sphFluid.cl, lines 1120-1294):
+//   __kernel void computeInteractionWithMembranes(
+//       __global float4 *position,           // arg 0  (read + write delta)
+//       __global float4 *velocity,           // arg 1
+//       __global float4 *sortedPosition,     // arg 2  (unused)
+//       __global uint2  *particleIndex,      // arg 3
+//       __global uint   *particleIndexBack,  // arg 4
+//       __global float2 *neighborMap,        // arg 5
+//       __global int    *particleMembranesList, // arg 6
+//       __global int    *membraneData,       // arg 7
+//       int PARTICLE_COUNT,                  // arg 8
+//       int numOfElasticP,                   // arg 9  (unused)
+//       float r0                             // arg 10
+//   )
+kernel void computeInteractionWithMembranes(
+    device float4 *position [[buffer(0)]],
+    const device float4 *velocity [[buffer(1)]],
+    const device uint2 *sortedCellAndSerialId [[buffer(2)]],
+    const device uint *sortedParticleIdBySerialId [[buffer(3)]],
+    const device float2 *neighborMap [[buffer(4)]],
+    const device int *particleMembranesList [[buffer(5)]],
+    const device int *membraneData [[buffer(6)]],
+    constant uint &particleCount [[buffer(7)]],
+    constant float &r0 [[buffer(8)]],
+    uint serialId [[thread_position_in_grid]]) {
+  if (serialId >= particleCount)
+    return;
+
+  // Only liquid particles interact with membranes.
+  if (static_cast<int>(position[serialId].w) == kBoundaryParticle)
+    return;
+  if (static_cast<int>(position[serialId].w) != kLiquidParticle)
+    return;
+
+  const uint sortedParticleId = sortedParticleIdBySerialId[serialId];
+  const int neighborMapOffset =
+      static_cast<int>(sortedParticleId) * kMaxNeighborCount;
+
+  // Per-neighbor membrane normal accumulator and distance.
+  float4 membraneNeighborNormal[kMaxNeighborCount];
+  float membraneNeighborDistance[kMaxNeighborCount];
+  int membraneNeighborSerialId[kMaxNeighborCount];
+  int membraneNeighborCount = 0;
+
+  for (int i = 0; i < kMaxNeighborCount; ++i) {
+    membraneNeighborNormal[i] = float4(0.0f);
+  }
+
+  // Pass 1: For each neighbor, check if it's an elastic (membrane) particle.
+  // If so, project the current particle onto each membrane triangle containing
+  // that neighbor and accumulate the surface normal.
+  for (int nc = 0; nc < kMaxNeighborCount; ++nc) {
+    const int neighborSortedParticleId =
+        static_cast<int>(neighborMap[neighborMapOffset + nc].x);
+    if (neighborSortedParticleId == kNoParticleId)
+      break;
+
+    const uint neighborSerialId =
+        sortedCellAndSerialId[neighborSortedParticleId].y;
+
+    if (static_cast<int>(position[neighborSerialId].w) != kElasticParticle)
+      continue;
+
+    int membraneTriangleCount = 0;
+
+    // Distance from current particle to this elastic neighbor.
+    // The OpenCL kernel zeros .z ("mv change from subscripting") — this is
+    // preserved for exact behavioral compatibility even though it projects
+    // the distance into the XY plane.
+    float4 displacement = position[serialId] - position[neighborSerialId];
+    displacement.z = 0.0f;
+    const float distToNeighbor = sqrt(dot(displacement, displacement));
+
+    // Check all membrane triangles that include this elastic neighbor.
+    for (int mli = 0; mli < kMaxMembranesIncludingSameParticle; ++mli) {
+      const int membraneIndex =
+          particleMembranesList[static_cast<int>(neighborSerialId) *
+                                    kMaxMembranesIncludingSameParticle +
+                                mli];
+      if (membraneIndex < 0)
+        break;
+
+      const int vi = membraneData[membraneIndex * 3 + 0];
+      const int vj = membraneData[membraneIndex * 3 + 1];
+      const int vk = membraneData[membraneIndex * 3 + 2];
+
+      const float4 projection = calculateProjectionOfPointToPlane(
+          position[serialId], position[vi], position[vj], position[vk]);
+      if (projection.w == -1.0f)
+        return; // degenerate triangle — bail out
+
+      // Normal = particle position − its projection onto the membrane plane.
+      float4 normalToPlane = position[serialId] - projection;
+      const float normalLength =
+          sqrt(normalToPlane.x * normalToPlane.x +
+               normalToPlane.y * normalToPlane.y +
+               normalToPlane.z * normalToPlane.z);
+
+      if (normalLength <= 0.0f)
+        return;
+
+      normalToPlane /= normalLength;
+      membraneNeighborNormal[membraneNeighborCount] += normalToPlane;
+      membraneTriangleCount++;
+    }
+
+    if (membraneTriangleCount > 0) {
+      membraneNeighborNormal[membraneNeighborCount] /=
+          static_cast<float>(membraneTriangleCount);
+      membraneNeighborDistance[membraneNeighborCount] = distToNeighbor;
+      membraneNeighborSerialId[membraneNeighborCount] =
+          static_cast<int>(neighborSerialId);
+      membraneNeighborCount++;
+    }
+  }
+
+  // Pass 2: Ihmsen boundary correction using the collected membrane normals.
+  if (membraneNeighborCount > 0) {
+    float4 n_c_i = float4(0.0f);
+    float w_c_im_sum = 0.0f;
+    float w_c_im_second_sum = 0.0f;
+
+    for (int nc = 0; nc < membraneNeighborCount; ++nc) {
+      const float x_im_dist = membraneNeighborDistance[nc];
+      const float w_c_im = max(0.0f, (r0 - x_im_dist) / r0); // Ihmsen (10)
+      const float4 n_m = membraneNeighborNormal[nc];
+      n_c_i += n_m * w_c_im;                         // Ihmsen (9)
+      w_c_im_sum += w_c_im;                          // Ihmsen (11) sum #1
+      w_c_im_second_sum += w_c_im * (r0 - x_im_dist); // Ihmsen (11) sum #2
+    }
+
+    n_c_i.w = 0.0f;
+    float n_c_i_length = dot(n_c_i.xyz, n_c_i.xyz);
+    if (n_c_i_length != 0.0f) {
+      n_c_i_length = sqrt(n_c_i_length);
+      const float4 deltaPos =
+          ((n_c_i / n_c_i_length) * w_c_im_second_sum) / w_c_im_sum;
+      // Accumulate position correction into delta buffer [N..2N).
+      position[particleCount + serialId].xyz += deltaPos.xyz; // Ihmsen (11)
+    }
+  }
+}
+
+// Applies accumulated membrane interaction deltas to particle positions.
+// After computeInteractionWithMembranes has accumulated corrections into
+// position[N..2N), this kernel adds them to the actual positions in [0..N).
+//
+// Thread count: particleCount (all particles).
+// Boundary particles are skipped.
+//
+// OpenCL signature (sphFluid.cl, lines 1295-1328):
+//   __kernel void computeInteractionWithMembranes_finalize(
+//       __global float4 *position,           // arg 0
+//       __global float4 *velocity,           // arg 1  (unused)
+//       __global uint2  *particleIndex,      // arg 2
+//       __global uint   *particleIndexBack,  // arg 3
+//       int PARTICLE_COUNT                   // arg 4
+//   )
+kernel void computeInteractionWithMembranes_finalize(
+    device float4 *position [[buffer(0)]],
+    const device uint *sortedParticleIdBySerialId [[buffer(1)]],
+    constant uint &particleCount [[buffer(2)]],
+    uint serialId [[thread_position_in_grid]]) {
+  if (serialId >= particleCount)
+    return;
+
+  if (static_cast<int>(position[serialId].w) == kBoundaryParticle)
+    return;
+
+  position[serialId] += position[particleCount + serialId];
 }
