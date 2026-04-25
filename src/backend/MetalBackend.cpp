@@ -108,13 +108,16 @@ MetalBackend::createPipeline(const char *functionName) {
 
 void MetalBackend::dispatch(
     const char *kernelName, uint32_t threadCount,
-    std::function<void(MTL::ComputeCommandEncoder *)> setupArgs) {
-  dispatch(getPipeline(kernelName), threadCount, std::move(setupArgs));
+    std::function<void(MTL::ComputeCommandEncoder *)> setupArgs,
+    bool waitForCompletion) {
+  dispatch(getPipeline(kernelName), threadCount, std::move(setupArgs),
+           waitForCompletion);
 }
 
 void MetalBackend::dispatch(
     MTL::ComputePipelineState *pipeline, uint32_t threadCount,
-    std::function<void(MTL::ComputeCommandEncoder *)> setupArgs) {
+    std::function<void(MTL::ComputeCommandEncoder *)> setupArgs,
+    bool waitForCompletion) {
   MTL::CommandBuffer *cmdBuf = queue_->commandBuffer();
   if (!cmdBuf) {
     throw std::runtime_error("Failed to create command buffer");
@@ -138,12 +141,24 @@ void MetalBackend::dispatch(
   encoder->endEncoding();
 
   cmdBuf->commit();
-  cmdBuf->waitUntilCompleted();
-
-  if (cmdBuf->status() != MTL::CommandBufferStatusCompleted) {
-    throw std::runtime_error(
-        "Metal command buffer did not complete successfully");
+  if (waitForCompletion) {
+    cmdBuf->waitUntilCompleted();
+    if (cmdBuf->status() != MTL::CommandBufferStatusCompleted) {
+      throw std::runtime_error(
+          "Metal command buffer did not complete successfully");
+    }
   }
+}
+
+void MetalBackend::finish() {
+  // Metal command queue guarantees in-order execution, so submitting
+  // an empty command buffer and waiting on it drains all prior work.
+  MTL::CommandBuffer *cmdBuf = queue_->commandBuffer();
+  if (!cmdBuf) {
+    throw std::runtime_error("Failed to create command buffer for finish()");
+  }
+  cmdBuf->commit();
+  cmdBuf->waitUntilCompleted();
 }
 
 } // namespace Sibernetic

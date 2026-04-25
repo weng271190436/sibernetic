@@ -253,70 +253,60 @@ kernel void indexx(const device uint2 *sortedCellAndSerialId [[buffer(0)]],
   gridCellIndex[targetCellId] = static_cast<uint>(cellIndex);
 }
 
-// Sifts the element at index i downward to restore the max-heap property.
-// closestDistances is the key; larger = farther = worse.
-inline void heapSiftDown(thread int *closestIndexes,
-                         thread float *closestDistances, int i) {
-  while (true) {
-    int largest = i;
-    const int left = 2 * i + 1;
-    const int right = 2 * i + 2;
-    if (left < kMaxNeighborCount &&
-        closestDistances[left] > closestDistances[largest]) {
-      largest = left;
+// Linear scan for the index of the farthest (largest distance) neighbor.
+// O(kMaxNeighborCount) but branch-free and GPU-friendly — uniform control flow
+// across all threads in a SIMD group, unlike a heap which causes divergence.
+inline int getMaxIndex(thread float *closestDistances) {
+  int result = 0;
+  float maxDist = closestDistances[0];
+  for (int i = 1; i < kMaxNeighborCount; ++i) {
+    if (closestDistances[i] > maxDist) {
+      maxDist = closestDistances[i];
+      result = i;
     }
-    if (right < kMaxNeighborCount &&
-        closestDistances[right] > closestDistances[largest]) {
-      largest = right;
-    }
-    if (largest == i)
-      break;
-    const int tmpIdx = closestIndexes[i];
-    const float tmpDist = closestDistances[i];
-    closestIndexes[i] = closestIndexes[largest];
-    closestDistances[i] = closestDistances[largest];
-    closestIndexes[largest] = tmpIdx;
-    closestDistances[largest] = tmpDist;
-    i = largest;
   }
+  return result;
 }
 
 // Scans all particles in probeCellId and maintains closestDistances/
-// closestIndexes as a max-heap of the kMaxNeighborCount closest neighbors seen
-// so far. The heap root (index 0) always holds the current farthest (worst)
-// neighbor, so a single comparison against it decides whether to admit a
-// candidate; heapSiftDown then restores the invariant in O(log k).
-inline void updateNeighborHeapFromCell(
+// closestIndexes using a linear fill-then-scan strategy (matching the OpenCL
+// kernel). The first kMaxNeighborCount candidates fill slots sequentially at
+// O(1) each; once full, each new closer candidate replaces the current farthest
+// entry found via getMaxIndex (O(kMaxNeighborCount) linear scan). This avoids
+// the thread divergence caused by a heap-based approach.
+inline int searchNeighborsInCell(
     int probeCellId, const device uint *gridCellIndices,
     float4 myParticlePosition, int mySortedParticleId,
-    const device float4 *sortedPosition, device float2 *neighborMap,
-    thread int *closestIndexes, thread float *closestDistances) {
+    const device float4 *sortedPosition, thread int *closestIndexes,
+    thread float *closestDistances, int lastFarthest, thread int *foundCount) {
   const int baseSortedParticleId =
       static_cast<int>(gridCellIndices[probeCellId]);
   const int nextSortedParticleId =
       static_cast<int>(gridCellIndices[probeCellId + 1]);
   const int particleCountThisCell = nextSortedParticleId - baseSortedParticleId;
+  int farthestNeighbor = lastFarthest;
 
   for (int i = 0; i < particleCountThisCell; ++i) {
     const int neighborSortedParticleId = baseSortedParticleId + i;
-    if (mySortedParticleId == neighborSortedParticleId) {
+    if (mySortedParticleId == neighborSortedParticleId)
       continue;
-    }
 
     const float4 d =
         myParticlePosition - sortedPosition[neighborSortedParticleId];
     const float distanceSquared = d.x * d.x + d.y * d.y + d.z * d.z;
-    // The root is always the worst kept neighbor; only admit candidates that
-    // beat it strictly (< not <=) so exact-boundary particles at
-    // distanceSquared == rThresholdSquared are excluded: both the viscosity
-    // and surface tension kernels evaluate to zero at that distance, so they
-    // contribute nothing and would waste a neighbor slot.
-    if (distanceSquared < closestDistances[0]) {
-      closestDistances[0] = distanceSquared;
-      closestIndexes[0] = neighborSortedParticleId;
-      heapSiftDown(closestIndexes, closestDistances, 0);
+
+    if (distanceSquared <= closestDistances[farthestNeighbor]) {
+      closestDistances[farthestNeighbor] = distanceSquared;
+      closestIndexes[farthestNeighbor] = neighborSortedParticleId;
+      if (*foundCount < kMaxNeighborCount - 1) {
+        (*foundCount)++;
+        farthestNeighbor = *foundCount;
+      } else {
+        farthestNeighbor = getMaxIndex(closestDistances);
+      }
     }
   }
+  return farthestNeighbor;
 }
 
 // Computes the linear cell ID of a neighbor cell by applying (deltaX, deltaY,
@@ -369,9 +359,7 @@ kernel void findNeighbors(const device uint *gridCellIndicesFixedUp
   const float rThresholdSquared = h * h;
   float closestDistances[kMaxNeighborCount];
   int closestIndexes[kMaxNeighborCount];
-  // All slots start at rThresholdSquared, forming a trivial valid max-heap
-  // (all values equal). Empty slots (kNoParticleId) act as sentinels that
-  // accept any particle within the cutoff radius until they are displaced.
+  int foundCount = 0;
   for (int k = 0; k < kMaxNeighborCount; ++k) {
     closestDistances[k] = rThresholdSquared;
     closestIndexes[k] = kNoParticleId;
@@ -403,11 +391,12 @@ kernel void findNeighbors(const device uint *gridCellIndicesFixedUp
                                         gridCellsY, gridCellCount);
   }
 
+  int lastFarthest = 0;
   for (int i = 0; i < kNeighborCellCount; ++i) {
-    updateNeighborHeapFromCell(neighborCellIds[i], gridCellIndices, position,
-                               static_cast<int>(sortedParticleId),
-                               sortedPosition, neighborMap, closestIndexes,
-                               closestDistances);
+    lastFarthest = searchNeighborsInCell(
+        neighborCellIds[i], gridCellIndices, position,
+        static_cast<int>(sortedParticleId), sortedPosition, closestIndexes,
+        closestDistances, lastFarthest, &foundCount);
   }
 
   for (int i = 0; i < kMaxNeighborCount; ++i) {

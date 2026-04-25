@@ -31,9 +31,14 @@ public:
   MTL::ComputePipelineState *getPipeline(const char *kernelName);
 
   void dispatch(const char *kernelName, uint32_t threadCount,
-                std::function<void(MTL::ComputeCommandEncoder *)> setupArgs);
+                std::function<void(MTL::ComputeCommandEncoder *)> setupArgs,
+                bool waitForCompletion = true);
   void dispatch(MTL::ComputePipelineState *pipeline, uint32_t threadCount,
-                std::function<void(MTL::ComputeCommandEncoder *)> setupArgs);
+                std::function<void(MTL::ComputeCommandEncoder *)> setupArgs,
+                bool waitForCompletion = true);
+
+  /// Wait for all previously submitted command buffers to finish.
+  void finish();
 
 private:
   NS::SharedPtr<MTL::Library> compileLibrary(const std::string &sourcePath);

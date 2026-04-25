@@ -168,7 +168,8 @@ unsigned int owMetalSolver::_runClearBuffers(owConfigProperty *config) {
   args.particleCount = static_cast<uint32_t>(config->getParticleCount());
 
   backend_->dispatch(kClearBuffersKernelName, args.particleCount,
-                     [&](MTL::ComputeCommandEncoder *enc) { args.bind(enc); });
+                     [&](MTL::ComputeCommandEncoder *enc) { args.bind(enc); },
+                     /*waitForCompletion=*/false);
   return 0;
 }
 
@@ -186,11 +187,14 @@ unsigned int owMetalSolver::_runHashParticles(owConfigProperty *config) {
   args.particleCount = static_cast<uint32_t>(config->getParticleCount());
 
   backend_->dispatch(kHashParticlesKernelName, args.particleCount,
-                     [&](MTL::ComputeCommandEncoder *enc) { args.bind(enc); });
+                     [&](MTL::ComputeCommandEncoder *enc) { args.bind(enc); },
+                     /*waitForCompletion=*/false);
   return 0;
 }
 
 void owMetalSolver::_runSort(owConfigProperty *config) {
+  // Must wait for hashParticles to finish before CPU reads particleIndexBuf_.
+  backend_->finish();
   // CPU-side qsort on shared Metal buffer (same approach as OpenCL solver).
   int *data = static_cast<int *>(particleIndexBuf_->contents());
   qsort(data, config->getParticleCount(), 2 * sizeof(int), comparator);
@@ -207,7 +211,8 @@ unsigned int owMetalSolver::_runSortPostPass(owConfigProperty *config) {
   args.particleCount = static_cast<uint32_t>(config->getParticleCount());
 
   backend_->dispatch(kSortPostPassKernelName, args.particleCount,
-                     [&](MTL::ComputeCommandEncoder *enc) { args.bind(enc); });
+                     [&](MTL::ComputeCommandEncoder *enc) { args.bind(enc); },
+                     /*waitForCompletion=*/false);
   return 0;
 }
 
@@ -220,11 +225,14 @@ unsigned int owMetalSolver::_runIndexx(owConfigProperty *config) {
 
   // indexx dispatches over grid cells, not particles.
   backend_->dispatch(kIndexxKernelName, config->gridCellCount,
-                     [&](MTL::ComputeCommandEncoder *enc) { args.bind(enc); });
+                     [&](MTL::ComputeCommandEncoder *enc) { args.bind(enc); },
+                     /*waitForCompletion=*/false);
   return 0;
 }
 
 void owMetalSolver::_runIndexPostPass(owConfigProperty *config) {
+  // Must wait for indexx to finish before CPU reads gridCellIndexBuf_.
+  backend_->finish();
   // CPU-side fixup on shared Metal buffers (same approach as OpenCL solver).
   int *src = static_cast<int *>(gridCellIndexBuf_->contents());
   int *dst = static_cast<int *>(gridCellIndexFixedUpBuf_->contents());
@@ -260,7 +268,8 @@ unsigned int owMetalSolver::_runFindNeighbors(owConfigProperty *config) {
   args.particleCount = static_cast<uint32_t>(config->getParticleCount());
 
   backend_->dispatch(kFindNeighborsKernelName, args.particleCount,
-                     [&](MTL::ComputeCommandEncoder *enc) { args.bind(enc); });
+                     [&](MTL::ComputeCommandEncoder *enc) { args.bind(enc); },
+                     /*waitForCompletion=*/false);
   return 0;
 }
 
@@ -278,7 +287,8 @@ owMetalSolver::_run_pcisph_computeDensity(owConfigProperty *config) {
   args.particleCount = static_cast<uint32_t>(config->getParticleCount());
 
   backend_->dispatch(kComputeDensityKernelName, args.particleCount,
-                     [&](MTL::ComputeCommandEncoder *enc) { args.bind(enc); });
+                     [&](MTL::ComputeCommandEncoder *enc) { args.bind(enc); },
+                     /*waitForCompletion=*/false);
   return 0;
 }
 
@@ -306,7 +316,8 @@ unsigned int owMetalSolver::_run_pcisph_computeForcesAndInitPressure(
   args.mass = config->getConst("mass");
 
   backend_->dispatch(kPcisphComputeForcesKernelName, args.particleCount,
-                     [&](MTL::ComputeCommandEncoder *enc) { args.bind(enc); });
+                     [&](MTL::ComputeCommandEncoder *enc) { args.bind(enc); },
+                     /*waitForCompletion=*/false);
   return 0;
 }
 
@@ -331,7 +342,8 @@ owMetalSolver::_run_pcisph_computeElasticForces(owConfigProperty *config) {
 
   backend_->dispatch(kPcisphComputeElasticForcesKernelName,
                      config->numOfElasticP,
-                     [&](MTL::ComputeCommandEncoder *enc) { args.bind(enc); });
+                     [&](MTL::ComputeCommandEncoder *enc) { args.bind(enc); },
+                     /*waitForCompletion=*/false);
   return 0;
 }
 
@@ -355,7 +367,8 @@ owMetalSolver::_run_pcisph_predictPositions(owConfigProperty *config) {
   args.particleCount = static_cast<uint32_t>(config->getParticleCount());
 
   backend_->dispatch(kPcisphPredictPositionsKernelName, args.particleCount,
-                     [&](MTL::ComputeCommandEncoder *enc) { args.bind(enc); });
+                     [&](MTL::ComputeCommandEncoder *enc) { args.bind(enc); },
+                     /*waitForCompletion=*/false);
   return 0;
 }
 
@@ -374,7 +387,8 @@ owMetalSolver::_run_pcisph_predictDensity(owConfigProperty *config) {
   args.particleCount = static_cast<uint32_t>(config->getParticleCount());
 
   backend_->dispatch(kPcisphPredictDensityKernelName, args.particleCount,
-                     [&](MTL::ComputeCommandEncoder *enc) { args.bind(enc); });
+                     [&](MTL::ComputeCommandEncoder *enc) { args.bind(enc); },
+                     /*waitForCompletion=*/false);
   return 0;
 }
 
@@ -389,7 +403,8 @@ owMetalSolver::_run_pcisph_correctPressure(owConfigProperty *config) {
   args.particleCount = static_cast<uint32_t>(config->getParticleCount());
 
   backend_->dispatch(kPcisphCorrectPressureKernelName, args.particleCount,
-                     [&](MTL::ComputeCommandEncoder *enc) { args.bind(enc); });
+                     [&](MTL::ComputeCommandEncoder *enc) { args.bind(enc); },
+                     /*waitForCompletion=*/false);
   return 0;
 }
 
@@ -414,7 +429,8 @@ unsigned int owMetalSolver::_run_pcisph_computePressureForceAcceleration(
 
   backend_->dispatch(
       kPcisphComputePressureForceAccelerationKernelName, args.particleCount,
-      [&](MTL::ComputeCommandEncoder *enc) { args.bind(enc); });
+      [&](MTL::ComputeCommandEncoder *enc) { args.bind(enc); },
+      /*waitForCompletion=*/false);
   return 0;
 }
 
@@ -438,7 +454,8 @@ unsigned int owMetalSolver::_run_pcisph_integrate(int iterationCount,
   args.mode = pcisph_integrate_mode;
 
   backend_->dispatch(kPcisphIntegrateKernelName, args.particleCount,
-                     [&](MTL::ComputeCommandEncoder *enc) { args.bind(enc); });
+                     [&](MTL::ComputeCommandEncoder *enc) { args.bind(enc); },
+                     /*waitForCompletion=*/false);
   return 0;
 }
 
@@ -452,7 +469,8 @@ owMetalSolver::_run_clearMembraneBuffers(owConfigProperty *config) {
   args.particleCount = static_cast<uint32_t>(config->getParticleCount());
 
   backend_->dispatch(kClearMembraneBuffersKernelName, args.particleCount,
-                     [&](MTL::ComputeCommandEncoder *enc) { args.bind(enc); });
+                     [&](MTL::ComputeCommandEncoder *enc) { args.bind(enc); },
+                     /*waitForCompletion=*/false);
   return 0;
 }
 
@@ -471,7 +489,8 @@ unsigned int owMetalSolver::_run_computeInteractionWithMembranes(
 
   backend_->dispatch(
       kComputeInteractionWithMembranesKernelName, args.particleCount,
-      [&](MTL::ComputeCommandEncoder *enc) { args.bind(enc); });
+      [&](MTL::ComputeCommandEncoder *enc) { args.bind(enc); },
+      /*waitForCompletion=*/false);
   return 0;
 }
 
@@ -484,7 +503,8 @@ unsigned int owMetalSolver::_run_computeInteractionWithMembranes_finalize(
 
   backend_->dispatch(
       kComputeInteractionWithMembranesFinalizeKernelName, args.particleCount,
-      [&](MTL::ComputeCommandEncoder *enc) { args.bind(enc); });
+      [&](MTL::ComputeCommandEncoder *enc) { args.bind(enc); },
+      /*waitForCompletion=*/false);
   return 0;
 }
 
@@ -492,30 +512,35 @@ unsigned int owMetalSolver::_run_computeInteractionWithMembranes_finalize(
 
 void owMetalSolver::read_position_buffer(float *position_cpp,
                                          owConfigProperty *config) {
+  backend_->finish();
   memcpy(position_cpp, positionBuf_->contents(),
          config->getParticleCount() * sizeof(float) * 4);
 }
 
 void owMetalSolver::read_velocity_buffer(float *velocity_cpp,
                                          owConfigProperty *config) {
+  backend_->finish();
   memcpy(velocity_cpp, velocityBuf_->contents(),
          config->getParticleCount() * sizeof(float) * 4);
 }
 
 void owMetalSolver::read_density_buffer(float *density_cpp,
                                         owConfigProperty *config) {
+  backend_->finish();
   memcpy(density_cpp, rhoBuf_->contents(),
          config->getParticleCount() * sizeof(float));
 }
 
 void owMetalSolver::read_particleIndex_buffer(unsigned int *particleIndex_cpp,
                                               owConfigProperty *config) {
+  backend_->finish();
   memcpy(particleIndex_cpp, particleIndexBuf_->contents(),
          config->getParticleCount() * sizeof(unsigned int) * 2);
 }
 
 void owMetalSolver::read_pressure_buffer(float *pressure_cpp,
                                          owConfigProperty *config) {
+  backend_->finish();
   memcpy(pressure_cpp, pressureBuf_->contents(),
          config->getParticleCount() * sizeof(float));
 }
