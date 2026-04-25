@@ -8,16 +8,30 @@ PYTHON ?= $(if $(wildcard $(VENV_PYTHON)),$(VENV_PYTHON),$(HOST_PYTHON))
 
 CXX ?= $(shell command -v g++ 2>/dev/null || command -v clang++ 2>/dev/null)
 
+# Backend selection: set USE_METAL=1 to build with Metal instead of OpenCL.
+USE_METAL ?= 0
+
 # All of the sources participating in the build are defined here
 SOURCES = src/owSignalSimulator.cpp \
 		  src/owVtkExport.cpp \
 		  src/main.cpp \
 		  src/owHelper.cpp \
-		  src/owOpenCLSolver.cpp \
 		  src/owPhysicsFluidSimulator.cpp \
 		  src/owWorldSimulation.cpp \
 		  src/owNeuronSimulator.cpp \
 		  src/owConfigProperty.cpp
+
+ifeq ($(USE_METAL),1)
+SOURCES += src/owMetalSolver.cpp \
+		   src/backend/MetalBackend.cpp \
+		   src/metal_private_impl.cpp
+BACKEND_DEFS := -DSIBERNETIC_USE_METAL
+BACKEND_LIBS := -framework Metal -framework Foundation
+else
+SOURCES += src/owOpenCLSolver.cpp
+BACKEND_DEFS :=
+BACKEND_LIBS := -framework OpenCL
+endif
 
 TEST_SOURCES = src/test/owPhysicTest.cpp
 
@@ -35,7 +49,7 @@ CPP_DEPS = $(OBJECTS:.o=.d)
 PYTHON_CFLAGS := $(shell if [ -n "$(PYTHON)" ]; then "$(PYTHON)" -c "import sysconfig; print('-I'+sysconfig.get_paths()['include'])"; fi)
 PYTHON_LDFLAGS := $(shell if [ -n "$(PYTHON)" ]; then "$(PYTHON)" -c "import sysconfig; libdir=sysconfig.get_config_var('LIBDIR'); ver=sysconfig.get_config_var('VERSION'); print('-L%s -Wl,-rpath,%s -lpython%s' % (libdir, libdir, ver))"; fi)
 
-LIBS := -framework OpenGL -framework GLUT -framework OpenCL
+LIBS := -framework OpenGL -framework GLUT $(BACKEND_LIBS)
 
 KERNEL_TEST_SRC := tests/metal_private_impl.cpp \
 				   tests/compute_density/compute_density_gtest.cpp \
@@ -128,13 +142,13 @@ $(TARGET): bootstrap $(OBJECTS)
 	@echo ' '
 
 $(BINARYDIR)/%.o: $(SRCDIR)/%.cpp
-	@mkdir -p $(BINARYDIR)
+	@mkdir -p $(dir $@)
 	@mkdir -p $(BINARYTESTDIR)
 	@echo 'Building file: $<'
 	@echo 'Invoking: clang C++ Compiler'
 #### use this to compile against homebrew installed python
 #### change version number as necessary (2.7.n)
-	$(CXX) -std=$(CXX_STANDARD) -O3 -Wall -c $(PYTHON_CFLAGS) -I$(INCDIR) -framework OpenCL -fmessage-length=0 -MMD -MP -MF"$(@:%.o=%.d)" -MT"$(@:%.o=%.d)" -o "$@" "$<"
+	$(CXX) -std=$(CXX_STANDARD) -O3 -Wall -c $(PYTHON_CFLAGS) $(BACKEND_DEFS) -I$(INCDIR) -isystemmetal-cpp -fmessage-length=0 -MMD -MP -MF"$(@:%.o=%.d)" -MT"$(@:%.o=%.d)" -o "$@" "$<"
 	@echo 'Finished building: $<'
 	@echo ' '
 
