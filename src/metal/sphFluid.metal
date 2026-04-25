@@ -106,6 +106,20 @@ kernel void clearBuffers(device float4 *neighborMap [[buffer(0)]],
   }
 }
 
+// Zeros the delta accumulator region [N..2N) of position and velocity buffers.
+// These regions store per-particle membrane interaction deltas that must be
+// cleared at the start of each timestep.
+kernel void clearMembraneBuffers(device float4 *position [[buffer(0)]],
+                                 device float4 *velocity [[buffer(1)]],
+                                 constant uint &particleCount [[buffer(2)]],
+                                 uint id [[thread_position_in_grid]]) {
+  if (id >= particleCount)
+    return;
+
+  position[particleCount + id] = float4(0.0f);
+  velocity[particleCount + id] = float4(0.0f);
+}
+
 // Computes each particle's spatial hash cell and writes (cellId, serialId)
 // into sortedCellAndSerialId. serialId is the original particle index in
 // originalPosition[].
