@@ -368,6 +368,224 @@ struct ComputeInteractionWithMembranesTestCommon {
           };
           return tc;
         }(),
+
+        // Same geometry as LiquidNearMembrane but with a shuffled sort
+        // mapping to exercise the serialId → sortedId indirection.
+        [] {
+          Case tc{};
+          tc.name = "NonIdentitySort";
+          tc.particleCount = 4;
+          tc.r0 = 2.0f;
+          tc.position = {
+              f4(0.5f, 0.5f, 0.1f, 1.0f), // 0: liquid
+              f4(0.0f, 0.0f, 0.0f, 2.1f), // 1: elastic
+              f4(1.0f, 0.0f, 0.0f, 2.1f), // 2: elastic
+              f4(0.0f, 1.0f, 0.0f, 2.1f), // 3: elastic
+              f4(0.0f, 0.0f, 0.0f, 0.0f),
+              f4(0.0f, 0.0f, 0.0f, 0.0f),
+              f4(0.0f, 0.0f, 0.0f, 0.0f),
+              f4(0.0f, 0.0f, 0.0f, 0.0f),
+          };
+          tc.velocity.resize(8, f4(0, 0, 0, 0));
+          // Shuffled: serial 0→sorted 2, 1→0, 2→3, 3→1.
+          tc.sortedParticleIdBySerialId = {2, 0, 3, 1};
+          tc.sortedCellAndSerialId = {
+              {0, 1}, // sorted 0 → serial 1
+              {0, 3}, // sorted 1 → serial 3
+              {0, 0}, // sorted 2 → serial 0
+              {0, 2}, // sorted 3 → serial 2
+          };
+          tc.neighborMap = emptyNeighborMap(4);
+          // Liquid (serial 0, sorted 2) sees elastic neighbors at their
+          // sorted IDs: serial 1→sorted 0, serial 2→sorted 3, serial 3→sorted 1.
+          setNeighbor(tc.neighborMap, 2, 0, 0, 0.707f);
+          setNeighbor(tc.neighborMap, 2, 1, 3, 0.707f);
+          setNeighbor(tc.neighborMap, 2, 2, 1, 0.707f);
+          tc.particleMembranesList = {
+              -1, -1, -1, -1, -1, -1, -1,
+              0,  -1, -1, -1, -1, -1, -1,
+              0,  -1, -1, -1, -1, -1, -1,
+              0,  -1, -1, -1, -1, -1, -1,
+          };
+          tc.membraneData = {1, 2, 3};
+          // Same geometry → same expected delta as LiquidNearMembrane.
+          const float dw = 1.0f - 2.1f;
+          const float dist = std::sqrt(0.5f + dw * dw);
+          const float dz = tc.r0 - dist;
+          tc.expectedDelta = {
+              f4(0.0f, 0.0f, dz, 0.0f),
+              f4(0.0f, 0.0f, 0.0f, 0.0f),
+              f4(0.0f, 0.0f, 0.0f, 0.0f),
+              f4(0.0f, 0.0f, 0.0f, 0.0f),
+          };
+          return tc;
+        }(),
+
+        // Elastic neighbor exists but distance exceeds r0 → Ihmsen weight
+        // clamps to zero, producing no position correction.
+        [] {
+          Case tc{};
+          tc.name = "NeighborBeyondR0";
+          tc.particleCount = 4;
+          tc.r0 = 0.5f;
+          tc.position = {
+              f4(0.0f, 0.0f, 0.01f, 1.0f), // 0: liquid (above z=0)
+              f4(5.0f, 0.0f, 0.0f, 2.1f),  // 1: elastic (far away)
+              f4(0.0f, 5.0f, 0.0f, 2.1f),  // 2: triangle vertex
+              f4(5.0f, 5.0f, 0.0f, 2.1f),  // 3: triangle vertex
+              f4(0.0f, 0.0f, 0.0f, 0.0f),
+              f4(0.0f, 0.0f, 0.0f, 0.0f),
+              f4(0.0f, 0.0f, 0.0f, 0.0f),
+              f4(0.0f, 0.0f, 0.0f, 0.0f),
+          };
+          tc.velocity.resize(8, f4(0, 0, 0, 0));
+          identitySort(4, tc.sortedParticleIdBySerialId,
+                       tc.sortedCellAndSerialId);
+          tc.neighborMap = emptyNeighborMap(4);
+          setNeighbor(tc.neighborMap, 0, 0, 1, 5.0f);
+          tc.particleMembranesList = {
+              -1, -1, -1, -1, -1, -1, -1,
+              0,  -1, -1, -1, -1, -1, -1,
+              0,  -1, -1, -1, -1, -1, -1,
+              0,  -1, -1, -1, -1, -1, -1,
+          };
+          tc.membraneData = {1, 2, 3};
+          // dist >> r0 so weight = 0, no delta.
+          return tc;
+        }(),
+
+        // Two elastic neighbors at different distances: tests that the
+        // Ihmsen weighted average produces a non-trivial result different
+        // from the equal-distance simplification.
+        [] {
+          Case tc{};
+          tc.name = "WeightedIhmsenAveraging";
+          tc.particleCount = 4;
+          tc.r0 = 2.0f;
+          tc.position = {
+              f4(0.0f, 0.0f, 0.5f, 1.0f), // 0: liquid
+              f4(0.3f, 0.0f, 0.0f, 2.1f), // 1: elastic (closer)
+              f4(0.8f, 0.0f, 0.0f, 2.1f), // 2: elastic (farther)
+              f4(0.0f, 1.0f, 0.0f, 2.1f), // 3: triangle vertex
+              f4(0.0f, 0.0f, 0.0f, 0.0f),
+              f4(0.0f, 0.0f, 0.0f, 0.0f),
+              f4(0.0f, 0.0f, 0.0f, 0.0f),
+              f4(0.0f, 0.0f, 0.0f, 0.0f),
+          };
+          tc.velocity.resize(8, f4(0, 0, 0, 0));
+          identitySort(4, tc.sortedParticleIdBySerialId,
+                       tc.sortedCellAndSerialId);
+          tc.neighborMap = emptyNeighborMap(4);
+          setNeighbor(tc.neighborMap, 0, 0, 1, 0.3f);
+          setNeighbor(tc.neighborMap, 0, 1, 2, 0.8f);
+          tc.particleMembranesList = {
+              -1, -1, -1, -1, -1, -1, -1,
+              0,  -1, -1, -1, -1, -1, -1,
+              0,  -1, -1, -1, -1, -1, -1,
+              0,  -1, -1, -1, -1, -1, -1,
+          };
+          tc.membraneData = {1, 2, 3};
+          // Triangle (P1, P2, P3) lies in z=0 → normal = (0,0,1).
+          // Displacement .z zeroed, .w included in dot product:
+          const float dw = 1.0f - 2.1f;
+          const float dist1 = std::sqrt(0.3f * 0.3f + dw * dw);
+          const float dist2 = std::sqrt(0.8f * 0.8f + dw * dw);
+          const float w1 = (tc.r0 - dist1) / tc.r0;
+          const float w2 = (tc.r0 - dist2) / tc.r0;
+          const float w_sum = w1 + w2;
+          const float w_second =
+              w1 * (tc.r0 - dist1) + w2 * (tc.r0 - dist2);
+          const float dz = w_second / w_sum;
+          tc.expectedDelta = {
+              f4(0.0f, 0.0f, dz, 0.0f),
+              f4(0.0f, 0.0f, 0.0f, 0.0f),
+              f4(0.0f, 0.0f, 0.0f, 0.0f),
+              f4(0.0f, 0.0f, 0.0f, 0.0f),
+          };
+          return tc;
+        }(),
+
+        // Triangle tilted so the surface normal is not axis-aligned.
+        // Tests calculateProjectionOfPointToPlane for non-trivial geometry.
+        [] {
+          Case tc{};
+          tc.name = "TiltedTriangleNormal";
+          tc.particleCount = 4;
+          tc.r0 = 3.0f;
+          // Triangle: (1,0,0), (0,1,0), (0,0,1) → plane x+y+z=1,
+          // normal ∝ (-1,-1,-1) from origin.
+          tc.position = {
+              f4(0.0f, 0.0f, 0.0f, 1.0f), // 0: liquid at origin
+              f4(1.0f, 0.0f, 0.0f, 2.1f), // 1: elastic
+              f4(0.0f, 1.0f, 0.0f, 2.1f), // 2: elastic
+              f4(0.0f, 0.0f, 1.0f, 2.1f), // 3: elastic
+              f4(0.0f, 0.0f, 0.0f, 0.0f),
+              f4(0.0f, 0.0f, 0.0f, 0.0f),
+              f4(0.0f, 0.0f, 0.0f, 0.0f),
+              f4(0.0f, 0.0f, 0.0f, 0.0f),
+          };
+          tc.velocity.resize(8, f4(0, 0, 0, 0));
+          identitySort(4, tc.sortedParticleIdBySerialId,
+                       tc.sortedCellAndSerialId);
+          tc.neighborMap = emptyNeighborMap(4);
+          // Only P1 is a neighbor of P0.
+          setNeighbor(tc.neighborMap, 0, 0, 1, 1.0f);
+          tc.particleMembranesList = {
+              -1, -1, -1, -1, -1, -1, -1,
+              0,  -1, -1, -1, -1, -1, -1,
+              0,  -1, -1, -1, -1, -1, -1,
+              0,  -1, -1, -1, -1, -1, -1,
+          };
+          tc.membraneData = {1, 2, 3};
+          // One neighbor → delta = normal * (r0 - dist).
+          // Displacement .z zeroed: (0-1, 0, 0, 1.0-2.1) = (-1, 0, 0, -1.1)
+          const float dw = 1.0f - 2.1f;
+          const float dist = std::sqrt(1.0f + dw * dw);
+          // Projection of (0,0,0) onto x+y+z=1: (1/3, 1/3, 1/3).
+          // Normal = (0,0,0)-(1/3,1/3,1/3) → normalized = (-1/√3, -1/√3, -1/√3).
+          const float nComp = -1.0f / std::sqrt(3.0f);
+          const float scale = tc.r0 - dist;
+          tc.expectedDelta = {
+              f4(nComp * scale, nComp * scale, nComp * scale, 0.0f),
+              f4(0.0f, 0.0f, 0.0f, 0.0f),
+              f4(0.0f, 0.0f, 0.0f, 0.0f),
+              f4(0.0f, 0.0f, 0.0f, 0.0f),
+          };
+          return tc;
+        }(),
+
+        // Degenerate (collinear) triangle vertices → projection returns
+        // w=-1, kernel bails out producing no delta.
+        [] {
+          Case tc{};
+          tc.name = "DegenerateTriangleSkipped";
+          tc.particleCount = 4;
+          tc.r0 = 2.0f;
+          tc.position = {
+              f4(0.0f, 0.0f, 1.0f, 1.0f), // 0: liquid
+              f4(0.0f, 0.0f, 0.0f, 2.1f), // 1: elastic
+              f4(1.0f, 0.0f, 0.0f, 2.1f), // 2: elastic (collinear)
+              f4(2.0f, 0.0f, 0.0f, 2.1f), // 3: elastic (collinear)
+              f4(0.0f, 0.0f, 0.0f, 0.0f),
+              f4(0.0f, 0.0f, 0.0f, 0.0f),
+              f4(0.0f, 0.0f, 0.0f, 0.0f),
+              f4(0.0f, 0.0f, 0.0f, 0.0f),
+          };
+          tc.velocity.resize(8, f4(0, 0, 0, 0));
+          identitySort(4, tc.sortedParticleIdBySerialId,
+                       tc.sortedCellAndSerialId);
+          tc.neighborMap = emptyNeighborMap(4);
+          setNeighbor(tc.neighborMap, 0, 0, 1, 1.0f);
+          tc.particleMembranesList = {
+              -1, -1, -1, -1, -1, -1, -1,
+              0,  -1, -1, -1, -1, -1, -1,
+              0,  -1, -1, -1, -1, -1, -1,
+              0,  -1, -1, -1, -1, -1, -1,
+          };
+          tc.membraneData = {1, 2, 3};
+          // Collinear triangle → degenerate, no delta.
+          return tc;
+        }(),
     };
     return kCases;
   }
@@ -421,6 +639,41 @@ struct ComputeInteractionWithMembranesFinalizeTestCommon {
                          f4(0.0f, 0.0f, 0.0f, 0.0f)};
           tc.sortedParticleIdBySerialId = {0};
           tc.expectedPosition = {f4(5.0f, 6.0f, 7.0f, 1.0f)};
+          return tc;
+        }(),
+
+        // Elastic particle (type 2): finalize only skips boundary, so
+        // the delta is applied.
+        [] {
+          Case tc{};
+          tc.name = "ElasticParticleAppliesDelta";
+          tc.particleCount = 1;
+          tc.position = {f4(1.0f, 2.0f, 3.0f, 2.1f),
+                         f4(0.1f, 0.2f, 0.3f, 0.0f)};
+          tc.sortedParticleIdBySerialId = {0};
+          tc.expectedPosition = {f4(1.1f, 2.2f, 3.3f, 2.1f)};
+          return tc;
+        }(),
+
+        // Multiple particles: boundary skipped, liquid and elastic applied.
+        [] {
+          Case tc{};
+          tc.name = "MultipleParticleMixed";
+          tc.particleCount = 3;
+          tc.position = {
+              f4(1.0f, 2.0f, 3.0f, 3.0f),  // 0: boundary
+              f4(4.0f, 5.0f, 6.0f, 1.0f),  // 1: liquid
+              f4(7.0f, 8.0f, 9.0f, 2.1f),  // 2: elastic
+              f4(0.5f, 0.5f, 0.5f, 0.0f),  // delta for 0
+              f4(0.1f, 0.2f, 0.3f, 0.0f),  // delta for 1
+              f4(0.3f, 0.2f, 0.1f, 0.0f),  // delta for 2
+          };
+          tc.sortedParticleIdBySerialId = {0, 1, 2};
+          tc.expectedPosition = {
+              f4(1.0f, 2.0f, 3.0f, 3.0f),  // boundary: unchanged
+              f4(4.1f, 5.2f, 6.3f, 1.0f),  // liquid: applied
+              f4(7.3f, 8.2f, 9.1f, 2.1f),  // elastic: applied
+          };
           return tc;
         }(),
     };
