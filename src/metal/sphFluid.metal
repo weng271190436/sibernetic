@@ -421,6 +421,107 @@ kernel void findNeighbors(const device uint *gridCellIndicesFixedUp
   }
 }
 
+// Computes elastic spring forces and muscle activation forces for the worm
+// body simulation.
+//
+// Thread index: elastic particle index (0..numOfElasticP-1), NOT serialId.
+// Elastic particles are the first numOfElasticP entries in the original
+// position array, so 'index' is their serial ID.
+//
+// For each elastic particle, iterates its elasticConnectionsData entries
+// (up to kMaxNeighborCount):
+//   - Computes Hooke's law: F = -k * (r - r0) * direction
+//   - Worm body pairs (both particles in [2.05, 2.25]) use full elasticity
+//   - Agar/other pairs use 25% elasticity
+//   - If the connection is a muscle (muscleId > 0) and activated,
+//     adds contraction force: F += -activation * maxMuscleForce * direction
+//
+// OpenCL signature (sphFluid.cl, lines 674-748):
+//   __kernel void pcisph_computeElasticForces(
+//       __global float2 *neighborMap,            // arg 0  (unused)
+//       __global float4 *sortedPosition,         // arg 1
+//       __global float4 *sortedVelocity,         // arg 2  (unused)
+//       __global float4 *acceleration,           // arg 3
+//       __global uint   *particleIndexBack,      // arg 4
+//       __global uint2  *particleIndex,          // arg 5
+//       float max_muscle_force,                  // arg 6
+//       float mass,                              // arg 7  (unused)
+//       float simulationScale,                   // arg 8
+//       uint numOfElasticP,                      // arg 9
+//       __global float4 *elasticConnectionsData, // arg 10
+//       uint PARTICLE_COUNT,                     // arg 11 (unused)
+//       uint MUSCLE_COUNT,                       // arg 12
+//       __global float *muscle_activation_signal,// arg 13
+//       __global float4 *position,               // arg 14
+//       float elasticityCoefficient              // arg 15
+//   )
+kernel void pcisph_computeElasticForces(
+    const device float4 *sortedPosition [[buffer(0)]],
+    device float4 *acceleration [[buffer(1)]],
+    const device uint *sortedParticleIdBySerialId [[buffer(2)]],
+    const device uint2 *sortedCellAndSerialId [[buffer(3)]],
+    constant float &maxMuscleForce [[buffer(4)]],
+    constant float &simulationScale [[buffer(5)]],
+    constant uint &numOfElasticP [[buffer(6)]],
+    const device float4 *elasticConnectionsData [[buffer(7)]],
+    constant uint &muscleCount [[buffer(8)]],
+    const device float *muscleActivationSignal [[buffer(9)]],
+    const device float4 *originalPosition [[buffer(10)]],
+    constant float &elasticityCoefficient [[buffer(11)]],
+    uint index [[thread_position_in_grid]]) {
+  if (index >= numOfElasticP)
+    return;
+
+  // 'index' is the serial elastic particle index. Look up its sorted ID.
+  const int sortedId = static_cast<int>(sortedParticleIdBySerialId[index]);
+  // Serial ID of this particle (for type lookup in originalPosition[].w).
+  const int serialId = static_cast<int>(sortedCellAndSerialId[sortedId].y);
+  const int idx = static_cast<int>(index) * kMaxNeighborCount;
+
+  for (int nc = 0; nc < kMaxNeighborCount; ++nc) {
+    const int connectedSerialId =
+        static_cast<int>(elasticConnectionsData[idx + nc].x);
+    if (connectedSerialId == kNoParticleId)
+      break;
+
+    const int neighborSortedId =
+        static_cast<int>(sortedParticleIdBySerialId[connectedSerialId]);
+    const int neighborSerialId =
+        static_cast<int>(sortedCellAndSerialId[neighborSortedId].y);
+    const float r_ij_equilibrium = elasticConnectionsData[idx + nc].y;
+
+    float4 vect_r_ij =
+        (sortedPosition[sortedId] - sortedPosition[neighborSortedId]) *
+        simulationScale;
+    vect_r_ij.w = 0.0f;
+
+    const float r_ij = length(vect_r_ij.xyz);
+    if (r_ij == 0.0f)
+      continue;
+
+    const float delta_r_ij = r_ij - r_ij_equilibrium;
+    const float4 direction = vect_r_ij / r_ij;
+
+    // Worm body particles: both endpoints in (2.05, 2.25) → full elasticity.
+    // Otherwise (agar/other): 25% elasticity.
+    float k = elasticityCoefficient;
+    if (!(isWormType(originalPosition[serialId].w) &&
+          isWormType(originalPosition[neighborSerialId].w))) {
+      k *= 0.25f;
+    }
+    acceleration[sortedId] -= direction * delta_r_ij * k;
+
+    // Muscle activation: elasticConnectionsData[].z is 1-indexed muscle ID.
+    const int muscleId = static_cast<int>(elasticConnectionsData[idx + nc].z);
+    if (muscleId > 0 && muscleId <= static_cast<int>(muscleCount)) {
+      const float activation = muscleActivationSignal[muscleId - 1];
+      if (activation > 0.0f) {
+        acceleration[sortedId] -= direction * activation * maxMuscleForce;
+      }
+    }
+  }
+}
+
 // Computes per-particle density by summing poly6 neighbor contributions
 // within hScaled, then applying the hScaled^6 minimum-density floor.
 //

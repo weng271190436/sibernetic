@@ -10,8 +10,7 @@ namespace SiberneticTest {
 
 class OpenCLClearMembraneBuffersRunner : public ClearMembraneBuffersRunner {
 public:
-  ClearMembraneBuffersResult
-  run(const ClearMembraneBuffersCase &tc) override {
+  ClearMembraneBuffersResult run(const ClearMembraneBuffersCase &tc) override {
     auto input = tc.toInput();
     const uint32_t N = input.particleCount;
 
@@ -33,8 +32,8 @@ public:
     if (err != CL_SUCCESS)
       throw std::runtime_error("Failed to create velocity buffer");
 
-    auto args = Sibernetic::toOpenCLArgs(input, opencl.context(),
-                                         inOutPosition, inOutVelocity);
+    auto args = Sibernetic::toOpenCLArgs(input, opencl.context(), inOutPosition,
+                                         inOutVelocity);
 
     cl::Kernel kernel(opencl.program(),
                       Sibernetic::kClearMembraneBuffersKernelName, &err);
@@ -46,8 +45,7 @@ public:
                                             cl::NDRange(N),
                                             cl::NullRange) != CL_SUCCESS ||
         opencl.queue().finish() != CL_SUCCESS) {
-      throw std::runtime_error(
-          "Failed to execute clearMembraneBuffers kernel");
+      throw std::runtime_error("Failed to execute clearMembraneBuffers kernel");
     }
 
     ClearMembraneBuffersResult result;

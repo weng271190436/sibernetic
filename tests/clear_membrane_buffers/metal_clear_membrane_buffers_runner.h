@@ -11,26 +11,24 @@ namespace SiberneticTest {
 
 class MetalClearMembraneBuffersRunner : public ClearMembraneBuffersRunner {
 public:
-  ClearMembraneBuffersResult
-  run(const ClearMembraneBuffersCase &tc) override {
+  ClearMembraneBuffersResult run(const ClearMembraneBuffersCase &tc) override {
     auto input = tc.toInput();
     const uint32_t N = input.particleCount;
 
     MetalKernelContext metal(Sibernetic::kClearMembraneBuffersKernelName);
     auto *device = metal.device();
 
-    auto inOutPosition = NS::TransferPtr(device->newBuffer(
-        input.position.data(), input.position.size_bytes(),
-        MTL::ResourceStorageModeShared));
-    auto inOutVelocity = NS::TransferPtr(device->newBuffer(
-        input.velocity.data(), input.velocity.size_bytes(),
-        MTL::ResourceStorageModeShared));
+    auto inOutPosition = NS::TransferPtr(
+        device->newBuffer(input.position.data(), input.position.size_bytes(),
+                          MTL::ResourceStorageModeShared));
+    auto inOutVelocity = NS::TransferPtr(
+        device->newBuffer(input.velocity.data(), input.velocity.size_bytes(),
+                          MTL::ResourceStorageModeShared));
 
     auto args = Sibernetic::toMetalArgs(input, device, inOutPosition.get(),
                                         inOutVelocity.get());
 
-    metal.dispatch(N,
-                   [&](MTL::ComputeCommandEncoder *enc) { args.bind(enc); });
+    metal.dispatch(N, [&](MTL::ComputeCommandEncoder *enc) { args.bind(enc); });
 
     ClearMembraneBuffersResult result;
     const auto *posPtr = reinterpret_cast<const Sibernetic::MetalFloat4 *>(

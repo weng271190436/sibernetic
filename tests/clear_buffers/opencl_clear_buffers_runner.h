@@ -24,8 +24,7 @@ public:
     // neighborMap is read/write — pre-populated with input data.
     // Use tc.neighborMap directly for the full buffer size.
     cl::Buffer inOutNeighborMap(
-        opencl.context(), CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR,
-        bufferBytes,
+        opencl.context(), CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR, bufferBytes,
         const_cast<Sibernetic::HostFloat2 *>(tc.neighborMap.data()), &err);
     if (err != CL_SUCCESS)
       throw std::runtime_error("Failed to create neighborMap buffer");
@@ -48,10 +47,9 @@ public:
 
     ClearBuffersResult result;
     result.neighborMap.resize(bufferEntries);
-    if (opencl.queue().enqueueReadBuffer(inOutNeighborMap, CL_TRUE, 0,
-                                         bufferBytes,
-                                         result.neighborMap.data()) !=
-        CL_SUCCESS)
+    if (opencl.queue().enqueueReadBuffer(
+            inOutNeighborMap, CL_TRUE, 0, bufferBytes,
+            result.neighborMap.data()) != CL_SUCCESS)
       throw std::runtime_error("Failed to read neighborMap output buffer");
 
     return result;

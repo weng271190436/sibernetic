@@ -64,8 +64,8 @@ struct ClearMembraneBuffersCase {
 static_assert(SiberneticTest::KernelTestCase<ClearMembraneBuffersCase>);
 
 class ClearMembraneBuffersRunner
-    : public TestRunner<ClearMembraneBuffersCase,
-                        ClearMembraneBuffersResult> {};
+    : public TestRunner<ClearMembraneBuffersCase, ClearMembraneBuffersResult> {
+};
 
 struct ClearMembraneBuffersTestCommon {
   using Case = ClearMembraneBuffersCase;
@@ -77,10 +77,8 @@ struct ClearMembraneBuffersTestCommon {
           ClearMembraneBuffersCase tc{};
           tc.name = "SingleParticle";
           tc.particleCount = 1;
-          tc.position = {{1.0f, 2.0f, 3.0f, 4.0f},
-                         {5.0f, 6.0f, 7.0f, 8.0f}};
-          tc.velocity = {{0.1f, 0.2f, 0.3f, 0.4f},
-                         {0.5f, 0.6f, 0.7f, 0.8f}};
+          tc.position = {{1.0f, 2.0f, 3.0f, 4.0f}, {5.0f, 6.0f, 7.0f, 8.0f}};
+          tc.velocity = {{0.1f, 0.2f, 0.3f, 0.4f}, {0.5f, 0.6f, 0.7f, 0.8f}};
           return tc;
         }(),
         // 4 particles: [4..8) region zeroed in both buffers.
@@ -121,7 +119,6 @@ struct ClearMembraneBuffersTestCommon {
   }
 };
 
-static_assert(
-    SiberneticTest::SibTestCommon<ClearMembraneBuffersTestCommon>);
+static_assert(SiberneticTest::SibTestCommon<ClearMembraneBuffersTestCommon>);
 
 } // namespace SiberneticTest

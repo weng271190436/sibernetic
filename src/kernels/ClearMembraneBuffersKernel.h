@@ -102,9 +102,9 @@ toOpenCLArgs(const ClearMembraneBuffersInput &input, cl::Context &context,
   args.velocity = inOutVelocity;
   // sortedPosition is unused but required by the OpenCL kernel signature.
   float dummy = 0.0f;
-  args.sortedPosition = cl::Buffer(context,
-                                   CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
-                                   sizeof(float), &dummy, &err);
+  args.sortedPosition =
+      cl::Buffer(context, CL_MEM_READ_ONLY | CL_MEM_COPY_HOST_PTR,
+                 sizeof(float), &dummy, &err);
   args.particleCount = static_cast<int32_t>(input.particleCount);
   return args;
 }
