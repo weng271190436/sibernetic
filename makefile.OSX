@@ -10,14 +10,16 @@ CXX ?= $(shell command -v g++ 2>/dev/null || command -v clang++ 2>/dev/null)
 
 # All of the sources participating in the build are defined here
 SOURCES = src/owSignalSimulator.cpp \
-src/owVtkExport.cpp \
-src/main.cpp \
-src/owHelper.cpp \
-src/owOpenCLSolver.cpp \
-src/owPhysicsFluidSimulator.cpp \
-src/owWorldSimulation.cpp \
-src/owNeuronSimulator.cpp \
-src/owConfigProperty.cpp
+		  src/owVtkExport.cpp \
+		  src/main.cpp \
+		  src/owHelper.cpp \
+		  src/owPhysicsFluidSimulator.cpp \
+		  src/owWorldSimulation.cpp \
+		  src/owNeuronSimulator.cpp \
+		  src/owConfigProperty.cpp \
+		  src/owMetalSolver.cpp \
+		  src/backend/MetalBackend.cpp \
+		  src/owMetalPrivateImpl.cpp
 
 TEST_SOURCES = src/test/owPhysicTest.cpp
 
@@ -35,7 +37,10 @@ CPP_DEPS = $(OBJECTS:.o=.d)
 PYTHON_CFLAGS := $(shell if [ -n "$(PYTHON)" ]; then "$(PYTHON)" -c "import sysconfig; print('-I'+sysconfig.get_paths()['include'])"; fi)
 PYTHON_LDFLAGS := $(shell if [ -n "$(PYTHON)" ]; then "$(PYTHON)" -c "import sysconfig; libdir=sysconfig.get_config_var('LIBDIR'); ver=sysconfig.get_config_var('VERSION'); print('-L%s -Wl,-rpath,%s -lpython%s' % (libdir, libdir, ver))"; fi)
 
-LIBS := -framework OpenGL -framework GLUT -framework OpenCL
+LIBS := -framework OpenGL -framework GLUT -framework Metal -framework Foundation
+
+CXX_STANDARD ?= c++20
+CLANG_FORMAT ?= clang-format
 
 
 # All Target
@@ -60,24 +65,24 @@ bootstrap:
 $(TARGET): bootstrap $(OBJECTS)
 	@echo 'Building target: $@'
 	@echo 'Invoking: clang C++ Linker'
-	$(CXX) -std=c++14 -L/usr/lib $(PYTHON_LDFLAGS) -o $(BUILDDIR)/$(TARGET) $(OBJECTS) $(LIBS)
+	$(CXX) -std=$(CXX_STANDARD) -L/usr/lib $(PYTHON_LDFLAGS) -o $(BUILDDIR)/$(TARGET) $(OBJECTS) $(LIBS)
 	@echo 'Finished building target: $@'
 	@echo ' '
 
 $(BINARYDIR)/%.o: $(SRCDIR)/%.cpp
-	@mkdir -p $(BINARYDIR)
+	@mkdir -p $(dir $@)
 	@mkdir -p $(BINARYTESTDIR)
 	@echo 'Building file: $<'
 	@echo 'Invoking: clang C++ Compiler'
 #### use this to compile against homebrew installed python
 #### change version number as necessary (2.7.n)
-	$(CXX) -std=c++14 -O3 -Wall -c $(PYTHON_CFLAGS) -I$(INCDIR) -fmessage-length=0 -MMD -MP -MF"$(@:%.o=%.d)" -MT"$(@:%.o=%.d)" -o "$@" "$<"
+	$(CXX) -std=$(CXX_STANDARD) -O3 -Wall -c $(PYTHON_CFLAGS) -DSIBERNETIC_USE_METAL -I$(INCDIR) -isysteminc/Metal -fmessage-length=0 -MMD -MP -MF"$(@:%.o=%.d)" -MT"$(@:%.o=%.d)" -o "$@" "$<"
 	@echo 'Finished building: $<'
 	@echo ' '
 
 # Other Targets
 clean:
-	-$(RM) $(OBJECTS)$(CPP_DEPS) $(BUILDDIR)/$(TARGET)
+	-$(RM) $(OBJECTS) $(CPP_DEPS) $(BUILDDIR)/$(TARGET)
 	-@echo ' '
 
 .PHONY: all bootstrap clean dependents

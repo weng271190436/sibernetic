@@ -44,9 +44,10 @@ Also you may need to give compiler path to OpenCL header files usually you can f
 
 **Mac**: stay in the top-level folder.
 
-`makefile.OSX` now auto-detects a C++ compiler (`g++` or `clang++`) and
-Python (prefers `./venv/bin/python`, otherwise `python3`/`python` from `PATH`).
-If `./venv` does not exist, it is created automatically during bootstrap.
+`makefile.OSX` builds with the Metal GPU backend (Apple Silicon native).
+It auto-detects a C++ compiler (`g++` or `clang++`) and Python (prefers
+`./venv/bin/python`, otherwise `python3`/`python` from `PATH`). If `./venv`
+does not exist, it is created automatically during bootstrap.
 
 Build with:
 
@@ -60,6 +61,28 @@ Optional overrides (if you need to pin tools):
 ```bash
 make all -f makefile.OSX CXX=/path/to/clang++
 make all -f makefile.OSX PYTHON=/path/to/python3
+```
+
+#### metal-cpp dependency
+
+The Metal backend uses [metal-cpp](https://developer.apple.com/metal/cpp/),
+Apple's official header-only C++ wrapper for Metal. The headers are checked
+into `inc/Metal/` (parallel to `inc/OpenCL/`) and were downloaded from:
+
+> https://developer.apple.com/metal/cpp/
+
+Version: **26.4** (Xcode 26.4, March 2026).
+
+To update to a newer release:
+
+```bash
+# Download the latest metal-cpp zip from Apple's site
+curl -LO https://developer.apple.com/metal/cpp/files/metal-cpp_26.4.zip
+unzip metal-cpp_26.4.zip -d metal-cpp-new
+# Replace the checked-in copy
+rm -rf inc/Metal
+mv metal-cpp-new/metal-cpp inc/Metal
+rm -rf metal-cpp-new
 ```
 
 You should see an output which looks something like this:
